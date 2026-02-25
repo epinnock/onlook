@@ -259,9 +259,10 @@ export const branchRouter = createTRPCRouter({
 
                     // Create new blank sandbox
                     const CodesandboxProvider = await getStaticCodeProvider(CodeProvider.CodeSandbox);
+                    const expoTemplate = SandboxTemplates[Templates.EXPO_WEB];
                     const blankSandbox = await CodesandboxProvider.createProject({
                         source: 'template',
-                        id: SandboxTemplates[Templates.EMPTY_NEXTJS].id,
+                        id: expoTemplate.id,
                         title: branchName,
                         tags: ['blank'],
                     });
@@ -269,7 +270,7 @@ export const branchRouter = createTRPCRouter({
                     const sandboxId = blankSandbox.id;
                     // Extract port from existing project frames or fall back to 3000
                     const allFrames = existingBranches.flatMap(branch => branch.frames || []);
-                    const port = extractCsbPort(allFrames) ?? 3000;
+                    const port = extractCsbPort(allFrames) ?? expoTemplate.port;
                     const previewUrl = getSandboxPreviewUrl(sandboxId, port);
 
                     // Create new branch

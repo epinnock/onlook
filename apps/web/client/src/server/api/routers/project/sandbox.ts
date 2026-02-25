@@ -49,8 +49,8 @@ export const sandboxRouter = createTRPCRouter({
             // Create a new sandbox using the static provider
             const CodesandboxProvider = await getStaticCodeProvider(CodeProvider.CodeSandbox);
 
-            // Use the empty Next.js template
-            const template = SandboxTemplates[Templates.EMPTY_NEXTJS];
+            // Use the Expo Web template
+            const template = SandboxTemplates[Templates.EXPO_WEB];
 
             const newSandbox = await CodesandboxProvider.createProject({
                 source: 'template',

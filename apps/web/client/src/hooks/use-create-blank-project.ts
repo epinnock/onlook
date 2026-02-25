@@ -29,7 +29,7 @@ export function useCreateBlankProject() {
         try {
             // Create a blank project using the BLANK template
             const { sandboxId, previewUrl } = await forkSandbox({
-                sandbox: SandboxTemplates[Templates.EMPTY_NEXTJS],
+                sandbox: SandboxTemplates[Templates.EXPO_WEB],
                 config: {
                     title: `Blank project - ${user.id}`,
                     tags: ['blank', user.id],

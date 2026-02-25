@@ -39,7 +39,7 @@ export class CreateManager {
 
             const [{ sandboxId, previewUrl }, projectName] = await Promise.all([
                 api.sandbox.fork.mutate({
-                    sandbox: SandboxTemplates[Templates.EMPTY_NEXTJS],
+                    sandbox: SandboxTemplates[Templates.EXPO_WEB],
                     config,
                 }),
                 this.generateProjectName(prompt)
@@ -125,4 +125,3 @@ export class CreateManager {
         });
     }
 }
-

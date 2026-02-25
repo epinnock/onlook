@@ -8,6 +8,7 @@ export * from './frame';
 export * from './freestyle';
 export * from './language';
 export * from './links';
+export * from './project-types';
 export * from './storage';
 export * from './style';
 export * from './tags';
