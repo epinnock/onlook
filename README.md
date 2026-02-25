@@ -120,14 +120,67 @@ Onlook's existing editor architecture.
 
 ### Setup
 
-Configure a CodeSandbox Expo template ID in your environment:
+Use this guide to run the latest Expo Web integration on this branch.
 
-```bash
-ONLOOK_CSB_EXPO_TEMPLATE_ID=<codesandbox_template_id>
-ONLOOK_CSB_EXPO_TEMPLATE_PORT=8081 # optional, defaults to 8081
+1. Create an Expo Web template in CodeSandbox.
+   Use Expo SDK 52+ with `expo-router` and `nativewind`.
+
+2. Configure the template dev task in `.codesandbox/tasks.json`.
+   Keep the task id as `dev` and preview port `8081`:
+
+```json
+{
+  "setupTasks": [{ "name": "Install", "command": "npm install" }],
+  "tasks": {
+    "dev": {
+      "name": "Expo Web",
+      "command": "npx expo start --web --port 8081",
+      "preview": { "port": 8081 },
+      "runAtStart": true
+    }
+  }
+}
 ```
 
-If `ONLOOK_CSB_EXPO_TEMPLATE_ID` is not set, Onlook falls back to the existing
+3. Confirm the template works before wiring Onlook.
+   Open the CodeSandbox preview and verify Expo Web loads and hot-reloads.
+
+4. Copy your CodeSandbox template ID.
+   This is the value Onlook uses for `source: "template"` when forking new
+   Expo projects.
+
+5. Set env vars in your local Onlook environment.
+   Add these to your local env file (for example, `.env`):
+
+```bash
+ONLOOK_CSB_EXPO_TEMPLATE_ID=<your_codesandbox_template_id>
+ONLOOK_CSB_EXPO_TEMPLATE_PORT=8081
+```
+
+6. Start Onlook locally.
+
+```bash
+bun install
+bun run dev
+```
+
+7. Create a new project in Onlook.
+   The blank/project creation flow will use `Templates.EXPO_WEB` and fork your
+   Expo template.
+
+8. Verify preload injection and editing.
+   Onlook will:
+   - write `public/onlook-preload-script.js` into the sandbox project,
+   - inject the script into Expo `web/index.html`,
+   - connect the iframe via Penpal for selection/editing.
+
+9. Smoke test expected behavior.
+   - Select a `View`/`Text` in canvas and confirm overlay selection works.
+   - Change styles and confirm instant preview updates.
+   - Insert new elements and verify generated code uses RN components and adds
+     missing `react-native` imports.
+
+If `ONLOOK_CSB_EXPO_TEMPLATE_ID` is missing, Onlook falls back to the existing
 empty Next.js template.
 
 ### What is implemented
