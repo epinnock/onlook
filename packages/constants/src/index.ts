@@ -8,6 +8,7 @@ export * from './frame';
 export * from './freestyle';
 export * from './language';
 export * from './links';
+export * from './nativewind-classes';
 export * from './project-types';
 export * from './rn-components';
 export * from './storage';
