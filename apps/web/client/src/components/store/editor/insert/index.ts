@@ -1,5 +1,5 @@
 import type { IFrameView } from '@/app/project/[id]/_components/canvas/frame/view';
-import { DefaultSettings, EditorAttributes } from '@onlook/constants';
+import { DefaultSettings, EditorAttributes, ProjectType, RN_COMPONENT_PALETTE } from '@onlook/constants';
 import type {
     DomElement,
     DropElementProperties,
@@ -29,6 +29,14 @@ export class InsertManager {
     private drawOrigin: ElementPosition | undefined;
 
     constructor(private editorEngine: EditorEngine) { }
+
+    private async getActiveProjectType(): Promise<ProjectType> {
+        try {
+            return await this.editorEngine.activeSandbox.getProjectType();
+        } catch {
+            return ProjectType.NEXTJS;
+        }
+    }
 
     getDefaultProperties(mode: InsertMode): DropElementProperties {
         switch (mode) {
@@ -174,6 +182,8 @@ export class InsertManager {
         const branchId = frameData.frame.branchId;
 
         const mode = this.editorEngine.state.insertMode;
+        const projectType = await this.getActiveProjectType();
+        const isExpoProject = projectType === ProjectType.EXPO;
         const domId = createDomId();
         const oid = createOid();
         const width = Math.max(Math.round(newRect.width), 30);
@@ -194,7 +204,9 @@ export class InsertManager {
             domId,
             oid,
             branchId,
-            tagName: mode === InsertMode.INSERT_TEXT ? 'p' : 'div',
+            tagName: mode === InsertMode.INSERT_TEXT
+                ? (isExpoProject ? RN_COMPONENT_PALETTE.text.tag : 'p')
+                : (isExpoProject ? RN_COMPONENT_PALETTE.container.tag : 'div'),
             attributes: {
                 [EditorAttributes.DATA_ONLOOK_DOM_ID]: domId,
                 [EditorAttributes.DATA_ONLOOK_INSERTED]: 'true',
@@ -467,11 +479,20 @@ export class InsertManager {
 
         const domId = createDomId();
         const oid = createOid();
+        const projectType = await this.getActiveProjectType();
+        const isExpoProject = projectType === ProjectType.EXPO;
+        const normalizedTagName = isExpoProject
+            ? properties.tagName.toLowerCase() === 'p'
+                ? RN_COMPONENT_PALETTE.text.tag
+                : properties.tagName.toLowerCase() === 'div'
+                    ? RN_COMPONENT_PALETTE.container.tag
+                    : properties.tagName
+            : properties.tagName;
         const element: ActionElement = {
             domId,
             oid,
             branchId: frame.frame.branchId,
-            tagName: properties.tagName,
+            tagName: normalizedTagName,
             styles: properties.styles,
             children: [],
             attributes: {
@@ -494,7 +515,7 @@ export class InsertManager {
             ],
             element,
             location,
-            editText: properties.tagName === 'p',
+            editText: normalizedTagName === 'p' || normalizedTagName === RN_COMPONENT_PALETTE.text.tag,
             pasteParams: null,
             codeBlock: null,
         };
