@@ -104,6 +104,7 @@ builders.
 - [ ] Advanced project support
   - [ ] Support non-NextJS projects
   - [ ] Support non-Tailwind projects
+  - [x] Experimental Expo Web (CodeSandbox + NativeWind) support on this branch
 
 ![Onlook-GitHub-Example](https://github.com/user-attachments/assets/642de37a-72cc-4056-8eb7-8eb42714cdc4)
 
@@ -111,6 +112,47 @@ builders.
 
 Use our [hosted app](https://onlook.com) or
 [run locally](https://docs.onlook.com/developers/running-locally).
+
+## Experimental: Expo Web (Option A)
+
+This branch includes an experimental CodeSandbox + Expo Web pipeline that reuses
+Onlook's existing editor architecture.
+
+### Setup
+
+Configure a CodeSandbox Expo template ID in your environment:
+
+```bash
+ONLOOK_CSB_EXPO_TEMPLATE_ID=<codesandbox_template_id>
+ONLOOK_CSB_EXPO_TEMPLATE_PORT=8081 # optional, defaults to 8081
+```
+
+If `ONLOOK_CSB_EXPO_TEMPLATE_ID` is not set, Onlook falls back to the existing
+empty Next.js template.
+
+### What is implemented
+
+- New sandbox template key: `Templates.EXPO_WEB`
+- Project-type detection (`nextjs` vs `expo`) in the sandbox flow
+- Preload script injection for both project types:
+  - Next.js: AST injection into root layout
+  - Expo Web: injects `<script src="/onlook-preload-script.js">` into `web/index.html`
+- RN Web element hit-testing resilience:
+  - Canvas selection resolves to nearest ancestor with `data-oid`/instance OID
+- React Native insertion support:
+  - Inserts `View`/`Text` for draw+drop flows in Expo projects
+  - Auto-adds missing `react-native` imports during AST write-back
+- NativeWind safety in toolbar controls:
+  - Web-only layout values like `display: grid` are disabled for Expo projects
+  - UI warning shown in the Display control for NativeWind constraints
+
+### Known constraints
+
+- Expo support currently targets web preview first.
+- Some controls remain web-first and are progressively constrained for
+  NativeWind parity.
+- If Supabase or other external services are unavailable in local dev, the app
+  can still boot but background requests may error in logs.
 
 ### Usage
 
