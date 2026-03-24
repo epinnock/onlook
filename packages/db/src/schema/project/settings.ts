@@ -11,7 +11,17 @@ export const projectSettings = pgTable('project_settings', {
     runCommand: text('run_command').notNull().default(''),
     buildCommand: text('build_command').notNull().default(''),
     installCommand: text('install_command').notNull().default(''),
+    mcpServers: jsonb('mcp_servers').$type<McpServerRow[]>().default([]),
 }).enableRLS();
+
+interface McpServerRow {
+    id: string;
+    name: string;
+    transport: 'sse' | 'http';
+    url: string;
+    apiKey?: string;
+    enabled: boolean;
+}
 
 export const projectSettingsInsertSchema = createInsertSchema(projectSettings);
 export const projectSettingsUpdateSchema = createUpdateSchema(projectSettings);

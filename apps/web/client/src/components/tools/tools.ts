@@ -5,6 +5,13 @@ import { toast } from '@onlook/ui/sonner';
 
 export async function handleToolCall(toolCall: ToolCall<string, unknown>, editorEngine: EditorEngine, addToolResult: (toolResult: { tool: string, toolCallId: string, output: any }) => Promise<void>) {
     const toolName = toolCall.toolName;
+
+    // MCP tools execute server-side and should never reach onToolCall.
+    // If they do, skip gracefully — the result is already in the stream.
+    if (toolName.startsWith('mcp_')) {
+        return;
+    }
+
     const currentChatMode = editorEngine.state.chatMode;
     const availableTools = getToolClassesFromType(currentChatMode);
     let output: unknown = null;

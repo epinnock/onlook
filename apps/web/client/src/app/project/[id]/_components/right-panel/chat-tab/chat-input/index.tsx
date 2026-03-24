@@ -27,6 +27,7 @@ import { type SuggestionsRef } from '../suggestions';
 import { ActionButtons } from './action-buttons';
 import { ChatContextWindow } from './chat-context';
 import { ChatModeToggle } from './chat-mode-toggle';
+import { ModelSelector } from './model-selector';
 import { QueueItems } from './queue-items';
 
 interface ChatInputProps {
@@ -435,6 +436,7 @@ export const ChatInput = observer(
                             chatMode={chatMode}
                             onChatModeChange={handleChatModeChange}
                         />
+                        <ModelSelector />
                         {lastUsageMessage?.metadata?.usage && (
                             <ChatContextWindow usage={lastUsageMessage?.metadata?.usage} />
                         )}
