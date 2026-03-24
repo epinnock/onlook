@@ -2,10 +2,20 @@
 
 Actionable rules for repo agents—keep diffs minimal, safe, token‑efficient.
 
+### What is Onlook?
+
+Onlook is an open-source, visual-first code editor ("Cursor for Designers"). It enables:
+- Visual creation and editing of Next.js applications
+- Direct DOM editing with AI assistance (Next.js + TailwindCSS)
+- Instant deployment with shareable links
+- Real-time collaborative editing
+
+**License:** Apache 2.0
+
 ### Purpose & Scope
 
 - Audience: automated coding agents working within this repository.
-- Goal: small, correct diffs aligned with the project’s architecture.
+- Goal: small, correct diffs aligned with the project's architecture.
 - Non-goals: editing generated artifacts, lockfiles, or `node_modules`.
 
 ### Repo Map
@@ -144,3 +154,53 @@ Actionable rules for repo agents—keep diffs minimal, safe, token‑efficient.
 - Refrain from running the dev server
 - DO NOT run `db:gen`. This is reserved for the maintainer.
 - DO NOT use any type unless necessary
+
+### Quick Commands Reference
+
+```bash
+# Development
+bun install              # Install dependencies (ONLY use Bun)
+bun run dev              # Start Next.js dev with Turbopack
+bun run dev:client       # Client only
+bun run dev:server       # Server only
+
+# Quality
+bun run lint             # Run ESLint
+bun run format           # Fix formatting
+bun run typecheck        # TypeScript check
+bun run test             # Run tests
+
+# Database
+bun run db:push          # Push schema to local DB
+bun run db:seed          # Seed database
+bun run db:migrate       # Run migrations
+bun run backend:start    # Start Supabase backend
+
+# Docker
+bun run docker:build     # Build Docker image
+bun run docker:up        # Start containers
+bun run docker:down      # Stop containers
+
+# Build
+bun run build            # Production build
+bun run start            # Start production server
+```
+
+### Key Files Reference
+
+| File | Purpose |
+|------|---------|
+| `package.json` | Monorepo root with Bun workspaces |
+| `apps/web/client/package.json` | Main Next.js application |
+| `apps/web/client/src/env.ts` | Environment variable schema |
+| `apps/web/client/next.config.ts` | Next.js configuration |
+| `apps/web/client/src/server/api/root.ts` | tRPC router aggregation |
+| `apps/web/client/src/trpc/react.tsx` | tRPC React client |
+| `apps/web/client/src/app/layout.tsx` | Root layout with providers |
+
+### Resources
+
+- Documentation: https://docs.onlook.com
+- Contributing: https://docs.onlook.com/developers
+- Architecture: https://docs.onlook.com/developers/architecture
+- Discord: https://discord.gg/hERDfFZCsH
