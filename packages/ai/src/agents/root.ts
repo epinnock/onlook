@@ -1,15 +1,23 @@
 import type { ToolCall } from '@ai-sdk/provider-utils';
-import { ChatType, LLMProvider, OPENROUTER_MODELS, type ChatMessage, type ModelConfig } from '@onlook/models';
+import { ChatType, LLMProvider, OPENROUTER_MODELS, type ChatMessage, type MCPServerConfig, type ModelConfig } from '@onlook/models';
 import { NoSuchToolError, generateObject, smoothStream, stepCountIs, streamText, type ToolSet } from 'ai';
 import { convertToStreamMessages, getAskModeSystemPrompt, getCreatePageSystemPrompt, getSystemPrompt, getToolSetFromType, initModel } from '../index';
+import { closeMCPClients, createMCPClients, getMCPToolSet, type MCPClientHandle } from '../mcp';
 
-export const createRootAgentStream = ({
+export interface RootAgentStreamResult {
+    stream: ReturnType<typeof streamText>;
+    cleanup: () => Promise<void>;
+}
+
+export const createRootAgentStream = async ({
     chatType,
     conversationId,
     projectId,
     userId,
     traceId,
     messages,
+    mcpServers,
+    modelOverride,
 }: {
     chatType: ChatType;
     conversationId: string;
@@ -17,16 +25,33 @@ export const createRootAgentStream = ({
     userId: string;
     traceId: string;
     messages: ChatMessage[];
-}) => {
-    const modelConfig = getModelFromType(chatType);
+    mcpServers?: MCPServerConfig[];
+    modelOverride?: string;
+}): Promise<RootAgentStreamResult> => {
+    const modelConfig = modelOverride
+        ? initModel({ provider: LLMProvider.OPENROUTER, model: modelOverride as OPENROUTER_MODELS })
+        : getModelFromType(chatType);
     const systemPrompt = getSystemPromptFromType(chatType);
-    const toolSet = getToolSetFromType(chatType);
-    return streamText({
+    const nativeToolSet = getToolSetFromType(chatType);
+
+    // Connect to MCP servers and merge their tools with native tools
+    let mcpClients: MCPClientHandle[] = [];
+    let mergedTools: ToolSet = nativeToolSet;
+
+    if (mcpServers && mcpServers.length > 0) {
+        mcpClients = await createMCPClients(mcpServers);
+        if (mcpClients.length > 0) {
+            const mcpTools = await getMCPToolSet(mcpClients);
+            mergedTools = { ...nativeToolSet, ...mcpTools };
+        }
+    }
+
+    const stream = streamText({
         providerOptions: modelConfig.providerOptions,
         messages: convertToStreamMessages(messages),
         model: modelConfig.model,
         system: systemPrompt,
-        tools: toolSet,
+        tools: mergedTools,
         headers: modelConfig.headers,
         stopWhen: stepCountIs(20),
         experimental_repairToolCall: repairToolCall,
@@ -44,6 +69,11 @@ export const createRootAgentStream = ({
             },
         },
     });
+
+    return {
+        stream,
+        cleanup: () => closeMCPClients(mcpClients),
+    };
 }
 
 const getSystemPromptFromType = (chatType: ChatType): string => {

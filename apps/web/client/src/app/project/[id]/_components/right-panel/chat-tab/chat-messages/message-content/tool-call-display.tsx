@@ -6,6 +6,9 @@ import stripAnsi from 'strip-ansi';
 import { type z } from 'zod';
 import { BashCodeDisplay } from '../../code-display/bash-code-display';
 import { CollapsibleCodeBlock } from '../../code-display/collapsible-code-block';
+import { McpAppDisplay } from '../../code-display/mcp-app-display';
+import { getMcpAppUiResource } from '../../code-display/mcp-app-utils';
+import { getMcpStructuredResults, McpResultsDisplay } from '../../code-display/mcp-results-display';
 import { SearchSourcesDisplay } from '../../code-display/search-sources-display';
 import { ToolCallSimple } from './tool-call-simple';
 
@@ -30,6 +33,32 @@ const ToolCallDisplayComponent = ({
                 loading={true}
             />
         );
+    }
+
+    // Check for MCP Apps with UI resources — render in sandboxed iframe
+    const mcpAppUi = getMcpAppUiResource(toolPart);
+    if (mcpAppUi) {
+        return (
+            <McpAppDisplay
+                toolPart={toolPart}
+                uiMeta={mcpAppUi}
+                messageId={messageId}
+            />
+        );
+    }
+
+    // Check for MCP tool results with structured content (component search results, etc.)
+    if (toolName?.startsWith('mcp_') && toolPart.state === 'output-available') {
+        const structured = getMcpStructuredResults(toolPart.output);
+        if (structured) {
+            return (
+                <McpResultsDisplay
+                    results={structured.results}
+                    summary={structured.summary}
+                    toolName={toolName}
+                />
+            );
+        }
     }
 
     if (toolName === TerminalCommandTool.toolName) {
