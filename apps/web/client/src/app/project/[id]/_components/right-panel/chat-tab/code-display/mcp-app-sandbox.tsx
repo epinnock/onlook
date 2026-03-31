@@ -10,13 +10,11 @@ interface McpAppSandboxProps {
 }
 
 /**
- * Renders MCP App HTML content in a strictly sandboxed iframe.
+ * Renders MCP App HTML content in a sandboxed iframe.
  *
- * Security:
- * - sandbox="allow-scripts" only — no same-origin, no forms, no popups
- * - referrerpolicy="no-referrer" — no referrer leakage
- * - The iframe cannot access the host's cookies, storage, or DOM
- * - All communication happens through postMessage
+ * Uses srcdoc for the widget HTML. The parent component (McpAppDisplay)
+ * is responsible for ensuring the postMessage bridge is listening before
+ * this component mounts.
  */
 export const McpAppSandbox = forwardRef<HTMLIFrameElement, McpAppSandboxProps>(
     ({ htmlContent, className, height = 200 }, ref) => {

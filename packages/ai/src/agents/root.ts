@@ -41,7 +41,7 @@ export const createRootAgentStream = async ({
     if (mcpServers && mcpServers.length > 0) {
         mcpClients = await createMCPClients(mcpServers);
         if (mcpClients.length > 0) {
-            const mcpTools = await getMCPToolSet(mcpClients);
+            const { tools: mcpTools } = await getMCPToolSet(mcpClients);
             mergedTools = { ...nativeToolSet, ...mcpTools };
         }
     }

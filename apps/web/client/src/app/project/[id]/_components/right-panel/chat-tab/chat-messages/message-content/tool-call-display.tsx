@@ -8,7 +8,7 @@ import { BashCodeDisplay } from '../../code-display/bash-code-display';
 import { CollapsibleCodeBlock } from '../../code-display/collapsible-code-block';
 import { McpAppDisplay } from '../../code-display/mcp-app-display';
 import { getMcpAppUiResource } from '../../code-display/mcp-app-utils';
-import { getMcpStructuredResults, McpResultsDisplay } from '../../code-display/mcp-results-display';
+import { getMcpScreenshotResult, getMcpStructuredResults, McpResultsDisplay, McpScreenshotDisplay } from '../../code-display/mcp-results-display';
 import { SearchSourcesDisplay } from '../../code-display/search-sources-display';
 import { ToolCallSimple } from './tool-call-simple';
 
@@ -23,7 +23,10 @@ const ToolCallDisplayComponent = ({
     isStream: boolean,
     applied: boolean
 }) => {
-    const toolName = toolPart.type.split('-')[1];
+    // Extract tool name: "tool-mcp_scry_search" → "mcp_scry_search"
+    // Use indexOf to handle tool names that contain dashes
+    const dashIdx = toolPart.type.indexOf('-');
+    const toolName = dashIdx >= 0 ? toolPart.type.slice(dashIdx + 1) : toolPart.type;
 
     if (isStream || (toolPart.state !== 'output-available' && toolPart.state !== 'input-available')) {
         return (
@@ -37,6 +40,12 @@ const ToolCallDisplayComponent = ({
 
     // Check for MCP Apps with UI resources — render in sandboxed iframe
     const mcpAppUi = getMcpAppUiResource(toolPart);
+    if (toolName?.startsWith('mcp_')) {
+        console.log(`[MCP discovery/client] Tool "${toolName}" state=${toolPart.state} hasMcpAppUi=${!!mcpAppUi} output keys:`, toolPart.output ? Object.keys(toolPart.output as object) : 'null');
+        if (mcpAppUi) {
+            console.log(`[MCP discovery/client] McpAppUi found: resourceUri=${mcpAppUi.resourceUri}`);
+        }
+    }
     if (mcpAppUi) {
         return (
             <McpAppDisplay
@@ -47,7 +56,7 @@ const ToolCallDisplayComponent = ({
         );
     }
 
-    // Check for MCP tool results with structured content (component search results, etc.)
+    // Check for MCP tool results with structured content (component search results, screenshots, etc.)
     if (toolName?.startsWith('mcp_') && toolPart.state === 'output-available') {
         const structured = getMcpStructuredResults(toolPart.output);
         if (structured) {
@@ -56,6 +65,16 @@ const ToolCallDisplayComponent = ({
                     results={structured.results}
                     summary={structured.summary}
                     toolName={toolName}
+                />
+            );
+        }
+
+        const screenshotResult = getMcpScreenshotResult(toolPart.output);
+        if (screenshotResult) {
+            return (
+                <McpScreenshotDisplay
+                    screenshot={screenshotResult.screenshot}
+                    images={screenshotResult.images}
                 />
             );
         }
