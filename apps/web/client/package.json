@@ -71,7 +71,7 @@
     "@xterm/xterm": "^5.5.0",
     "@zenfs/core": "2.4.0",
     "@zenfs/dom": "1.2.5",
-    "ai": "5.0.26",
+    "ai": "5.0.60",
     "blob-util": "^2.0.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

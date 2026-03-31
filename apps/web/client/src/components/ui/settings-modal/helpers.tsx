@@ -6,6 +6,7 @@ export enum SettingsTabValue {
     VERSIONS = 'versions',
     ADVANCED = 'advanced',
     SITE = 'site',
+    MCP_SERVERS = 'mcp servers',
 }
 
 export interface SettingTab {

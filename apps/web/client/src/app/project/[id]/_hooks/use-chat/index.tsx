@@ -88,6 +88,7 @@ export function useChat({ conversationId, projectId, initialMessages }: UseChatP
                 body: {
                     chatType: type,
                     conversationId,
+                    modelOverride: editorEngine.state.chatModel,
                     context: messageContext,
                 },
             });
