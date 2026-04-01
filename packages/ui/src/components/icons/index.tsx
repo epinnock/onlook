@@ -119,6 +119,8 @@ import {
     ListCheckIcon,
     MailXIcon,
     MessageSquareIcon,
+    QrCodeIcon,
+    SmartphoneIcon,
     SquareCheckIcon,
     SquareXIcon,
 } from 'lucide-react';
@@ -1747,7 +1749,9 @@ export const Icons = {
     Scissors: ScissorsIcon,
     Section: SectionIcon,
     Shadow: ShadowIcon,
+    QrCode: QrCodeIcon,
     Share: Share2Icon,
+    Smartphone: SmartphoneIcon,
     Size: SizeIcon,
     Sun: SunIcon,
     SpaceBetweenHorizontally: SpaceBetweenHorizontallyIcon,

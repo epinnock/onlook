@@ -16,7 +16,7 @@ import { Icons } from '@onlook/ui/icons';
 import { cn } from '@onlook/ui/utils';
 import type { ToolUIPart } from 'ai';
 import { AnimatePresence, motion } from 'motion/react';
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { McpAppSandbox } from './mcp-app-sandbox';
 import { type McpAppUiMeta, parseMcpToolName, resolveUiResourceUri } from './mcp-app-utils';
 
@@ -28,7 +28,23 @@ interface McpAppDisplayProps {
 
 type LoadState = 'loading' | 'loaded' | 'error';
 
+// Global postMessage spy — installed once, logs all JSON-RPC messages
+let globalSpyInstalled = false;
+function installGlobalPostMessageSpy() {
+    if (globalSpyInstalled) return;
+    globalSpyInstalled = true;
+    window.addEventListener('message', (e) => {
+        if (e.data?.jsonrpc === '2.0') {
+            console.log(`[MCP postmessage/GLOBAL] method=${e.data.method || 'response'} id=${e.data.id} origin=${e.origin} sourceIsWindow=${e.source === window}`);
+        }
+    });
+    console.log(`[MCP postmessage/GLOBAL] Global spy installed`);
+}
+
 const McpAppDisplayComponent = ({ toolPart, uiMeta, messageId }: McpAppDisplayProps) => {
+    // Install global spy on first render
+    if (typeof window !== 'undefined') installGlobalPostMessageSpy();
+
     const [isOpen, setIsOpen] = useState(true);
     const [loadState, setLoadState] = useState<LoadState>('loading');
     const [htmlContent, setHtmlContent] = useState<string>('');
@@ -46,50 +62,78 @@ const McpAppDisplayComponent = ({ toolPart, uiMeta, messageId }: McpAppDisplayPr
         ? `${parsed.serverName} / ${parsed.originalToolName}`
         : uiMeta.title ?? 'MCP App';
 
+    // Extract mcpServerUrl from tool output for resolving ui:// resource URIs
+    const mcpServerUrl = (() => {
+        const output = toolPart.output as Record<string, unknown> | null;
+        if (!output) return undefined;
+        const raw = (output.type === 'json' && output.value && typeof output.value === 'object')
+            ? output.value as Record<string, unknown>
+            : output;
+        return typeof raw.mcpServerUrl === 'string' ? raw.mcpServerUrl : undefined;
+    })();
+
     // Fetch the UI resource HTML
     useEffect(() => {
         const fetchResource = async () => {
             try {
-                const url = resolveUiResourceUri(uiMeta.resourceUri);
-                const response = await fetch(url);
+                const resolvedUrl = resolveUiResourceUri(uiMeta.resourceUri, mcpServerUrl);
+                console.log(`[MCP resource-load/client] Fetching widget: ${uiMeta.resourceUri} → ${resolvedUrl}`);
+                // Proxy through our own server to avoid CORS issues with cross-origin MCP servers
+                const proxyUrl = `/api/mcp/proxy-resource?url=${encodeURIComponent(resolvedUrl)}`;
+                console.log(`[MCP resource-load/client] Proxy URL: ${proxyUrl}`);
+                const response = await fetch(proxyUrl);
                 if (!response.ok) {
                     throw new Error(`Failed to fetch MCP App resource: ${response.status}`);
                 }
                 const html = await response.text();
+                console.log(`[MCP resource-load/client] Widget HTML loaded: ${html.length} bytes`);
                 setHtmlContent(html);
                 setLoadState('loaded');
             } catch (err) {
-                console.error('[MCP App] Failed to load resource:', err);
+                console.error('[MCP resource-load/client] Failed to load resource:', err);
                 setLoadState('error');
             }
         };
 
         void fetchResource();
-    }, [uiMeta.resourceUri]);
+    }, [uiMeta.resourceUri, mcpServerUrl]);
 
-    // Set up the bridge when iframe is loaded
+    // Two-phase bridge setup:
+    // Phase 1: Start listening globally (no iframe needed).
+    // Phase 2: Once listening, set bridgeReady=true so the iframe renders.
+    // When the iframe renders with srcdoc, its scripts run and send ui/initialize.
+    // The bridge is already listening so it catches the message.
+    //
+    // The bridge is NOT cleaned up on Strict Mode unmount — it must persist
+    // because the srcdoc iframe's script only runs once on first DOM insertion.
+    const [bridgeReady, setBridgeReady] = useState(false);
+
     useEffect(() => {
-        if (loadState !== 'loaded' || !iframeRef.current) {
+        if (loadState !== 'loaded') return;
+        if (bridgeRef.current) {
+            console.log(`[MCP bridge-setup/client] Bridge already exists (Strict Mode remount), re-signaling ready`);
+            setBridgeReady(true);
             return;
         }
 
+        console.log(`[MCP bridge-setup/client] Creating bridge and connectGlobal()`);
         const bridge = new McpAppBridge(toolPart.output);
-        bridge.connect(iframeRef.current);
+        bridge.connectGlobal();
         bridgeRef.current = bridge;
+        console.log(`[MCP bridge-setup/client] Bridge created, setting bridgeReady=true`);
+        setBridgeReady(true);
 
-        // Poll for consent requests (bridge uses simple property, not observables)
-        const interval = setInterval(() => {
-            if (bridge.pendingConsent && !consentRequest) {
-                setConsentRequest({ ...bridge.pendingConsent });
-            }
-        }, 100);
-
-        return () => {
-            clearInterval(interval);
-            bridge.disconnect();
-            bridgeRef.current = null;
-        };
+        // NO cleanup — bridge must survive Strict Mode double-mount
     }, [loadState, toolPart.output]);
+
+    // Bind iframe to bridge once it renders
+    useEffect(() => {
+        console.log(`[MCP bridge-setup/client] bindIframe effect: bridgeReady=${bridgeReady} iframeRef=${!!iframeRef.current} bridgeRef=${!!bridgeRef.current}`);
+        if (bridgeReady && iframeRef.current && bridgeRef.current) {
+            console.log(`[MCP bridge-setup/client] Binding iframe to bridge`);
+            bridgeRef.current.bindIframe(iframeRef.current);
+        }
+    }, [bridgeReady]);
 
     const handleConsentApprove = useCallback(() => {
         if (consentRequest && bridgeRef.current) {
@@ -175,7 +219,7 @@ const McpAppDisplayComponent = ({ toolPart, uiMeta, messageId }: McpAppDisplayPr
                                                     Failed to load MCP App resource
                                                 </div>
                                             )}
-                                            {loadState === 'loaded' && (
+                                            {loadState === 'loaded' && bridgeReady && (
                                                 <McpAppSandbox
                                                     ref={iframeRef}
                                                     htmlContent={htmlContent}

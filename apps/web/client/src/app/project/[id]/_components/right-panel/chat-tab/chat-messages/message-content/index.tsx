@@ -1,9 +1,25 @@
 import type { ChatMessage } from '@onlook/models';
 import { Reasoning, ReasoningContent, ReasoningTrigger, Response } from '@onlook/ui/ai-elements';
 import { cn } from '@onlook/ui/utils';
-import type { ToolUIPart } from 'ai';
+import type { DynamicToolUIPart, ToolUIPart } from 'ai';
 import { observer } from 'mobx-react-lite';
 import { ToolCallDisplay } from './tool-call-display';
+
+/** Check if a message part is a tool call (static tool-* or dynamic-tool from MCP) */
+function isToolPart(part: { type: string }): boolean {
+    return part.type.startsWith('tool-') || part.type === 'dynamic-tool';
+}
+
+/** Normalize a tool part to ToolUIPart shape for consistent handling */
+function asToolUIPart(part: unknown): ToolUIPart {
+    const p = part as Record<string, unknown>;
+    // Dynamic MCP tools have type 'dynamic-tool' with toolName as a separate field.
+    // Normalize to match ToolUIPart expectations in ToolCallDisplay.
+    if (p.type === 'dynamic-tool') {
+        return { ...p, type: `tool-${p.toolName}` } as unknown as ToolUIPart;
+    }
+    return part as ToolUIPart;
+}
 
 const MessageContentComponent = ({
     messageId,
@@ -20,8 +36,8 @@ const MessageContentComponent = ({
     if (isStream) {
         for (let i = parts.length - 1; i >= 0; i--) {
             const part = parts[i];
-            if (part?.type.startsWith('tool-')) {
-                const toolPart = part as ToolUIPart;
+            if (part && isToolPart(part)) {
+                const toolPart = asToolUIPart(part);
                 if (toolPart.state !== 'output-available') {
                     lastIncompleteToolIndex = i;
                     break;
@@ -38,8 +54,9 @@ const MessageContentComponent = ({
                 </Response>
 
             );
-        } else if (part?.type.startsWith('tool-')) {
-            const toolPart = part as ToolUIPart;// Only show loading animation for the last incomplete tool call
+        } else if (part && isToolPart(part)) {
+            const toolPart = asToolUIPart(part);
+            console.log(`[MCP discovery/client] Rendering tool part: type=${part.type} normalized=${toolPart.type} toolCallId=${toolPart.toolCallId} state=${toolPart.state}`);
             const isLoadingThisTool = isStream && idx === lastIncompleteToolIndex;
             return (
                 <ToolCallDisplay

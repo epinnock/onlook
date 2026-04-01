@@ -314,14 +314,8 @@ export class CodeProviderSync {
                     try {
                         const content = await this.fs.readFile(filePath);
                         if (typeof content === 'string') {
-                            // Push to sandbox
-                            await this.provider.writeFile({
-                                args: {
-                                    path: filePath.startsWith('/') ? filePath.substring(1) : filePath,
-                                    content,
-                                    overwrite: true
-                                }
-                            });
+                            const sandboxPath = filePath.startsWith('/') ? filePath.substring(1) : filePath;
+                            await this.writeWithRetry(sandboxPath, content);
                             console.log(`[Sync] Pushed ${filePath} to sandbox`);
                         }
                     } catch (error) {
@@ -591,15 +585,47 @@ export class CodeProviderSync {
         }
     }
 
+    private async writeWithRetry(
+        sandboxPath: string,
+        content: string | Uint8Array,
+        maxRetries = 3,
+    ): Promise<void> {
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                await this.provider.writeFile({
+                    args: {
+                        path: sandboxPath,
+                        content,
+                        overwrite: true,
+                    },
+                });
+                return;
+            } catch (error) {
+                const msg = error instanceof Error ? error.message : String(error);
+                console.warn(`[Sync] Write attempt ${attempt}/${maxRetries} failed for ${sandboxPath}: ${msg}`);
+                if (attempt < maxRetries) {
+                    const delay = Math.pow(2, attempt) * 500;
+                    await new Promise((r) => setTimeout(r, delay));
+                } else {
+                    console.error(`[Sync] All ${maxRetries} write attempts failed for ${sandboxPath}`);
+                    throw error;
+                }
+            }
+        }
+    }
+
     private async setupLocalWatching(): Promise<void> {
+        console.log('[Sync] Setting up local file watching...');
         // Watch the root directory for local changes
         this.localWatcher = this.fs.watchDirectory('/', async (event) => {
             // Skip processing if paused
             if (this.isPaused) {
+                console.log(`[Sync] PAUSED - ignoring local ${event.type} for ${event.path}`);
                 return;
             }
 
             const { path, type } = event;
+            console.log(`[Sync] Local file event: type=${type}, path=${path}`);
 
             // Check if file should be synced
             // Need to remove leading / for sandbox path
@@ -630,18 +656,16 @@ export class CodeProviderSync {
 
                             // Check if this change was from our own sync
                             if (this.fileHashes.get(path) === currentHash) {
+                                console.log(`[Sync] SKIPPED (hash unchanged): ${path}`);
                                 return;
                             }
+                            console.log(`[Sync] Hash changed for ${path}, will push to sandbox`);
 
-                            // Update hash and sync to provider
+                            // Update hash and sync to provider with retry
                             this.fileHashes.set(path, currentHash);
-                            await this.provider.writeFile({
-                                args: {
-                                    path: sandboxPath,
-                                    content,
-                                    overwrite: true,
-                                },
-                            });
+                            console.log(`[Sync] PUSHING to sandbox: ${sandboxPath} (${typeof content === 'string' ? content.length + ' chars' : 'binary'})`);
+                            await this.writeWithRetry(sandboxPath, content);
+                            console.log(`[Sync] PUSHED successfully: ${sandboxPath}`);
                         }
                         break;
                     }

@@ -43,7 +43,11 @@ export function getMcpAppUiResource(toolPart: ToolUIPart): McpAppUiMeta | null {
 
 /**
  * Resolves a ui:// resource URI to a fetchable HTTP URL.
- * ui://server-name/widget-name → {mcpServerBaseUrl}/_mcp/ui/server-name/widget-name
+ * ui://server-name/widget-name.html → {mcpServerOrigin}/widget-name.html
+ *
+ * The MCP server URL (e.g., https://server.example.com/mcp) is stripped to its
+ * origin, and the widget filename is extracted from the ui:// URI.
+ * Widget HTML files are served as static assets from the MCP server's origin.
  *
  * If no MCP server URL is available, returns the raw URI for fallback handling.
  */
@@ -55,10 +59,21 @@ export function resolveUiResourceUri(
         return resourceUri;
     }
 
-    // Strip ui:// prefix and resolve against the MCP server
+    // Extract origin from MCP server URL (strip /mcp, /sse, etc.)
+    let origin: string;
+    try {
+        const parsed = new URL(mcpServerUrl);
+        origin = parsed.origin;
+    } catch {
+        origin = mcpServerUrl.replace(/\/[^/]*$/, '');
+    }
+
+    // Extract the widget filename from ui://server-name/widget-name.html
     const path = resourceUri.replace(/^ui:\/\//, '');
-    const base = mcpServerUrl.replace(/\/$/, '');
-    return `${base}/_mcp/ui/${path}`;
+    const slashIdx = path.indexOf('/');
+    const widgetPath = slashIdx >= 0 ? path.slice(slashIdx + 1) : path;
+
+    return `${origin}/${widgetPath}`;
 }
 
 /**

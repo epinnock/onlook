@@ -1,4 +1,5 @@
 import type { DomElement } from '@onlook/models';
+import { ProjectType, RN_COMPONENT_PALETTE } from '@onlook/constants';
 import type {
     ActionTarget,
     GroupContainer,
@@ -138,10 +139,11 @@ export class GroupManager {
             oid: el.oid,
         }));
 
+        const projectType = await this.editorEngine.activeSandbox.getProjectType().catch(() => ProjectType.NEXTJS);
         const container: GroupContainer = {
             domId: createDomId(),
             oid: createOid(),
-            tagName: 'div',
+            tagName: projectType === ProjectType.EXPO ? RN_COMPONENT_PALETTE.container.tag : 'div',
             attributes: {},
         };
 
