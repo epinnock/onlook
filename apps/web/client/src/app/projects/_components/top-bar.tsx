@@ -11,6 +11,7 @@ import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
+    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@onlook/ui/dropdown-menu';
 import { Icons } from '@onlook/ui/icons';
@@ -113,7 +114,7 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
         };
     }, [onSearchChange]);
 
-    const handleStartBlankProject = async () => {
+    const handleStartBlankProject = async (template: Templates) => {
         if (!user?.id) {
             // Store the return URL and open auth modal
             await localforage.setItem(LocalForageKeys.RETURN_URL, window.location.pathname);
@@ -123,12 +124,12 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
 
         setIsCreatingProject(true);
         try {
-            // Create a blank project using the BLANK template
+            const isExpo = template === Templates.EXPO_WEB;
             const { sandboxId, previewUrl } = await forkSandbox({
-                sandbox: SandboxTemplates[Templates.EXPO_WEB],
+                sandbox: SandboxTemplates[template],
                 config: {
                     title: `Blank project - ${user.id}`,
-                    tags: ['blank', user.id],
+                    tags: ['blank', isExpo ? 'expo' : 'nextjs', user.id],
                 },
             });
 
@@ -234,7 +235,7 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
                                 'dark:hover:bg-blue-900 dark:hover:text-blue-100',
                                 'cursor-pointer select-none group',
                             )}
-                            onSelect={handleStartBlankProject}
+                            onSelect={() => handleStartBlankProject(Templates.EMPTY_NEXTJS)}
                             disabled={isCreatingProject}
                         >
                             {isCreatingProject ? (
@@ -242,8 +243,27 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
                             ) : (
                                 <Icons.FilePlus className="w-4 h-4 mr-1 text-foreground-secondary group-hover:text-blue-100" />
                             )}
-                            {t(transKeys.projects.actions.blankProject)}
+                            Next.js Project
                         </DropdownMenuItem>
+                        <DropdownMenuItem
+                            className={cn(
+                                'focus:bg-violet-100 focus:text-violet-900',
+                                'hover:bg-violet-100 hover:text-violet-900',
+                                'dark:focus:bg-violet-900 dark:focus:text-violet-100',
+                                'dark:hover:bg-violet-900 dark:hover:text-violet-100',
+                                'cursor-pointer select-none group',
+                            )}
+                            onSelect={() => handleStartBlankProject(Templates.EXPO_WEB)}
+                            disabled={isCreatingProject}
+                        >
+                            {isCreatingProject ? (
+                                <Icons.LoadingSpinner className="w-4 h-4 mr-1 animate-spin text-foreground-secondary group-hover:text-violet-100" />
+                            ) : (
+                                <Icons.FilePlus className="w-4 h-4 mr-1 text-foreground-secondary group-hover:text-violet-100" />
+                            )}
+                            Expo / React Native
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
                         <DropdownMenuItem
                             className={cn(
                                 'focus:bg-teal-100 focus:text-teal-900',

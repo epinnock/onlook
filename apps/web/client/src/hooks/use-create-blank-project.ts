@@ -17,7 +17,7 @@ export function useCreateBlankProject() {
     const router = useRouter();
     const [isCreatingProject, setIsCreatingProject] = useState(false);
 
-    const handleStartBlankProject = async () => {
+    const handleStartBlankProject = async (template: Templates = Templates.EMPTY_NEXTJS) => {
         if (!user?.id) {
             // Store the return URL and open auth modal
             await localforage.setItem(LocalForageKeys.RETURN_URL, window.location.pathname);
@@ -27,9 +27,9 @@ export function useCreateBlankProject() {
 
         setIsCreatingProject(true);
         try {
-            // Create a blank project using the BLANK template
+            // Create a blank project using the chosen template
             const { sandboxId, previewUrl } = await forkSandbox({
-                sandbox: SandboxTemplates[Templates.EXPO_WEB],
+                sandbox: SandboxTemplates[template],
                 config: {
                     title: `Blank project - ${user.id}`,
                     tags: ['blank', user.id],

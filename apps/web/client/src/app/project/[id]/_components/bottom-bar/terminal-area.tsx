@@ -8,6 +8,7 @@ import { cn } from '@onlook/ui/utils';
 import { observer } from 'mobx-react-lite';
 import { motion } from 'motion/react';
 import { useState } from 'react';
+import { ExpoQrButton } from './expo-qr-button';
 import { RestartSandboxButton } from './restart-sandbox-button';
 import { Terminal } from './terminal';
 
@@ -56,6 +57,7 @@ export const TerminalArea = observer(({ children }: { children: React.ReactNode 
             {terminalHidden ? (
                 <motion.div layout className="flex items-center gap-1">
                     {children}
+                    <ExpoQrButton />
                     <RestartSandboxButton />
                     <Tooltip>
                         <TooltipTrigger asChild>
