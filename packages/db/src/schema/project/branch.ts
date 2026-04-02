@@ -25,8 +25,9 @@ export const branches = pgTable('branches', {
     gitCommitSha: varchar('git_commit_sha'),
     gitRepoUrl: varchar('git_repo_url'),
 
-    // sandbox 
+    // sandbox
     sandboxId: varchar('sandbox_id').notNull(),
+    providerType: varchar('provider_type', { length: 50 }).default('code_sandbox'),
 }, (table) => [
     index('branches_project_id_idx').on(table.projectId),
     uniqueIndex('branches_name_per_project_ux').on(table.projectId, table.name),
