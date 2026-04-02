@@ -1,7 +1,12 @@
 import { CodeProvider } from './providers';
+import {
+    CloudflareSandboxProvider,
+    type CloudflareProviderOptions,
+} from './providers/cloudflare';
 import { CodesandboxProvider, type CodesandboxProviderOptions } from './providers/codesandbox';
 import { NodeFsProvider, type NodeFsProviderOptions } from './providers/nodefs';
 export * from './providers';
+export { CloudflareSandboxProvider } from './providers/cloudflare';
 export { CodesandboxProvider } from './providers/codesandbox';
 export { NodeFsProvider } from './providers/nodefs';
 export * from './types';
@@ -25,7 +30,11 @@ export async function createCodeProviderClient(
 
 export async function getStaticCodeProvider(
     codeProvider: CodeProvider,
-): Promise<typeof CodesandboxProvider | typeof NodeFsProvider> {
+): Promise<typeof CloudflareSandboxProvider | typeof CodesandboxProvider | typeof NodeFsProvider> {
+    if (codeProvider === CodeProvider.Cloudflare) {
+        return CloudflareSandboxProvider;
+    }
+
     if (codeProvider === CodeProvider.CodeSandbox) {
         return CodesandboxProvider;
     }
@@ -37,11 +46,19 @@ export async function getStaticCodeProvider(
 }
 
 export interface ProviderInstanceOptions {
+    cloudflare?: CloudflareProviderOptions;
     codesandbox?: CodesandboxProviderOptions;
     nodefs?: NodeFsProviderOptions;
 }
 
 function newProviderInstance(codeProvider: CodeProvider, providerOptions: ProviderInstanceOptions) {
+    if (codeProvider === CodeProvider.Cloudflare) {
+        if (!providerOptions.cloudflare) {
+            throw new Error('Cloudflare provider options are required.');
+        }
+        return new CloudflareSandboxProvider(providerOptions.cloudflare);
+    }
+
     if (codeProvider === CodeProvider.CodeSandbox) {
         if (!providerOptions.codesandbox) {
             throw new Error('Codesandbox provider options are required.');
