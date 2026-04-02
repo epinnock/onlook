@@ -26,6 +26,7 @@ export type { JsxElementMetadata } from './index-cache';
 
 export interface CodeEditorOptions {
     routerType?: RouterType;
+    isExpo?: boolean;
 }
 
 export class CodeFileSystem extends FileSystem {
@@ -40,7 +41,12 @@ export class CodeFileSystem extends FileSystem {
         this.branchId = branchId;
         this.options = {
             routerType: options.routerType ?? RouterType.APP,
+            isExpo: options.isExpo ?? false,
         };
+    }
+
+    setExpoMode(isExpo: boolean): void {
+        this.options.isExpo = isExpo;
     }
 
     async writeFile(path: string, content: string | Uint8Array): Promise<void> {
@@ -69,7 +75,9 @@ export class CodeFileSystem extends FileSystem {
             }
 
             const existingOids = await this.getFileOids(path);
-            const { ast: processedAst } = addOidsToAst(ast, existingOids);
+            const { ast: processedAst } = addOidsToAst(ast, existingOids, undefined, undefined, {
+                useDataSet: this.options.isExpo,
+            });
 
             processedContent = await getContentFromAst(processedAst, content);
         } else {
@@ -153,8 +161,16 @@ export class CodeFileSystem extends FileSystem {
             await Promise.all(
                 batch.map(async (entry) => {
                     try {
-                        const content = await this.readFile(entry.path);
+                        let content = await this.readFile(entry.path);
                         if (typeof content === 'string') {
+                            // For Expo projects, reprocess files to convert data-oid to dataSet
+                            if (this.options.isExpo && content.includes('data-oid=')) {
+                                console.log(`[CodeEditorApi] Converting data-oid to dataSet in ${entry.path}`);
+                                const processedContent = await this.processJsxFile(entry.path, content);
+                                await super.writeFile(entry.path, processedContent);
+                                content = processedContent;
+                            }
+
                             const ast = getAstFromContent(content);
                             if (!ast) return;
 

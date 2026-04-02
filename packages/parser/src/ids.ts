@@ -17,9 +17,25 @@ function generateUniqueOid(globalOids: Set<string>, localOids: Set<string>): str
 }
 
 /**
- * Creates a new JSX data-oid attribute with the given value
+ * Creates a new JSX data-oid attribute with the given value.
+ * For React Native Web, uses dataSet={{ oid: "xxx" }} which renders as data-oid="xxx" in DOM.
+ * For standard HTML/Next.js, uses data-oid="xxx" directly.
  */
-function createOidAttribute(oidValue: string): T.JSXAttribute {
+function createOidAttribute(oidValue: string, useDataSet = false): T.JSXAttribute {
+    if (useDataSet) {
+        // dataSet={{ oid: "xxx" }} — React Native Web converts this to data-oid="xxx"
+        return t.jSXAttribute(
+            t.jSXIdentifier('dataSet'),
+            t.jSXExpressionContainer(
+                t.objectExpression([
+                    t.objectProperty(
+                        t.identifier('oid'),
+                        t.stringLiteral(oidValue),
+                    ),
+                ]),
+            ),
+        );
+    }
     return t.jSXAttribute(
         t.jSXIdentifier(EditorAttributes.DATA_ONLOOK_ID),
         t.stringLiteral(oidValue),
@@ -70,13 +86,14 @@ function handleProblematicOids(
     oidIndices: number[],
     globalOids: Set<string>,
     localOids: Set<string>,
+    useDataSet = false,
 ): string {
     // Remove all existing OID attributes
     removeAllOidAttributes(attributes, oidIndices);
 
     // Generate and add new unique OID
     const newOid = generateUniqueOid(globalOids, localOids);
-    const newOidAttribute = createOidAttribute(newOid);
+    const newOidAttribute = createOidAttribute(newOid, useDataSet);
     attributes.push(newOidAttribute);
     localOids.add(newOid);
 
@@ -116,9 +133,10 @@ function handleMissingOid(
     attributes: (T.JSXAttribute | T.JSXSpreadAttribute)[],
     globalOids: Set<string>,
     localOids: Set<string>,
+    useDataSet = false,
 ): string {
     const newOid = generateUniqueOid(globalOids, localOids);
-    const newOidAttribute = createOidAttribute(newOid);
+    const newOidAttribute = createOidAttribute(newOid, useDataSet);
     attributes.push(newOidAttribute);
     localOids.add(newOid);
     return newOid;
@@ -129,8 +147,10 @@ export function addOidsToAst(
     globalOids = new Set<string>(),
     branchOidMap = new Map<string, string>(),
     currentBranchId?: string,
+    options?: { useDataSet?: boolean },
 ): { ast: T.File; modified: boolean } {
     let modified = false;
+    const useDataSet = options?.useDataSet ?? false;
     // Track OIDs used within this AST to prevent duplicates in the same file
     const localOids = new Set<string>();
 
@@ -146,7 +166,7 @@ export function addOidsToAst(
             if (allOids.indices.length > 0) {
                 if (allOids.hasMultiple || allOids.hasInvalid) {
                     // Handle multiple or invalid OIDs: remove all and create new one
-                    handleProblematicOids(attributes, allOids.indices, globalOids, localOids);
+                    handleProblematicOids(attributes, allOids.indices, globalOids, localOids, useDataSet);
                     modified = true;
                 } else {
                     // Handle single valid OID: check for conflicts
@@ -170,7 +190,7 @@ export function addOidsToAst(
                 }
             } else {
                 // Handle missing OID: create new one
-                handleMissingOid(attributes, globalOids, localOids);
+                handleMissingOid(attributes, globalOids, localOids, useDataSet);
                 modified = true;
             }
         },
@@ -190,21 +210,42 @@ export function getAllExistingOids(attributes: (T.JSXAttribute | T.JSXSpreadAttr
     let hasInvalid = false;
 
     attributes.forEach((attr, index) => {
-        if (t.isJSXAttribute(attr) && attr.name.name === EditorAttributes.DATA_ONLOOK_ID) {
-            oidIndices.push(index);
-
-            const existingAttrValue = attr.value;
-            if (!existingAttrValue || !t.isStringLiteral(existingAttrValue)) {
-                hasInvalid = true;
-                oidValues.push('');
-            } else {
-                const value = existingAttrValue.value;
-                // Treat empty strings and whitespace-only strings as invalid
-                if (!value || value.trim() === '') {
+        if (t.isJSXAttribute(attr)) {
+            // Check for data-oid="xxx" (standard HTML)
+            if (attr.name.name === EditorAttributes.DATA_ONLOOK_ID) {
+                oidIndices.push(index);
+                const existingAttrValue = attr.value;
+                if (!existingAttrValue || !t.isStringLiteral(existingAttrValue)) {
                     hasInvalid = true;
                     oidValues.push('');
                 } else {
-                    oidValues.push(value);
+                    const value = existingAttrValue.value;
+                    if (!value || value.trim() === '') {
+                        hasInvalid = true;
+                        oidValues.push('');
+                    } else {
+                        oidValues.push(value);
+                    }
+                }
+            }
+            // Check for dataSet={{ oid: "xxx" }} (React Native Web)
+            else if (
+                attr.name.name === 'dataSet' &&
+                t.isJSXExpressionContainer(attr.value) &&
+                t.isObjectExpression(attr.value.expression)
+            ) {
+                const oidProp = attr.value.expression.properties.find(
+                    (p) => t.isObjectProperty(p) && t.isIdentifier(p.key) && p.key.name === 'oid',
+                );
+                if (oidProp && t.isObjectProperty(oidProp) && t.isStringLiteral(oidProp.value)) {
+                    oidIndices.push(index);
+                    const value = oidProp.value.value;
+                    if (!value || value.trim() === '') {
+                        hasInvalid = true;
+                        oidValues.push('');
+                    } else {
+                        oidValues.push(value);
+                    }
                 }
             }
         }

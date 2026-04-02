@@ -105,6 +105,14 @@ export class SandboxManager {
 
         await this.sync.start();
         await this.ensurePreloadScriptExists();
+
+        // Set Expo mode on the file system so OIDs use dataSet prop
+        const projectType = await this.getProjectType();
+        if (projectType === ProjectType.EXPO) {
+            console.log('[SandboxManager] Setting Expo mode on CodeFileSystem for dataSet OIDs');
+            this.fs.setExpoMode(true);
+        }
+
         await this.fs.rebuildIndex();
     }
 
