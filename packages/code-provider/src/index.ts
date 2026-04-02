@@ -1,9 +1,7 @@
 import { CodeProvider } from './providers';
 import { CodesandboxProvider, type CodesandboxProviderOptions } from './providers/codesandbox';
-import { NodeFsProvider, type NodeFsProviderOptions } from './providers/nodefs';
 export * from './providers';
 export { CodesandboxProvider } from './providers/codesandbox';
-export { NodeFsProvider } from './providers/nodefs';
 export * from './types';
 
 export interface CreateClientOptions {
@@ -18,43 +16,23 @@ export async function createCodeProviderClient(
     codeProvider: CodeProvider,
     { providerOptions }: CreateClientOptions,
 ) {
-    const provider = newProviderInstance(codeProvider, providerOptions);
+    if (codeProvider !== CodeProvider.CodeSandbox) {
+        throw new Error(`Provider ${codeProvider} is server-side only. Use the tRPC sandbox API.`);
+    }
+    const provider = new CodesandboxProvider(providerOptions.codesandbox!);
     await provider.initialize({});
     return provider;
 }
 
 export async function getStaticCodeProvider(
     codeProvider: CodeProvider,
-): Promise<typeof CodesandboxProvider | typeof NodeFsProvider> {
+): Promise<typeof CodesandboxProvider> {
     if (codeProvider === CodeProvider.CodeSandbox) {
         return CodesandboxProvider;
     }
-
-    if (codeProvider === CodeProvider.NodeFs) {
-        return NodeFsProvider;
-    }
-    throw new Error(`Unimplemented code provider: ${codeProvider}`);
+    throw new Error(`Provider ${codeProvider} is server-side only.`);
 }
 
 export interface ProviderInstanceOptions {
     codesandbox?: CodesandboxProviderOptions;
-    nodefs?: NodeFsProviderOptions;
-}
-
-function newProviderInstance(codeProvider: CodeProvider, providerOptions: ProviderInstanceOptions) {
-    if (codeProvider === CodeProvider.CodeSandbox) {
-        if (!providerOptions.codesandbox) {
-            throw new Error('Codesandbox provider options are required.');
-        }
-        return new CodesandboxProvider(providerOptions.codesandbox);
-    }
-
-    if (codeProvider === CodeProvider.NodeFs) {
-        if (!providerOptions.nodefs) {
-            throw new Error('NodeFs provider options are required.');
-        }
-        return new NodeFsProvider(providerOptions.nodefs);
-    }
-
-    throw new Error(`Unimplemented code provider: ${codeProvider}`);
 }

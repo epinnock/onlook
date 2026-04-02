@@ -147,8 +147,10 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
             if (newProject) {
                 router.push(`${Routes.PROJECT}/${newProject.id}`);
             }
-        } catch (error) {
-            console.error('Error creating local project:', error);
+        } catch (error: any) {
+            const msg = error?.message || error?.data?.message || String(error);
+            console.error('[createLocal] Full error:', JSON.stringify(error, null, 2));
+            console.error('[createLocal] Message:', msg);
             toast.error('Failed to create local project', {
                 description: error instanceof Error ? error.message : String(error),
             });

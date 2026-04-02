@@ -52,35 +52,49 @@ export const sandboxRouter = createTRPCRouter({
             const path = await import('node:path');
             const { execSync } = await import('node:child_process');
 
-            const projectId = `${input.name || input.template}-${Date.now()}`;
+            // Verify Docker is running via CLI
+            try {
+                execSync('docker info', { stdio: 'pipe', timeout: 10000 });
+                console.log('[createLocal] Docker is running');
+            } catch {
+                throw new TRPCError({
+                    code: 'PRECONDITION_FAILED',
+                    message: 'Docker is not running. Please start Docker Desktop or OrbStack and try again.',
+                });
+            }
+
+            const projectId = `${(input.name || input.template).replace(/\s+/g, '-')}-${Date.now()}`;
             const projectsDir = path.join(os.homedir(), '.scry', 'projects');
             const projectDir = path.join(projectsDir, projectId);
-
             await fs.mkdir(projectDir, { recursive: true });
 
-            const port = input.template === 'expo' ? 8081 : 3000;
+            const isExpo = input.template === 'expo';
+            const containerPort = isExpo ? 8081 : 3000;
+            const hostPort = 10000 + Math.floor(Math.random() * 5000);
+            const image = 'node:20-slim';
+            const containerName = `scry-${projectId}`;
+
+            // Pull image if not present
+            try {
+                execSync(`docker image inspect ${image}`, { stdio: 'pipe' });
+            } catch {
+                console.log(`[createLocal] Pulling ${image}...`);
+                execSync(`docker pull ${image}`, { stdio: 'pipe', timeout: 120000 });
+            }
+
+            // Scaffold project inside a temporary container
+            const scaffoldCmd = isExpo
+                ? `npx -y create-expo-app@latest /workspace --template blank --no-install && cd /workspace && npm install && npx expo install react-dom react-native-web`
+                : `npx -y create-next-app@latest /workspace --ts --tailwind --eslint --app --src-dir --no-import-alias --no-turbopack --use-npm`;
 
             try {
-                if (input.template === 'expo') {
-                    execSync(
-                        `npx create-expo-app@latest ${projectDir} --template blank --no-install`,
-                        { encoding: 'utf-8', timeout: 60000, stdio: 'pipe' },
-                    );
-                    // Install dependencies
-                    execSync('npm install', {
-                        cwd: projectDir,
-                        encoding: 'utf-8',
-                        timeout: 120000,
-                        stdio: 'pipe',
-                    });
-                } else {
-                    execSync(
-                        `npx create-next-app@latest ${projectDir} --ts --tailwind --eslint --app --src-dir --no-import-alias --no-turbopack --use-npm`,
-                        { encoding: 'utf-8', timeout: 120000, stdio: 'pipe' },
-                    );
-                }
+                console.log('[createLocal] Scaffolding project...');
+                execSync(
+                    `docker run --rm -v "${projectDir}:/workspace" -w /workspace ${image} bash -c "${scaffoldCmd}"`,
+                    { stdio: 'pipe', timeout: 300000, encoding: 'utf-8' },
+                );
+                console.log('[createLocal] Scaffold complete');
             } catch (error) {
-                // Clean up on failure
                 await fs.rm(projectDir, { recursive: true, force: true }).catch(() => {});
                 throw new TRPCError({
                     code: 'INTERNAL_SERVER_ERROR',
@@ -88,9 +102,36 @@ export const sandboxRouter = createTRPCRouter({
                 });
             }
 
+            // Start the dev server container
+            const devCmd = isExpo
+                ? 'npx expo start --web --port 8081'
+                : 'npm run dev -- --port 3000';
+
+            try {
+                const containerId = execSync(
+                    `docker run -d --name ${containerName} -v "${projectDir}:/workspace" -w /workspace -p ${hostPort}:${containerPort} ${image} bash -c "${devCmd}"`,
+                    { encoding: 'utf-8', stdio: 'pipe' },
+                ).trim();
+
+                console.log(`[createLocal] Dev server started: ${containerName} (${containerId.substring(0, 12)}) on port ${hostPort}`);
+
+                // Store container metadata
+                const metaDir = path.join(projectDir, '.scry');
+                await fs.mkdir(metaDir, { recursive: true });
+                await fs.writeFile(
+                    path.join(metaDir, 'container.json'),
+                    JSON.stringify({ containerId, containerName, hostPort, containerPort, template: input.template }),
+                );
+            } catch (error) {
+                throw new TRPCError({
+                    code: 'INTERNAL_SERVER_ERROR',
+                    message: `Failed to start dev server: ${error instanceof Error ? error.message : String(error)}`,
+                });
+            }
+
             return {
                 sandboxId: projectDir,
-                previewUrl: `http://localhost:${port}`,
+                previewUrl: `http://localhost:${hostPort}`,
             };
         }),
 
