@@ -37,6 +37,7 @@
         "@codesandbox/sdk": "^1.1.6",
         "@onlook/models": "*",
         "@onlook/parser": "*",
-        "@onlook/utility": "*"
+        "@onlook/utility": "*",
+        "chokidar": "^5.0.0"
     }
 }
