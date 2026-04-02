@@ -2,6 +2,21 @@
 
 > Replace CodeSandbox with Cloudflare Sandbox SDK for cloud-hosted dev environments.
 
+## Executive Overview
+
+Scry IDE currently depends on CodeSandbox (CSB) for all cloud compute — running user projects, syncing files, and serving previews. This dependency has proven unstable: WebSocket disconnections drop file writes, preview URLs return 401s due to privacy settings, and the CSB Expo template uses an outdated custom server that blocks preload script injection.
+
+**Cloudflare Sandbox SDK** is a drop-in replacement built on Cloudflare Containers. It provides the same capabilities (full Linux environment, filesystem, terminal, preview URLs) with better reliability, no per-seat cost, and an open-source SDK. The existing `Provider` abstraction in `packages/code-provider` means the swap is mostly plumbing — the CF SDK's API maps 1:1 to our Provider interface.
+
+**Investment:** ~5-6 weeks across 5 phases. **Cost:** $5/mo base (Workers plan the user already has) + ~$0.18/hr per active sandbox. **Risk:** CF Sandbox is in public beta — CSB stays as fallback until CF stabilizes.
+
+The plan delivers:
+1. Stable file sync (no more WebSocket drops)
+2. Auto-generated public preview URLs (no 401s)
+3. Custom container images (Expo + Next.js pre-installed, preload scripts baked in)
+4. Zero per-seat pricing for multi-user scaling
+5. Path to self-managed infrastructure via open-source SDK
+
 ## Why
 
 - CSB WebSocket instability causes file sync failures and reconnection loops
