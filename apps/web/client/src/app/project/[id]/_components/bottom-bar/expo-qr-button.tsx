@@ -25,7 +25,7 @@ export const ExpoQrButton = observer(() => {
     const activeBranch = editorEngine.branches.activeBranch;
     const sandboxId = activeBranch?.sandbox?.id;
     const constructedUrl = sandboxId
-        ? getSandboxPreviewUrl(sandboxId, SandboxTemplates[Templates.EXPO_WEB].port)
+        ? getSandboxPreviewUrl('code_sandbox', sandboxId, SandboxTemplates[Templates.EXPO_WEB].port)
         : '';
     const webUrl = frameUrl || constructedUrl;
 

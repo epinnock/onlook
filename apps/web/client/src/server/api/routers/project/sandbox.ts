@@ -117,7 +117,7 @@ export const sandboxRouter = createTRPCRouter({
 
             return {
                 sandboxId: newSandbox.id,
-                previewUrl: getSandboxPreviewUrl(newSandbox.id, template.port),
+                previewUrl: getSandboxPreviewUrl('code_sandbox', newSandbox.id, template.port),
             };
         }),
 
@@ -197,7 +197,7 @@ export const sandboxRouter = createTRPCRouter({
                         tags: input.config?.tags,
                     });
 
-                    const previewUrl = getSandboxPreviewUrl(sandbox.id, input.sandbox.port);
+                    const previewUrl = getSandboxPreviewUrl('code_sandbox', sandbox.id, input.sandbox.port);
 
                     return {
                         sandboxId: sandbox.id,
@@ -256,7 +256,7 @@ export const sandboxRouter = createTRPCRouter({
                         branch: input.branch,
                     });
 
-                    const previewUrl = getSandboxPreviewUrl(sandbox.id, DEFAULT_PORT);
+                    const previewUrl = getSandboxPreviewUrl('code_sandbox', sandbox.id, DEFAULT_PORT);
 
                     return {
                         sandboxId: sandbox.id,

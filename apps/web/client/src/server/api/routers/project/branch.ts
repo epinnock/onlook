@@ -126,7 +126,7 @@ export const branchRouter = createTRPCRouter({
                 const sandboxId = forkedSandbox.id;
                 // Extract port from source branch frames or fall back to 3000
                 const port = extractCsbPort(sourceBranch.frames) ?? 3000;
-                const previewUrl = getSandboxPreviewUrl(sandboxId, port);
+                const previewUrl = getSandboxPreviewUrl('code_sandbox', sandboxId, port);
 
                 // Create new branch
                 const newBranchId = uuidv4();
@@ -140,6 +140,7 @@ export const branchRouter = createTRPCRouter({
                     gitBranch: null,
                     gitCommitSha: null,
                     gitRepoUrl: null,
+                    providerType: 'code_sandbox',
                     createdAt: new Date(),
                     updatedAt: new Date(),
                 };
@@ -271,7 +272,7 @@ export const branchRouter = createTRPCRouter({
                     // Extract port from existing project frames or fall back to 3000
                     const allFrames = existingBranches.flatMap(branch => branch.frames || []);
                     const port = extractCsbPort(allFrames) ?? expoTemplate.port;
-                    const previewUrl = getSandboxPreviewUrl(sandboxId, port);
+                    const previewUrl = getSandboxPreviewUrl('code_sandbox', sandboxId, port);
 
                     // Create new branch
                     const newBranchId = uuidv4();
@@ -285,6 +286,7 @@ export const branchRouter = createTRPCRouter({
                         gitBranch: null,
                         gitCommitSha: null,
                         gitRepoUrl: null,
+                        providerType: 'code_sandbox',
                         createdAt: new Date(),
                         updatedAt: new Date(),
                     };

@@ -102,7 +102,7 @@ export function TemplateModal({
             return;
         }
 
-        const sandboxUrl = getSandboxPreviewUrl(branches[0].sandbox.id, 3000);
+        const sandboxUrl = getSandboxPreviewUrl('code_sandbox', branches[0].sandbox.id, 3000);
         window.open(sandboxUrl, '_blank');
     }
 

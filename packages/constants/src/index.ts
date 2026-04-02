@@ -1,6 +1,11 @@
 export * from './colors';
 export * from './contact';
-export * from './csb';
+export {
+    CSB_DOMAIN,
+    CSB_PREVIEW_TASK_NAME,
+    SandboxTemplates,
+    Templates,
+} from './csb';
 export * from './dom';
 export * from './editor';
 export * from './files';

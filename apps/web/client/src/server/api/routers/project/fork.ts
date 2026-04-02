@@ -71,7 +71,7 @@ async function forkAllBranches(
             tags: ['template-fork'],
         });
 
-        const newSandboxUrl = getSandboxPreviewUrl(newSandbox.id, 3000);
+        const newSandboxUrl = getSandboxPreviewUrl('code_sandbox', newSandbox.id, 3000);
         const newBranch: Branch = {
             ...sourceBranch,
             id: uuidv4(),

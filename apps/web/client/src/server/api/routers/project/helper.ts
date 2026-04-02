@@ -10,9 +10,18 @@ export function extractCsbPort(frames: Frame[]): number | null {
     for (const frame of frames) {
         if (frame.url) {
             // Match CSB preview URL pattern: https://sandboxId-port.csb.app
-            const match = frame.url.match(/https:\/\/[^-]+-(\d+)\.csb\.app/);
+            // or Cloudflare pattern: https://sandboxId-port.containers.dev
+            const match = frame.url.match(/https:\/\/[^-]+-(\d+)\.(?:csb\.app|containers\.dev)/);
             if (match && match[1]) {
                 const port = parseInt(match[1], 10);
+                if (!isNaN(port)) {
+                    return port;
+                }
+            }
+            // Match local preview URL pattern: http://localhost:port
+            const localMatch = frame.url.match(/http:\/\/localhost:(\d+)/);
+            if (localMatch && localMatch[1]) {
+                const port = parseInt(localMatch[1], 10);
                 if (!isNaN(port)) {
                     return port;
                 }
