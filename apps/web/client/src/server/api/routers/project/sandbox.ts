@@ -39,6 +39,61 @@ function getProvider({
 }
 
 export const sandboxRouter = createTRPCRouter({
+    createLocal: protectedProcedure
+        .input(
+            z.object({
+                template: z.enum(['expo', 'nextjs']),
+                name: z.string().optional(),
+            }),
+        )
+        .mutation(async ({ input }) => {
+            const os = await import('node:os');
+            const fs = await import('node:fs/promises');
+            const path = await import('node:path');
+            const { execSync } = await import('node:child_process');
+
+            const projectId = `${input.name || input.template}-${Date.now()}`;
+            const projectsDir = path.join(os.homedir(), '.scry', 'projects');
+            const projectDir = path.join(projectsDir, projectId);
+
+            await fs.mkdir(projectDir, { recursive: true });
+
+            const port = input.template === 'expo' ? 8081 : 3000;
+
+            try {
+                if (input.template === 'expo') {
+                    execSync(
+                        `npx create-expo-app@latest ${projectDir} --template blank --no-install`,
+                        { encoding: 'utf-8', timeout: 60000, stdio: 'pipe' },
+                    );
+                    // Install dependencies
+                    execSync('npm install', {
+                        cwd: projectDir,
+                        encoding: 'utf-8',
+                        timeout: 120000,
+                        stdio: 'pipe',
+                    });
+                } else {
+                    execSync(
+                        `npx create-next-app@latest ${projectDir} --ts --tailwind --eslint --app --src-dir --no-import-alias --no-turbopack --use-npm`,
+                        { encoding: 'utf-8', timeout: 120000, stdio: 'pipe' },
+                    );
+                }
+            } catch (error) {
+                // Clean up on failure
+                await fs.rm(projectDir, { recursive: true, force: true }).catch(() => {});
+                throw new TRPCError({
+                    code: 'INTERNAL_SERVER_ERROR',
+                    message: `Failed to scaffold project: ${error instanceof Error ? error.message : String(error)}`,
+                });
+            }
+
+            return {
+                sandboxId: projectDir,
+                previewUrl: `http://localhost:${port}`,
+            };
+        }),
+
     create: protectedProcedure
         .input(
             z.object({

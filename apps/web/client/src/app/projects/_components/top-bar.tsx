@@ -46,6 +46,7 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
     // API hooks
     const { data: user } = api.user.get.useQuery();
     const { mutateAsync: forkSandbox } = api.sandbox.fork.useMutation();
+    const { mutateAsync: createLocalSandbox } = api.sandbox.createLocal.useMutation();
     const { mutateAsync: createProject } = api.project.create.useMutation();
     const { setIsAuthModalOpen } = useAuthContext();
 
@@ -114,26 +115,32 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
         };
     }, [onSearchChange]);
 
-    const handleOpenLocalProject = async () => {
+    const handleCreateLocalProject = async (template: 'expo' | 'nextjs') => {
         if (!user?.id) {
             await localforage.setItem(LocalForageKeys.RETURN_URL, window.location.pathname);
             setIsAuthModalOpen(true);
             return;
         }
 
-        const projectPath = window.prompt('Enter the full path to your local project:');
-        if (!projectPath || !projectPath.trim()) return;
-
         setIsCreatingProject(true);
         try {
+            toast.info(`Scaffolding ${template === 'expo' ? 'Expo' : 'Next.js'} project locally...`, {
+                description: 'This may take a minute',
+            });
+
+            const { sandboxId, previewUrl } = await createLocalSandbox({
+                template,
+                name: 'New Project',
+            });
+
             const newProject = await createProject({
                 project: {
-                    name: projectPath.split('/').pop() || 'Local Project',
-                    description: 'Local project',
-                    tags: ['local'],
+                    name: 'New Project',
+                    description: `Local ${template} project`,
+                    tags: ['local', template],
                 },
-                sandboxId: projectPath.trim(),
-                sandboxUrl: `http://localhost:8081`,
+                sandboxId,
+                sandboxUrl: previewUrl,
                 userId: user.id,
             });
 
@@ -141,8 +148,8 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
                 router.push(`${Routes.PROJECT}/${newProject.id}`);
             }
         } catch (error) {
-            console.error('Error opening local project:', error);
-            toast.error('Failed to open local project', {
+            console.error('Error creating local project:', error);
+            toast.error('Failed to create local project', {
                 description: error instanceof Error ? error.message : String(error),
             });
         } finally {
@@ -308,11 +315,25 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
                                 'dark:hover:bg-emerald-900 dark:hover:text-emerald-100',
                                 'cursor-pointer select-none group',
                             )}
-                            onSelect={handleOpenLocalProject}
+                            onSelect={() => handleCreateLocalProject('nextjs')}
                             disabled={isCreatingProject}
                         >
                             <Icons.FilePlus className="w-4 h-4 mr-1 text-foreground-secondary group-hover:text-emerald-100" />
-                            Open Local Project
+                            Next.js (Local)
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            className={cn(
+                                'focus:bg-emerald-100 focus:text-emerald-900',
+                                'hover:bg-emerald-100 hover:text-emerald-900',
+                                'dark:focus:bg-emerald-900 dark:focus:text-emerald-100',
+                                'dark:hover:bg-emerald-900 dark:hover:text-emerald-100',
+                                'cursor-pointer select-none group',
+                            )}
+                            onSelect={() => handleCreateLocalProject('expo')}
+                            disabled={isCreatingProject}
+                        >
+                            <Icons.FilePlus className="w-4 h-4 mr-1 text-foreground-secondary group-hover:text-emerald-100" />
+                            Expo / React Native (Local)
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
