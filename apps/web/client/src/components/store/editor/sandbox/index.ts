@@ -110,8 +110,10 @@ export class SandboxManager {
 
     private async ensurePreloadScriptExists(): Promise<void> {
         try {
+            console.log('[SandboxManager] ensurePreloadScriptExists: current state =', this.preloadScriptState);
             if (this.preloadScriptState !== PreloadScriptState.NOT_INJECTED
             ) {
+                console.log('[SandboxManager] Skipping — already', this.preloadScriptState);
                 return;
             }
 
@@ -122,16 +124,19 @@ export class SandboxManager {
             }
 
             const projectType = await this.getProjectType();
+            console.log('[SandboxManager] Detected projectType:', projectType);
+
             const routerConfig = projectType === ProjectType.NEXTJS
                 ? await this.getRouterConfig()
                 : null;
+            console.log('[SandboxManager] routerConfig:', routerConfig ? JSON.stringify(routerConfig) : 'null (Expo)');
 
+            console.log('[SandboxManager] Calling copyPreloadScriptToPublic...');
             await copyPreloadScriptToPublic(this.session.provider, projectType, routerConfig);
             this.preloadScriptState = PreloadScriptState.INJECTED
+            console.log('[SandboxManager] Preload script state set to INJECTED');
         } catch (error) {
             console.error('[SandboxManager] Failed to ensure preload script exists:', error);
-            // Mark as injected to prevent blocking frames indefinitely
-            // Frames will handle the missing preload script gracefully
             this.preloadScriptState = PreloadScriptState.NOT_INJECTED
         }
     }
