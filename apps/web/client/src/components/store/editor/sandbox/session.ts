@@ -35,7 +35,13 @@ export class SessionManager {
         const attemptConnection = async () => {
             let provider;
 
-            if (resolvedProvider === CodeProvider.NodeFs) {
+            if (resolvedProvider === CodeProvider.Cloudflare) {
+                provider = await createCodeProviderClient(CodeProvider.Cloudflare, {
+                    providerOptions: {
+                        cloudflare: { sandboxId },
+                    },
+                });
+            } else if (resolvedProvider === CodeProvider.NodeFs) {
                 provider = await createCodeProviderClient(CodeProvider.NodeFs, {
                     providerOptions: {
                         nodefs: { rootDir: sandboxId },
