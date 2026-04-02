@@ -87,6 +87,7 @@ export const TerminalArea = observer(({ children }: { children: React.ReactNode 
                     </motion.span>
                     <div className="flex items-center gap-1">
                         <motion.div layout>{/* <RunButton /> */}</motion.div>
+                        <ExpoQrButton />
                         <RestartSandboxButton />
                         <Tooltip>
                             <TooltipTrigger asChild>

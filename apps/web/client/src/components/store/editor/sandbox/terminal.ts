@@ -41,19 +41,30 @@ export class CLISessionImpl implements CLISession {
     task: ProviderTask | null;
     xterm: Terminal | null;
     fitAddon: FitAddon | null;
+    private onExpoUrlDetected?: (url: string) => void;
 
     constructor(
         public readonly name: string,
         public readonly type: CLISessionType,
         private readonly provider: Provider,
         private readonly errorManager: ErrorManager,
+        options?: { onExpoUrlDetected?: (url: string) => void },
     ) {
         this.id = uuidv4();
         this.terminal = null;
         this.task = null;
-        // Initialize xterm and fitAddon lazily
         this.xterm = null;
         this.fitAddon = null;
+        this.onExpoUrlDetected = options?.onExpoUrlDetected;
+    }
+
+    private checkForExpoUrl(data: string) {
+        if (!this.onExpoUrlDetected) return;
+        // Match tunnel URLs like exp://xxxxx.ngrok.io or exp://xxxxx.expo.direct
+        const match = data.match(/exp:\/\/[^\s\x1b\x07]+/);
+        if (match) {
+            this.onExpoUrlDetected(match[0]);
+        }
     }
 
     private async ensureXTermLibraries() {
@@ -133,9 +144,11 @@ export class CLISessionImpl implements CLISession {
             this.task = task;
             const output = await task.open();
             this.xterm.write(output);
+            this.checkForExpoUrl(output);
             this.errorManager.processMessage(output);
             task.onOutput((data: string) => {
                 this.xterm?.write(data);
+                this.checkForExpoUrl(data);
                 this.errorManager.processMessage(data);
             });
         } catch (error) {
@@ -192,16 +205,24 @@ export class CLISessionImpl implements CLISession {
     }
 
     async createDevTaskTerminal() {
-        const { task } = await this.provider.getTask({
-            args: {
-                id: 'dev',
-            },
-        });
-        if (!task) {
-            console.error('No dev task found');
-            return;
+        // Try common task names — CSB templates use 'dev' (Next.js) or 'start' (Expo)
+        for (const taskId of ['dev', 'start']) {
+            try {
+                const { task } = await this.provider.getTask({
+                    args: {
+                        id: taskId,
+                    },
+                });
+                if (task) {
+                    console.log(`[Terminal] Found dev server task: '${taskId}'`);
+                    return task;
+                }
+            } catch {
+                // Task not found, try next
+            }
         }
-        return task;
+        console.error('No dev task found (tried: dev, start)');
+        return;
     }
 
     dispose() {

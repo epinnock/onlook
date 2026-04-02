@@ -29,6 +29,7 @@ export class SandboxManager {
     preloadScriptState: PreloadScriptState = PreloadScriptState.NOT_INJECTED
     routerConfig: RouterConfig | null = null;
     projectType: ProjectType | null = null;
+    expoTunnelUrl: string | null = null;
 
     constructor(
         private branch: Branch,
@@ -37,6 +38,9 @@ export class SandboxManager {
         private readonly fs: CodeFileSystem,
     ) {
         this.session = new SessionManager(this.branch, this.errorManager);
+        this.session.onExpoUrlDetected = (url) => {
+            this.expoTunnelUrl = url;
+        };
         this.gitManager = new GitManager(this);
         makeAutoObservable(this);
     }
