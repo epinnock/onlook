@@ -262,47 +262,49 @@ export function getAllExistingOids(attributes: (T.JSXAttribute | T.JSXSpreadAttr
 export function getExistingOid(
     attributes: (T.JSXAttribute | T.JSXSpreadAttribute)[],
 ): { value: string; index: number; shouldRemove: boolean } | null {
+    // Check for standard data-oid="xxx"
     const existingAttrIndex = attributes.findIndex(
         (attr) => t.isJSXAttribute(attr) && attr.name.name === EditorAttributes.DATA_ONLOOK_ID,
     );
 
-    if (existingAttrIndex === -1) {
-        return null;
+    if (existingAttrIndex !== -1) {
+        const existingAttr = attributes[existingAttrIndex];
+
+        if (t.isJSXSpreadAttribute(existingAttr) || !existingAttr) {
+            return null;
+        }
+
+        const existingAttrValue = existingAttr.value;
+        if (!existingAttrValue || !t.isStringLiteral(existingAttrValue)) {
+            return { index: existingAttrIndex, value: '', shouldRemove: true };
+        }
+
+        return { index: existingAttrIndex, value: existingAttrValue.value, shouldRemove: false };
     }
 
-    const existingAttr = attributes[existingAttrIndex];
+    // Check for dataSet={{ oid: "xxx" }} (React Native Web)
+    const dataSetIndex = attributes.findIndex(
+        (attr) =>
+            t.isJSXAttribute(attr) &&
+            attr.name.name === 'dataSet' &&
+            t.isJSXExpressionContainer(attr.value) &&
+            t.isObjectExpression(attr.value.expression),
+    );
 
-    if (t.isJSXSpreadAttribute(existingAttr)) {
-        return null;
+    if (dataSetIndex !== -1) {
+        const attr = attributes[dataSetIndex] as T.JSXAttribute;
+        if (
+            t.isJSXExpressionContainer(attr.value) &&
+            t.isObjectExpression(attr.value.expression)
+        ) {
+            const oidProp = attr.value.expression.properties.find(
+                (p) => t.isObjectProperty(p) && t.isIdentifier(p.key) && p.key.name === 'oid',
+            );
+            if (oidProp && t.isObjectProperty(oidProp) && t.isStringLiteral(oidProp.value)) {
+                return { index: dataSetIndex, value: oidProp.value.value, shouldRemove: false };
+            }
+        }
     }
 
-    if (!existingAttr) {
-        return null;
-    }
-
-    const existingAttrValue = existingAttr.value;
-    if (!existingAttrValue || !t.isStringLiteral(existingAttrValue)) {
-        // Mark invalid oid attributes for removal
-        return {
-            index: existingAttrIndex,
-            value: '',
-            shouldRemove: true,
-        };
-    }
-
-    const value = existingAttrValue.value;
-    // Treat empty strings and whitespace-only strings as invalid
-    if (!value || value.trim() === '') {
-        return {
-            index: existingAttrIndex,
-            value: '',
-            shouldRemove: true,
-        };
-    }
-
-    return {
-        index: existingAttrIndex,
-        value,
-        shouldRemove: false,
-    };
+    return null;
 }
