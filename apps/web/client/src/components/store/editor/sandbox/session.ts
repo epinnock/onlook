@@ -18,7 +18,7 @@ export class SessionManager {
         makeAutoObservable(this);
     }
 
-    async start(sandboxId: string, userId?: string): Promise<void> {
+    async start(sandboxId: string, userId?: string, providerType?: CodeProvider): Promise<void> {
         const MAX_RETRIES = 3;
         const RETRY_DELAY_MS = 2000;
 
@@ -28,19 +28,33 @@ export class SessionManager {
 
         this.isConnecting = true;
 
+        // Detect provider type: local paths start with / or contain path separators
+        const resolvedProvider = providerType
+            ?? (sandboxId.startsWith('/') || sandboxId.includes('/') ? CodeProvider.NodeFs : CodeProvider.CodeSandbox);
+
         const attemptConnection = async () => {
-            const provider = await createCodeProviderClient(CodeProvider.CodeSandbox, {
-                providerOptions: {
-                    codesandbox: {
-                        sandboxId,
-                        userId,
-                        initClient: true,
-                        getSession: async (sandboxId, userId) => {
-                            return api.sandbox.start.mutate({ sandboxId });
+            let provider;
+
+            if (resolvedProvider === CodeProvider.NodeFs) {
+                provider = await createCodeProviderClient(CodeProvider.NodeFs, {
+                    providerOptions: {
+                        nodefs: { rootDir: sandboxId },
+                    },
+                });
+            } else {
+                provider = await createCodeProviderClient(CodeProvider.CodeSandbox, {
+                    providerOptions: {
+                        codesandbox: {
+                            sandboxId,
+                            userId,
+                            initClient: true,
+                            getSession: async (sandboxId, userId) => {
+                                return api.sandbox.start.mutate({ sandboxId });
+                            },
                         },
                     },
-                },
-            });
+                });
+            }
 
             this.provider = provider;
             await this.createTerminalSessions(provider);

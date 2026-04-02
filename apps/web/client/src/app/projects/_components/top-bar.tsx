@@ -114,6 +114,42 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
         };
     }, [onSearchChange]);
 
+    const handleOpenLocalProject = async () => {
+        if (!user?.id) {
+            await localforage.setItem(LocalForageKeys.RETURN_URL, window.location.pathname);
+            setIsAuthModalOpen(true);
+            return;
+        }
+
+        const projectPath = window.prompt('Enter the full path to your local project:');
+        if (!projectPath || !projectPath.trim()) return;
+
+        setIsCreatingProject(true);
+        try {
+            const newProject = await createProject({
+                project: {
+                    name: projectPath.split('/').pop() || 'Local Project',
+                    description: 'Local project',
+                    tags: ['local'],
+                },
+                sandboxId: projectPath.trim(),
+                sandboxUrl: `http://localhost:8081`,
+                userId: user.id,
+            });
+
+            if (newProject) {
+                router.push(`${Routes.PROJECT}/${newProject.id}`);
+            }
+        } catch (error) {
+            console.error('Error opening local project:', error);
+            toast.error('Failed to open local project', {
+                description: error instanceof Error ? error.message : String(error),
+            });
+        } finally {
+            setIsCreatingProject(false);
+        }
+    };
+
     const handleStartBlankProject = async (template: Templates) => {
         if (!user?.id) {
             // Store the return URL and open auth modal
@@ -262,6 +298,21 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
                                 <Icons.FilePlus className="w-4 h-4 mr-1 text-foreground-secondary group-hover:text-violet-100" />
                             )}
                             Expo / React Native
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                            className={cn(
+                                'focus:bg-emerald-100 focus:text-emerald-900',
+                                'hover:bg-emerald-100 hover:text-emerald-900',
+                                'dark:focus:bg-emerald-900 dark:focus:text-emerald-100',
+                                'dark:hover:bg-emerald-900 dark:hover:text-emerald-100',
+                                'cursor-pointer select-none group',
+                            )}
+                            onSelect={handleOpenLocalProject}
+                            disabled={isCreatingProject}
+                        >
+                            <Icons.FilePlus className="w-4 h-4 mr-1 text-foreground-secondary group-hover:text-emerald-100" />
+                            Open Local Project
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
