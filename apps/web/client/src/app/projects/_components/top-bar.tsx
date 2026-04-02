@@ -3,6 +3,7 @@
 import { useAuthContext } from '@/app/auth/auth-context';
 import { CurrentUserAvatar } from '@/components/ui/avatar-dropdown';
 import { transKeys } from '@/i18n/keys';
+import { isProviderEnabled } from '@/lib/feature-flags';
 import { api } from '@/trpc/react';
 import { LocalForageKeys, Routes } from '@/utils/constants';
 import { SandboxTemplates, Templates } from '@onlook/constants';
@@ -47,6 +48,7 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
     const { data: user } = api.user.get.useQuery();
     const { mutateAsync: forkSandbox } = api.sandbox.fork.useMutation();
     const { mutateAsync: createLocalSandbox } = api.sandbox.createLocal.useMutation();
+    const { mutateAsync: createCfSandbox } = api.cfSandbox.create.useMutation();
     const { mutateAsync: createProject } = api.project.create.useMutation();
     const { setIsAuthModalOpen } = useAuthContext();
 
@@ -208,6 +210,48 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
         }
     };
 
+    const handleCreateCloudflare = async (template: 'expo' | 'nextjs') => {
+        if (!user?.id) {
+            await localforage.setItem(LocalForageKeys.RETURN_URL, window.location.pathname);
+            setIsAuthModalOpen(true);
+            return;
+        }
+
+        setIsCreatingProject(true);
+        try {
+            toast.info(`Creating ${template === 'expo' ? 'Expo' : 'Next.js'} project on Cloudflare...`, {
+                description: 'This may take a minute',
+            });
+
+            const { sandboxId, previewUrl } = await createCfSandbox({
+                template,
+                name: 'New Project',
+            });
+
+            const newProject = await createProject({
+                project: {
+                    name: 'New Project',
+                    description: `Cloudflare ${template} project`,
+                    tags: ['cloudflare', template],
+                },
+                sandboxId,
+                sandboxUrl: previewUrl,
+                userId: user.id,
+            });
+
+            if (newProject) {
+                router.push(`${Routes.PROJECT}/${newProject.id}`);
+            }
+        } catch (error) {
+            console.error('Error creating Cloudflare project:', error);
+            toast.error('Failed to create project', {
+                description: error instanceof Error ? error.message : String(error),
+            });
+        } finally {
+            setIsCreatingProject(false);
+        }
+    };
+
     return (
         <div className="w-full max-w-6xl mx-auto flex items-center justify-between p-4 text-small text-foreground-secondary gap-6">
             <Link href={Routes.HOME} className="flex items-center justify-start mt-0 py-3">
@@ -270,6 +314,47 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
                         </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent sideOffset={8} className="translate-x-[-12px]">
+                        {isProviderEnabled('cloudflare') && (
+                            <>
+                                <DropdownMenuItem
+                                    className={cn(
+                                        'focus:bg-orange-100 focus:text-orange-900',
+                                        'hover:bg-orange-100 hover:text-orange-900',
+                                        'dark:focus:bg-orange-900 dark:focus:text-orange-100',
+                                        'dark:hover:bg-orange-900 dark:hover:text-orange-100',
+                                        'cursor-pointer select-none group',
+                                    )}
+                                    onSelect={() => handleCreateCloudflare('nextjs')}
+                                    disabled={isCreatingProject}
+                                >
+                                    {isCreatingProject ? (
+                                        <Icons.LoadingSpinner className="w-4 h-4 mr-1 animate-spin text-foreground-secondary group-hover:text-orange-100" />
+                                    ) : (
+                                        <Icons.FilePlus className="w-4 h-4 mr-1 text-foreground-secondary group-hover:text-orange-100" />
+                                    )}
+                                    Next.js (Cloud)
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                    className={cn(
+                                        'focus:bg-orange-100 focus:text-orange-900',
+                                        'hover:bg-orange-100 hover:text-orange-900',
+                                        'dark:focus:bg-orange-900 dark:focus:text-orange-100',
+                                        'dark:hover:bg-orange-900 dark:hover:text-orange-100',
+                                        'cursor-pointer select-none group',
+                                    )}
+                                    onSelect={() => handleCreateCloudflare('expo')}
+                                    disabled={isCreatingProject}
+                                >
+                                    {isCreatingProject ? (
+                                        <Icons.LoadingSpinner className="w-4 h-4 mr-1 animate-spin text-foreground-secondary group-hover:text-orange-100" />
+                                    ) : (
+                                        <Icons.FilePlus className="w-4 h-4 mr-1 text-foreground-secondary group-hover:text-orange-100" />
+                                    )}
+                                    Expo / RN (Cloud)
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                            </>
+                        )}
                         <DropdownMenuItem
                             className={cn(
                                 'focus:bg-blue-100 focus:text-blue-900',
