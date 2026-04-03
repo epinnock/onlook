@@ -52,7 +52,7 @@ export default {
 				return json({ status: 'ok', timestamp: new Date().toISOString() }, corsHeaders);
 			}
 
-			// Preview proxy: GET /preview/:sandboxId/* → proxy to container's dev server
+			// Preview proxy: GET /preview/:sandboxId/* → fetch HTML from container's dev server via exec
 			if (request.method === 'GET' && path.startsWith('/preview/')) {
 				const parts = path.split('/');
 				const previewSandboxId = parts[2];
@@ -64,19 +64,31 @@ export default {
 
 				try {
 					const sandbox = getSandbox(env.SANDBOX, previewSandboxId);
-					const previewUrl = sandbox.getPreviewUrl(3001);
-					const targetUrl = `${previewUrl}${proxyPath}${url.search}`;
 
-					const proxyRes = await fetch(targetUrl, {
-						headers: request.headers,
-					});
+					// Fetch via exec curl inside the container (works in local dev + production)
+					const result = await sandbox.exec(
+						`curl -s -w "\\n---HTTP_STATUS:%{http_code}---" http://localhost:3001${proxyPath}${url.search} 2>/dev/null`
+					);
+					const output = result.stdout;
+					const statusMatch = output.match(/---HTTP_STATUS:(\d+)---$/);
+					const httpStatus = statusMatch ? parseInt(statusMatch[1]) : 200;
+					const body = output.replace(/\n---HTTP_STATUS:\d+---$/, '');
 
-					const headers = new Headers(proxyRes.headers);
-					for (const [k, v] of Object.entries(corsHeaders)) headers.set(k, v);
+					// Detect content type from path
+					const ext = proxyPath.split('.').pop()?.toLowerCase();
+					const contentTypes: Record<string, string> = {
+						'js': 'application/javascript',
+						'css': 'text/css',
+						'json': 'application/json',
+						'png': 'image/png',
+						'svg': 'image/svg+xml',
+						'ico': 'image/x-icon',
+					};
+					const contentType = contentTypes[ext || ''] || 'text/html; charset=utf-8';
 
-					return new Response(proxyRes.body, {
-						status: proxyRes.status,
-						headers,
+					return new Response(body, {
+						status: httpStatus,
+						headers: { 'Content-Type': contentType, ...corsHeaders },
 					});
 				} catch (err) {
 					return json({ error: `Preview proxy error: ${err instanceof Error ? err.message : err}` }, corsHeaders, 502);
@@ -195,9 +207,12 @@ export default {
 			// --- Get preview URL ---
 			if (path === '/sandbox/preview-url') {
 				const { port } = body;
-				const previewUrl = sandbox.getPreviewUrl(Number(port) || 3001);
+				let previewUrl: string | undefined;
+				try {
+					previewUrl = await sandbox.getPreviewUrl(Number(port) || 3001);
+				} catch { /* not available in local dev */ }
 				return json({
-					previewUrl,
+					previewUrl: previewUrl || null,
 					workerPreviewUrl: `${url.origin}/preview/${sandboxId}`,
 				}, corsHeaders);
 			}
