@@ -18,7 +18,7 @@ export class SessionManager {
         makeAutoObservable(this);
     }
 
-    async start(sandboxId: string, userId?: string): Promise<void> {
+    async start(sandboxId: string, userId?: string, providerType?: CodeProvider): Promise<void> {
         const MAX_RETRIES = 3;
         const RETRY_DELAY_MS = 2000;
 
@@ -28,19 +28,33 @@ export class SessionManager {
 
         this.isConnecting = true;
 
+        // Detect provider type: local paths start with / or contain path separators
+        const resolvedProvider = providerType
+            ?? (sandboxId.startsWith('/') || sandboxId.includes('/') ? CodeProvider.NodeFs : CodeProvider.CodeSandbox);
+
         const attemptConnection = async () => {
-            const provider = await createCodeProviderClient(CodeProvider.CodeSandbox, {
-                providerOptions: {
-                    codesandbox: {
-                        sandboxId,
-                        userId,
-                        initClient: true,
-                        getSession: async (sandboxId, userId) => {
-                            return api.sandbox.start.mutate({ sandboxId });
+            let provider;
+
+            if (resolvedProvider === CodeProvider.NodeFs) {
+                provider = await createCodeProviderClient(CodeProvider.NodeFs, {
+                    providerOptions: {
+                        nodefs: { rootDir: sandboxId },
+                    },
+                });
+            } else {
+                provider = await createCodeProviderClient(CodeProvider.CodeSandbox, {
+                    providerOptions: {
+                        codesandbox: {
+                            sandboxId,
+                            userId,
+                            initClient: true,
+                            getSession: async (sandboxId, userId) => {
+                                return api.sandbox.start.mutate({ sandboxId });
+                            },
                         },
                     },
-                },
-            });
+                });
+            }
 
             this.provider = provider;
             await this.createTerminalSessions(provider);
@@ -75,29 +89,41 @@ export class SessionManager {
             console.error('No provider found in restartDevServer');
             return false;
         }
-        const { task } = await this.provider.getTask({
-            args: {
-                id: 'dev',
-            },
-        });
-        if (task) {
-            await task.restart();
-            return true;
+        for (const taskId of ['dev', 'start']) {
+            try {
+                const { task } = await this.provider.getTask({ args: { id: taskId } });
+                if (task) {
+                    await task.restart();
+                    return true;
+                }
+            } catch {
+                // Try next task name
+            }
         }
         return false;
     }
 
     async readDevServerLogs(): Promise<string> {
-        const result = await this.provider?.getTask({ args: { id: 'dev' } });
-        if (result) {
-            return await result.task.open();
+        for (const taskId of ['dev', 'start']) {
+            try {
+                const result = await this.provider?.getTask({ args: { id: taskId } });
+                if (result) {
+                    return await result.task.open();
+                }
+            } catch {
+                // Try next task name
+            }
         }
         return 'Dev server not found';
     }
 
+
+
     getTerminalSession(id: string) {
         return this.terminalSessions.get(id) as TerminalSession | undefined;
     }
+
+    onExpoUrlDetected?: (url: string) => void;
 
     async createTerminalSessions(provider: Provider) {
         const task = new CLISessionImpl(
@@ -105,6 +131,7 @@ export class SessionManager {
             CLISessionType.TASK,
             provider,
             this.errorManager,
+            { onExpoUrlDetected: (url) => this.onExpoUrlDetected?.(url) },
         );
         this.terminalSessions.set(task.id, task);
         const terminal = new CLISessionImpl(

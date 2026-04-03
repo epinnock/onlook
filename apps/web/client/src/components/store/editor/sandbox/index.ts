@@ -29,6 +29,7 @@ export class SandboxManager {
     preloadScriptState: PreloadScriptState = PreloadScriptState.NOT_INJECTED
     routerConfig: RouterConfig | null = null;
     projectType: ProjectType | null = null;
+    expoTunnelUrl: string | null = null;
 
     constructor(
         private branch: Branch,
@@ -37,6 +38,9 @@ export class SandboxManager {
         private readonly fs: CodeFileSystem,
     ) {
         this.session = new SessionManager(this.branch, this.errorManager);
+        this.session.onExpoUrlDetected = (url) => {
+            this.expoTunnelUrl = url;
+        };
         this.gitManager = new GitManager(this);
         makeAutoObservable(this);
     }
@@ -101,13 +105,23 @@ export class SandboxManager {
 
         await this.sync.start();
         await this.ensurePreloadScriptExists();
+
+        // Set Expo mode on the file system so OIDs use dataSet prop
+        const projectType = await this.getProjectType();
+        if (projectType === ProjectType.EXPO) {
+            console.log('[SandboxManager] Setting Expo mode on CodeFileSystem for dataSet OIDs');
+            this.fs.setExpoMode(true);
+        }
+
         await this.fs.rebuildIndex();
     }
 
     private async ensurePreloadScriptExists(): Promise<void> {
         try {
+            console.log('[SandboxManager] ensurePreloadScriptExists: current state =', this.preloadScriptState);
             if (this.preloadScriptState !== PreloadScriptState.NOT_INJECTED
             ) {
+                console.log('[SandboxManager] Skipping — already', this.preloadScriptState);
                 return;
             }
 
@@ -118,16 +132,19 @@ export class SandboxManager {
             }
 
             const projectType = await this.getProjectType();
+            console.log('[SandboxManager] Detected projectType:', projectType);
+
             const routerConfig = projectType === ProjectType.NEXTJS
                 ? await this.getRouterConfig()
                 : null;
+            console.log('[SandboxManager] routerConfig:', routerConfig ? JSON.stringify(routerConfig) : 'null (Expo)');
 
+            console.log('[SandboxManager] Calling copyPreloadScriptToPublic...');
             await copyPreloadScriptToPublic(this.session.provider, projectType, routerConfig);
             this.preloadScriptState = PreloadScriptState.INJECTED
+            console.log('[SandboxManager] Preload script state set to INJECTED');
         } catch (error) {
             console.error('[SandboxManager] Failed to ensure preload script exists:', error);
-            // Mark as injected to prevent blocking frames indefinitely
-            // Frames will handle the missing preload script gracefully
             this.preloadScriptState = PreloadScriptState.NOT_INJECTED
         }
     }

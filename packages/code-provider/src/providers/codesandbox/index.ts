@@ -167,6 +167,7 @@ export class CodesandboxProvider extends Provider {
             title: input.title,
             description: input.description,
             tags: input.tags,
+            privacy: 'public-hosts',
         });
         return {
             id: newSandbox.id,
@@ -184,6 +185,7 @@ export class CodesandboxProvider extends Provider {
             source: 'git',
             url: input.repoUrl,
             branch: input.branch,
+            privacy: 'public-hosts',
             async setup(session) {
                 await session.setup.run();
             },
