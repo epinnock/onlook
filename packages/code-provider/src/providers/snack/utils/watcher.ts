@@ -40,7 +40,7 @@ export class SnackFileWatcher extends ProviderFileWatcher {
             for (const path of currentPaths) {
                 if (!previousPaths.has(path)) {
                     added.push(path);
-                } else if (currentFiles[path].contents !== this.previousFiles.get(path)) {
+                } else if (currentFiles[path]?.contents !== this.previousFiles.get(path)) {
                     changed.push(path);
                 }
             }
