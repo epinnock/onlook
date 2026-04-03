@@ -1,0 +1,29 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "scry-sandbox",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-03-14",
+  "compatibility_flags": ["nodejs_compat"],
+  "containers": [
+    {
+      "name": "sandbox",
+      "image": "./Dockerfile",
+      "max_instances": 5,
+      "class_name": "Sandbox"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "SANDBOX",
+        "class_name": "Sandbox"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["Sandbox"]
+    }
+  ]
+}

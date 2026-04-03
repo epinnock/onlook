@@ -25,7 +25,7 @@ export class CreateManager {
         }
     }
 
-    async startCreate(userId: string, prompt: string, images: ImageMessageContext[]) {
+    async startCreate(userId: string, prompt: string, images: ImageMessageContext[], template: Templates = Templates.EMPTY_NEXTJS) {
         this.error = null;
         try {
             if (!userId) {
@@ -39,7 +39,7 @@ export class CreateManager {
 
             const [{ sandboxId, previewUrl }, projectName] = await Promise.all([
                 api.sandbox.fork.mutate({
-                    sandbox: SandboxTemplates[Templates.EMPTY_NEXTJS],
+                    sandbox: SandboxTemplates[template],
                     config,
                 }),
                 this.generateProjectName(prompt)
@@ -125,4 +125,3 @@ export class CreateManager {
         });
     }
 }
-

@@ -53,11 +53,12 @@ export async function POST(req: NextRequest) {
 
 export const streamResponse = async (req: NextRequest, userId: string) => {
     const body = await req.json();
-    const { messages, chatType, conversationId, projectId } = body as {
+    const { messages, chatType, conversationId, projectId, modelOverride } = body as {
         messages: ChatMessage[],
         chatType: ChatType,
         conversationId: string,
         projectId: string,
+        modelOverride?: string,
     };
     // Updating the usage record and rate limit is done here to avoid
     // abuse in the case where a single user sends many concurrent requests.
@@ -74,13 +75,20 @@ export const streamResponse = async (req: NextRequest, userId: string) => {
         if (chatType === ChatType.EDIT) {
             usageRecord = await incrementUsage(req, traceId);
         }
-        const stream = createRootAgentStream({
+
+        // Fetch MCP server configs for this project
+        const settings = await api.settings.get({ projectId });
+        const mcpServers = settings?.mcpServers;
+
+        const { stream, cleanup } = await createRootAgentStream({
             chatType,
             conversationId,
             projectId,
             userId,
             traceId,
             messages,
+            mcpServers,
+            modelOverride,
         });
         return stream.toUIMessageStreamResponse<ChatMessage>(
             {
@@ -97,6 +105,7 @@ export const streamResponse = async (req: NextRequest, userId: string) => {
                     } satisfies ChatMetadata;
                 },
                 onFinish: async ({ messages: finalMessages }) => {
+                    await cleanup();
                     const messagesToStore = finalMessages
                         .filter(msg =>
                             (msg.role === 'user' || msg.role === 'assistant')

@@ -18,7 +18,7 @@ export class SessionManager {
         makeAutoObservable(this);
     }
 
-    async start(sandboxId: string, userId?: string): Promise<void> {
+    async start(sandboxId: string, userId?: string, providerType?: CodeProvider): Promise<void> {
         const MAX_RETRIES = 3;
         const RETRY_DELAY_MS = 2000;
 
@@ -28,19 +28,44 @@ export class SessionManager {
 
         this.isConnecting = true;
 
+        // Detect provider type from sandboxId prefix
+        const resolvedProvider = providerType
+            ?? (sandboxId.startsWith('cf-') ? CodeProvider.Cloudflare
+            : sandboxId.startsWith('/') || sandboxId.includes('/') ? CodeProvider.NodeFs
+            : CodeProvider.CodeSandbox);
+
         const attemptConnection = async () => {
-            const provider = await createCodeProviderClient(CodeProvider.CodeSandbox, {
-                providerOptions: {
-                    codesandbox: {
-                        sandboxId,
-                        userId,
-                        initClient: true,
-                        getSession: async (sandboxId, userId) => {
-                            return api.sandbox.start.mutate({ sandboxId });
+            let provider;
+
+            if (resolvedProvider === CodeProvider.Cloudflare) {
+                provider = await createCodeProviderClient(CodeProvider.Cloudflare, {
+                    providerOptions: {
+                        cloudflare: {
+                            sandboxId,
+                            workerUrl: process.env.NEXT_PUBLIC_CF_SANDBOX_WORKER_URL || 'http://localhost:8787',
                         },
                     },
-                },
-            });
+                });
+            } else if (resolvedProvider === CodeProvider.NodeFs) {
+                provider = await createCodeProviderClient(CodeProvider.NodeFs, {
+                    providerOptions: {
+                        nodefs: { rootDir: sandboxId },
+                    },
+                });
+            } else {
+                provider = await createCodeProviderClient(CodeProvider.CodeSandbox, {
+                    providerOptions: {
+                        codesandbox: {
+                            sandboxId,
+                            userId,
+                            initClient: true,
+                            getSession: async (sandboxId, userId) => {
+                                return api.sandbox.start.mutate({ sandboxId });
+                            },
+                        },
+                    },
+                });
+            }
 
             this.provider = provider;
             await this.createTerminalSessions(provider);
@@ -103,9 +128,13 @@ export class SessionManager {
         return 'Dev server not found';
     }
 
+
+
     getTerminalSession(id: string) {
         return this.terminalSessions.get(id) as TerminalSession | undefined;
     }
+
+    onExpoUrlDetected?: (url: string) => void;
 
     async createTerminalSessions(provider: Provider) {
         const task = new CLISessionImpl(
@@ -113,6 +142,7 @@ export class SessionManager {
             CLISessionType.TASK,
             provider,
             this.errorManager,
+            { onExpoUrlDetected: (url) => this.onExpoUrlDetected?.(url) },
         );
         this.terminalSessions.set(task.id, task);
         const terminal = new CLISessionImpl(

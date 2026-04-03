@@ -22,6 +22,7 @@ export const createDefaultBranch = (
         gitCommitSha: null,
         gitRepoUrl: null,
         sandboxId,
+        providerType: 'code_sandbox',
         ...overrides,
     };
 };  

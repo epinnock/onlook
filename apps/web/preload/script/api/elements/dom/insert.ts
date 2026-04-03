@@ -1,4 +1,4 @@
-import { EditorAttributes, INLINE_ONLY_CONTAINERS } from '@onlook/constants';
+import { EditorAttributes, getDomFallbackTagForReactNative, INLINE_ONLY_CONTAINERS } from '@onlook/constants';
 import type { DomElement, LayerNode } from '@onlook/models';
 import type { ActionElement, ActionLocation } from '@onlook/models/actions';
 import { assertNever, getHtmlElement } from '../../../helpers';
@@ -127,7 +127,7 @@ export function insertElement(
 }
 
 export function createElement(element: ActionElement) {
-    const newEl = document.createElement(element.tagName);
+    const newEl = document.createElement(getDomFallbackTagForReactNative(element.tagName));
     newEl.setAttribute(EditorAttributes.DATA_ONLOOK_INSERTED, 'true');
 
     for (const [key, value] of Object.entries(element.attributes)) {
@@ -135,7 +135,11 @@ export function createElement(element: ActionElement) {
     }
 
     if (element.textContent !== null && element.textContent !== undefined) {
-        newEl.textContent = element.textContent;
+        if (newEl instanceof HTMLInputElement) {
+            newEl.value = element.textContent;
+        } else {
+            newEl.textContent = element.textContent;
+        }
     }
 
     for (const [key, value] of Object.entries(element.styles)) {

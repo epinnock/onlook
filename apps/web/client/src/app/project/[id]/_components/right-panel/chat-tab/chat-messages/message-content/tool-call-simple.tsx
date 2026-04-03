@@ -3,6 +3,7 @@ import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from '@onlook/ui
 import { Icons } from '@onlook/ui/icons';
 import type { ToolUIPart } from 'ai';
 import { memo } from 'react';
+import { parseMcpToolName } from '../../code-display/mcp-app-utils';
 
 const ToolCallSimpleComponent = ({
     toolPart,
@@ -15,8 +16,15 @@ const ToolCallSimpleComponent = ({
 }) => {
     const toolName = toolPart.type.split('-')[1] ?? '';
     const ToolClass = TOOLS_MAP.get(toolName);
-    const Icon = ToolClass?.icon ?? Icons.QuestionMarkCircled;
-    const title = ToolClass ? getToolLabel(ToolClass, toolPart.input) : getDefaultToolLabel(toolName);
+
+    // Use Globe icon for MCP tools, otherwise use the tool's icon or fallback
+    const isMcpTool = toolName.startsWith('mcp_');
+    const Icon = isMcpTool ? Icons.Globe : (ToolClass?.icon ?? Icons.QuestionMarkCircled);
+    const title = ToolClass
+        ? getToolLabel(ToolClass, toolPart.input)
+        : isMcpTool
+            ? getMcpToolLabel(toolName)
+            : getDefaultToolLabel(toolName);
 
     return (
         <Tool className={className}>
@@ -33,6 +41,15 @@ export const ToolCallSimple = memo(ToolCallSimpleComponent);
 
 function getDefaultToolLabel(toolName: string): string {
     return toolName?.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function getMcpToolLabel(toolName: string): string {
+    const parsed = parseMcpToolName(toolName);
+    if (!parsed) {
+        return getDefaultToolLabel(toolName);
+    }
+    const formattedTool = parsed.originalToolName.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    return `${parsed.serverName}: ${formattedTool}`;
 }
 
 function getToolLabel(toolClass: typeof BaseTool, input: unknown): string {

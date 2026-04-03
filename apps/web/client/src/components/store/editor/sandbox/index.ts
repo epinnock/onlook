@@ -1,6 +1,6 @@
 import { CodeProviderSync } from '@/services/sync-engine/sync-engine';
 import type { Provider } from '@onlook/code-provider';
-import { EXCLUDED_SYNC_PATHS } from '@onlook/constants';
+import { EXCLUDED_SYNC_PATHS, ProjectType } from '@onlook/constants';
 import type { CodeFileSystem } from '@onlook/file-system';
 import { type FileEntry } from '@onlook/file-system';
 import type { Branch, RouterConfig } from '@onlook/models';
@@ -9,7 +9,11 @@ import type { EditorEngine } from '../engine';
 import type { ErrorManager } from '../error';
 import { GitManager } from '../git';
 import { detectRouterConfig } from '../pages/helper';
-import { copyPreloadScriptToPublic, getLayoutPath as detectLayoutPath } from './preload-script';
+import {
+    copyPreloadScriptToPublic,
+    detectProjectTypeFromProvider,
+    getLayoutPath as detectLayoutPath,
+} from './preload-script';
 import { SessionManager } from './session';
 
 export enum PreloadScriptState {
@@ -24,6 +28,8 @@ export class SandboxManager {
     private sync: CodeProviderSync | null = null;
     preloadScriptState: PreloadScriptState = PreloadScriptState.NOT_INJECTED
     routerConfig: RouterConfig | null = null;
+    projectType: ProjectType | null = null;
+    expoTunnelUrl: string | null = null;
 
     constructor(
         private branch: Branch,
@@ -32,6 +38,9 @@ export class SandboxManager {
         private readonly fs: CodeFileSystem,
     ) {
         this.session = new SessionManager(this.branch, this.errorManager);
+        this.session.onExpoUrlDetected = (url) => {
+            this.expoTunnelUrl = url;
+        };
         this.gitManager = new GitManager(this);
         makeAutoObservable(this);
     }
@@ -73,6 +82,17 @@ export class SandboxManager {
         return this.routerConfig;
     }
 
+    async getProjectType(): Promise<ProjectType> {
+        if (this.projectType) {
+            return this.projectType;
+        }
+        if (!this.session.provider) {
+            throw new Error('Provider not initialized');
+        }
+        this.projectType = await detectProjectTypeFromProvider(this.session.provider, this.branch.sandbox.id);
+        return this.projectType;
+    }
+
     async initializeSyncEngine(provider: Provider) {
         if (this.sync) {
             this.sync.release();
@@ -85,13 +105,23 @@ export class SandboxManager {
 
         await this.sync.start();
         await this.ensurePreloadScriptExists();
+
+        // Set Expo mode on the file system so OIDs use dataSet prop
+        const projectType = await this.getProjectType();
+        if (projectType === ProjectType.EXPO) {
+            console.log('[SandboxManager] Setting Expo mode on CodeFileSystem for dataSet OIDs');
+            this.fs.setExpoMode(true);
+        }
+
         await this.fs.rebuildIndex();
     }
 
     private async ensurePreloadScriptExists(): Promise<void> {
         try {
+            console.log('[SandboxManager] ensurePreloadScriptExists: current state =', this.preloadScriptState);
             if (this.preloadScriptState !== PreloadScriptState.NOT_INJECTED
             ) {
+                console.log('[SandboxManager] Skipping — already', this.preloadScriptState);
                 return;
             }
 
@@ -101,17 +131,20 @@ export class SandboxManager {
                 throw new Error('No provider available for preload script injection');
             }
 
-            const routerConfig = await this.getRouterConfig();
-            if (!routerConfig) {
-                throw new Error('No router config found for preload script injection');
-            }
+            const projectType = await this.getProjectType();
+            console.log('[SandboxManager] Detected projectType:', projectType);
 
-            await copyPreloadScriptToPublic(this.session.provider, routerConfig);
+            const routerConfig = projectType === ProjectType.NEXTJS
+                ? await this.getRouterConfig()
+                : null;
+            console.log('[SandboxManager] routerConfig:', routerConfig ? JSON.stringify(routerConfig) : 'null (Expo)');
+
+            console.log('[SandboxManager] Calling copyPreloadScriptToPublic...');
+            await copyPreloadScriptToPublic(this.session.provider, projectType, routerConfig, this.branch.sandbox.id);
             this.preloadScriptState = PreloadScriptState.INJECTED
+            console.log('[SandboxManager] Preload script state set to INJECTED');
         } catch (error) {
             console.error('[SandboxManager] Failed to ensure preload script exists:', error);
-            // Mark as injected to prevent blocking frames indefinitely
-            // Frames will handle the missing preload script gracefully
             this.preloadScriptState = PreloadScriptState.NOT_INJECTED
         }
     }
@@ -219,6 +252,8 @@ export class SandboxManager {
         this.sync?.release();
         this.sync = null;
         this.preloadScriptState = PreloadScriptState.NOT_INJECTED
+        this.projectType = null;
+        this.routerConfig = null;
         this.session.clear();
     }
 }

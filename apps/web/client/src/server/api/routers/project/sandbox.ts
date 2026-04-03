@@ -39,6 +39,61 @@ function getProvider({
 }
 
 export const sandboxRouter = createTRPCRouter({
+    createLocal: protectedProcedure
+        .input(
+            z.object({
+                template: z.enum(['expo', 'nextjs']),
+                name: z.string().optional(),
+            }),
+        )
+        .mutation(async ({ input }) => {
+            const os = await import('node:os');
+            const fs = await import('node:fs/promises');
+            const path = await import('node:path');
+            const { execSync } = await import('node:child_process');
+
+            const projectId = `${input.name || input.template}-${Date.now()}`;
+            const projectsDir = path.join(os.homedir(), '.scry', 'projects');
+            const projectDir = path.join(projectsDir, projectId);
+
+            await fs.mkdir(projectDir, { recursive: true });
+
+            const port = input.template === 'expo' ? 8081 : 3000;
+
+            try {
+                if (input.template === 'expo') {
+                    execSync(
+                        `npx create-expo-app@latest ${projectDir} --template blank --no-install`,
+                        { encoding: 'utf-8', timeout: 60000, stdio: 'pipe' },
+                    );
+                    // Install dependencies
+                    execSync('npm install', {
+                        cwd: projectDir,
+                        encoding: 'utf-8',
+                        timeout: 120000,
+                        stdio: 'pipe',
+                    });
+                } else {
+                    execSync(
+                        `npx create-next-app@latest ${projectDir} --ts --tailwind --eslint --app --src-dir --no-import-alias --no-turbopack --use-npm`,
+                        { encoding: 'utf-8', timeout: 120000, stdio: 'pipe' },
+                    );
+                }
+            } catch (error) {
+                // Clean up on failure
+                await fs.rm(projectDir, { recursive: true, force: true }).catch(() => {});
+                throw new TRPCError({
+                    code: 'INTERNAL_SERVER_ERROR',
+                    message: `Failed to scaffold project: ${error instanceof Error ? error.message : String(error)}`,
+                });
+            }
+
+            return {
+                sandboxId: projectDir,
+                previewUrl: `http://localhost:${port}`,
+            };
+        }),
+
     create: protectedProcedure
         .input(
             z.object({
@@ -49,8 +104,8 @@ export const sandboxRouter = createTRPCRouter({
             // Create a new sandbox using the static provider
             const CodesandboxProvider = await getStaticCodeProvider(CodeProvider.CodeSandbox);
 
-            // Use the empty Next.js template
-            const template = SandboxTemplates[Templates.EMPTY_NEXTJS];
+            // Use the Expo Web template
+            const template = SandboxTemplates[Templates.EXPO_WEB];
 
             const newSandbox = await CodesandboxProvider.createProject({
                 source: 'template',
@@ -62,7 +117,7 @@ export const sandboxRouter = createTRPCRouter({
 
             return {
                 sandboxId: newSandbox.id,
-                previewUrl: getSandboxPreviewUrl(newSandbox.id, template.port),
+                previewUrl: getSandboxPreviewUrl('code_sandbox', newSandbox.id, template.port),
             };
         }),
 
@@ -142,7 +197,7 @@ export const sandboxRouter = createTRPCRouter({
                         tags: input.config?.tags,
                     });
 
-                    const previewUrl = getSandboxPreviewUrl(sandbox.id, input.sandbox.port);
+                    const previewUrl = getSandboxPreviewUrl('code_sandbox', sandbox.id, input.sandbox.port);
 
                     return {
                         sandboxId: sandbox.id,
@@ -202,7 +257,7 @@ export const sandboxRouter = createTRPCRouter({
                         branch: input.branch,
                     });
 
-                    const previewUrl = getSandboxPreviewUrl(sandbox.id, DEFAULT_PORT);
+                    const previewUrl = getSandboxPreviewUrl('code_sandbox', sandbox.id, DEFAULT_PORT);
 
                     return {
                         sandboxId: sandbox.id,

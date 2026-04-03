@@ -3,6 +3,7 @@
 import { useAuthContext } from '@/app/auth/auth-context';
 import { CurrentUserAvatar } from '@/components/ui/avatar-dropdown';
 import { transKeys } from '@/i18n/keys';
+import { isProviderEnabled } from '@/lib/feature-flags';
 import { api } from '@/trpc/react';
 import { LocalForageKeys, Routes } from '@/utils/constants';
 import { SandboxTemplates, Templates } from '@onlook/constants';
@@ -11,6 +12,7 @@ import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
+    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@onlook/ui/dropdown-menu';
 import { Icons } from '@onlook/ui/icons';
@@ -45,7 +47,8 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
     // API hooks
     const { data: user } = api.user.get.useQuery();
     const { mutateAsync: forkSandbox } = api.sandbox.fork.useMutation();
-    const { mutateAsync: createFromGitHub } = api.sandbox.createFromGitHub.useMutation();
+    const { mutateAsync: createLocalSandbox } = api.sandbox.createLocal.useMutation();
+    const { mutateAsync: createCfSandbox } = api.cfSandbox.create.useMutation();
     const { mutateAsync: createProject } = api.project.create.useMutation();
     const { setIsAuthModalOpen } = useAuthContext();
 
@@ -114,7 +117,49 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
         };
     }, [onSearchChange]);
 
-    const handleStartBlankProject = async () => {
+    const handleCreateLocalProject = async (template: 'expo' | 'nextjs') => {
+        if (!user?.id) {
+            await localforage.setItem(LocalForageKeys.RETURN_URL, window.location.pathname);
+            setIsAuthModalOpen(true);
+            return;
+        }
+
+        setIsCreatingProject(true);
+        try {
+            toast.info(`Scaffolding ${template === 'expo' ? 'Expo' : 'Next.js'} project locally...`, {
+                description: 'This may take a minute',
+            });
+
+            const { sandboxId, previewUrl } = await createLocalSandbox({
+                template,
+                name: 'New Project',
+            });
+
+            const newProject = await createProject({
+                project: {
+                    name: 'New Project',
+                    description: `Local ${template} project`,
+                    tags: ['local', template],
+                },
+                sandboxId,
+                sandboxUrl: previewUrl,
+                userId: user.id,
+            });
+
+            if (newProject) {
+                router.push(`${Routes.PROJECT}/${newProject.id}`);
+            }
+        } catch (error) {
+            console.error('Error creating local project:', error);
+            toast.error('Failed to create local project', {
+                description: error instanceof Error ? error.message : String(error),
+            });
+        } finally {
+            setIsCreatingProject(false);
+        }
+    };
+
+    const handleStartBlankProject = async (template: Templates) => {
         if (!user?.id) {
             // Store the return URL and open auth modal
             await localforage.setItem(LocalForageKeys.RETURN_URL, window.location.pathname);
@@ -124,12 +169,12 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
 
         setIsCreatingProject(true);
         try {
-            // Create a blank project using the BLANK template
+            const isExpo = template === Templates.EXPO_WEB;
             const { sandboxId, previewUrl } = await forkSandbox({
-                sandbox: SandboxTemplates[Templates.EMPTY_NEXTJS],
+                sandbox: SandboxTemplates[template],
                 config: {
                     title: `Blank project - ${user.id}`,
-                    tags: ['blank', user.id],
+                    tags: ['blank', isExpo ? 'expo' : 'nextjs', user.id],
                 },
             });
 
@@ -165,7 +210,7 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
         }
     };
 
-    const handleCreateExpoProject = async () => {
+    const handleCreateCloudflare = async (template: 'expo' | 'nextjs') => {
         if (!user?.id) {
             await localforage.setItem(LocalForageKeys.RETURN_URL, window.location.pathname);
             setIsAuthModalOpen(true);
@@ -174,21 +219,20 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
 
         setIsCreatingProject(true);
         try {
-            toast.info('Creating Expo project...', {
-                description: 'Cloning template from GitHub. This may take a minute.',
+            toast.info(`Creating ${template === 'expo' ? 'Expo' : 'Next.js'} project on Cloudflare...`, {
+                description: 'This may take a minute',
             });
 
-            const { sandboxId, previewUrl } = await createFromGitHub({
-                repoUrl: 'https://github.com/epinnock/playful-green-cashew',
-                branch: 'main',
-                port: 8081,
+            const { sandboxId, previewUrl } = await createCfSandbox({
+                template,
+                name: 'New Project',
             });
 
             const newProject = await createProject({
                 project: {
                     name: 'New Project',
-                    description: 'Expo / React Native project',
-                    tags: ['expo', 'react-native'],
+                    description: `Cloudflare ${template} project`,
+                    tags: ['cloudflare', template],
                 },
                 sandboxId,
                 sandboxUrl: previewUrl,
@@ -199,18 +243,10 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
                 router.push(`${Routes.PROJECT}/${newProject.id}`);
             }
         } catch (error) {
-            console.error('Error creating Expo project:', error);
-            const errorMessage = error instanceof Error ? error.message : String(error);
-
-            if (errorMessage.includes('502') || errorMessage.includes('sandbox')) {
-                toast.error('Sandbox service temporarily unavailable', {
-                    description: 'Please try again in a few moments.',
-                });
-            } else {
-                toast.error('Failed to create project', {
-                    description: errorMessage,
-                });
-            }
+            console.error('Error creating Cloudflare project:', error);
+            toast.error('Failed to create project', {
+                description: error instanceof Error ? error.message : String(error),
+            });
         } finally {
             setIsCreatingProject(false);
         }
@@ -278,6 +314,47 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
                         </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent sideOffset={8} className="translate-x-[-12px]">
+                        {isProviderEnabled('cloudflare') && (
+                            <>
+                                <DropdownMenuItem
+                                    className={cn(
+                                        'focus:bg-orange-100 focus:text-orange-900',
+                                        'hover:bg-orange-100 hover:text-orange-900',
+                                        'dark:focus:bg-orange-900 dark:focus:text-orange-100',
+                                        'dark:hover:bg-orange-900 dark:hover:text-orange-100',
+                                        'cursor-pointer select-none group',
+                                    )}
+                                    onSelect={() => handleCreateCloudflare('nextjs')}
+                                    disabled={isCreatingProject}
+                                >
+                                    {isCreatingProject ? (
+                                        <Icons.LoadingSpinner className="w-4 h-4 mr-1 animate-spin text-foreground-secondary group-hover:text-orange-100" />
+                                    ) : (
+                                        <Icons.FilePlus className="w-4 h-4 mr-1 text-foreground-secondary group-hover:text-orange-100" />
+                                    )}
+                                    Next.js (Cloud)
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                    className={cn(
+                                        'focus:bg-orange-100 focus:text-orange-900',
+                                        'hover:bg-orange-100 hover:text-orange-900',
+                                        'dark:focus:bg-orange-900 dark:focus:text-orange-100',
+                                        'dark:hover:bg-orange-900 dark:hover:text-orange-100',
+                                        'cursor-pointer select-none group',
+                                    )}
+                                    onSelect={() => handleCreateCloudflare('expo')}
+                                    disabled={isCreatingProject}
+                                >
+                                    {isCreatingProject ? (
+                                        <Icons.LoadingSpinner className="w-4 h-4 mr-1 animate-spin text-foreground-secondary group-hover:text-orange-100" />
+                                    ) : (
+                                        <Icons.FilePlus className="w-4 h-4 mr-1 text-foreground-secondary group-hover:text-orange-100" />
+                                    )}
+                                    Expo / RN (Cloud)
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                            </>
+                        )}
                         <DropdownMenuItem
                             className={cn(
                                 'focus:bg-blue-100 focus:text-blue-900',
@@ -286,7 +363,7 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
                                 'dark:hover:bg-blue-900 dark:hover:text-blue-100',
                                 'cursor-pointer select-none group',
                             )}
-                            onSelect={handleStartBlankProject}
+                            onSelect={() => handleStartBlankProject(Templates.EMPTY_NEXTJS)}
                             disabled={isCreatingProject}
                         >
                             {isCreatingProject ? (
@@ -294,7 +371,7 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
                             ) : (
                                 <Icons.FilePlus className="w-4 h-4 mr-1 text-foreground-secondary group-hover:text-blue-100" />
                             )}
-                            {t(transKeys.projects.actions.blankProject)}
+                            Next.js Project
                         </DropdownMenuItem>
                         <DropdownMenuItem
                             className={cn(
@@ -304,7 +381,7 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
                                 'dark:hover:bg-violet-900 dark:hover:text-violet-100',
                                 'cursor-pointer select-none group',
                             )}
-                            onSelect={handleCreateExpoProject}
+                            onSelect={() => handleStartBlankProject(Templates.EXPO_WEB)}
                             disabled={isCreatingProject}
                         >
                             {isCreatingProject ? (
@@ -312,8 +389,38 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
                             ) : (
                                 <Icons.FilePlus className="w-4 h-4 mr-1 text-foreground-secondary group-hover:text-violet-100" />
                             )}
-                            <p className="text-microPlus">Expo / React Native</p>
+                            Expo / React Native
                         </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                            className={cn(
+                                'focus:bg-emerald-100 focus:text-emerald-900',
+                                'hover:bg-emerald-100 hover:text-emerald-900',
+                                'dark:focus:bg-emerald-900 dark:focus:text-emerald-100',
+                                'dark:hover:bg-emerald-900 dark:hover:text-emerald-100',
+                                'cursor-pointer select-none group',
+                            )}
+                            onSelect={() => handleCreateLocalProject('nextjs')}
+                            disabled={isCreatingProject}
+                        >
+                            <Icons.FilePlus className="w-4 h-4 mr-1 text-foreground-secondary group-hover:text-emerald-100" />
+                            Next.js (Local)
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            className={cn(
+                                'focus:bg-emerald-100 focus:text-emerald-900',
+                                'hover:bg-emerald-100 hover:text-emerald-900',
+                                'dark:focus:bg-emerald-900 dark:focus:text-emerald-100',
+                                'dark:hover:bg-emerald-900 dark:hover:text-emerald-100',
+                                'cursor-pointer select-none group',
+                            )}
+                            onSelect={() => handleCreateLocalProject('expo')}
+                            disabled={isCreatingProject}
+                        >
+                            <Icons.FilePlus className="w-4 h-4 mr-1 text-foreground-secondary group-hover:text-emerald-100" />
+                            Expo / React Native (Local)
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
                         <DropdownMenuItem
                             className={cn(
                                 'focus:bg-teal-100 focus:text-teal-900',

@@ -17,6 +17,7 @@ import {
     utilsRouter,
 } from './routers';
 import { branchRouter } from './routers/project/branch';
+import { cfSandboxRouter } from './routers/project/cf-sandbox';
 
 /**
  * This is the primary router for your server.
@@ -25,6 +26,7 @@ import { branchRouter } from './routers/project/branch';
  */
 export const appRouter = createTRPCRouter({
     sandbox: sandboxRouter,
+    cfSandbox: cfSandboxRouter,
     user: userRouter,
     invitation: invitationRouter,
     project: projectRouter,

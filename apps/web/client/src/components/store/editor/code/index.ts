@@ -25,15 +25,19 @@ export class CodeManager {
 
     async write(action: Action) {
         try {
+            console.log(`[CodeManager] write() called, action.type=${action.type}`);
             // TODO: This is a hack to write code, we should refactor this
             if (action.type === 'write-code' && action.diffs[0]) {
                 // Write-code actions don't have branch context, use active editor
+                console.log(`[CodeManager] Writing file via fileSystem: ${action.diffs[0].path} (${action.diffs[0].generated.length} chars)`);
                 await this.editorEngine.fileSystem.writeFile(
                     action.diffs[0].path,
                     action.diffs[0].generated,
                 );
+                console.log(`[CodeManager] fileSystem.writeFile completed for ${action.diffs[0].path}`);
             } else {
                 const requests = await this.collectRequests(action);
+                console.log(`[CodeManager] Collected ${requests.length} requests for action ${action.type}`);
                 await this.writeRequest(requests);
             }
         } catch (error) {
@@ -64,7 +68,9 @@ export class CodeManager {
                 throw new Error(`Branch not found for ID: ${firstRequest.branchId}`);
             }
 
+            console.log(`[CodeManager] writeRequest: writing ${diff.path} via branchData.codeEditor (${diff.generated.length} chars)`);
             await branchData.codeEditor.writeFile(diff.path, diff.generated);
+            console.log(`[CodeManager] writeRequest: completed ${diff.path}`);
         }
     }
 

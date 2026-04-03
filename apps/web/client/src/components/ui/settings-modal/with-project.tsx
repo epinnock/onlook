@@ -12,6 +12,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import DomainTab from './domain';
 import { SettingsTabValue, type SettingTab } from './helpers';
+import { McpServersTab } from './mcp-servers';
 import { PreferencesTab } from './preferences-tab';
 import { ProjectTab } from './project';
 import { SiteTab } from './site';
@@ -96,6 +97,11 @@ export const SettingsModalWithProjects = observer(() => {
             label: SettingsTabValue.VERSIONS,
             icon: <Icons.Code className="mr-2 h-4 w-4" />,
             component: <VersionsTab />,
+        },
+        {
+            label: SettingsTabValue.MCP_SERVERS,
+            icon: <Icons.Globe className="mr-2 h-4 w-4" />,
+            component: <McpServersTab />,
         },
     ];
 

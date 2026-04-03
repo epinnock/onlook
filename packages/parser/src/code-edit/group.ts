@@ -1,10 +1,10 @@
-import type { CodeGroup, CodeUngroup } from '@onlook/models/actions';
+import type { CodeGroup, CodeInsert, CodeUngroup } from '@onlook/models/actions';
 import { CodeActionType } from '@onlook/models/actions';
 
 import type { NodePath, T } from '../packages';
 import { t } from '../packages';
 import { addKeyToElement, getOidFromJsxElement, jsxFilter } from './helpers';
-import { createInsertedElement, insertAtIndex } from './insert';
+import { createInsertedElement, ensureReactNativeImports, insertAtIndex } from './insert';
 import { removeElementAtIndex } from './remove';
 
 export function groupElementsInNode(path: NodePath<T.JSXElement>, element: CodeGroup): void {
@@ -29,7 +29,7 @@ export function groupElementsInNode(path: NodePath<T.JSXElement>, element: CodeG
         removeElementAtIndex(jsxElements.indexOf(targetChild), jsxElements, children);
     });
 
-    const container = createInsertedElement({
+    const containerInsert: CodeInsert = {
         type: CodeActionType.INSERT,
         textContent: null,
         pasteParams: {
@@ -48,7 +48,9 @@ export function groupElementsInNode(path: NodePath<T.JSXElement>, element: CodeG
             index: insertIndex,
             originalIndex: insertIndex,
         },
-    });
+    };
+    ensureReactNativeImports(path, containerInsert);
+    const container = createInsertedElement(containerInsert);
     container.children = targetChildren;
 
     addKeyToElement(container);

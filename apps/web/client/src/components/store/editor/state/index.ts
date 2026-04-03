@@ -4,7 +4,8 @@ import {
     ChatType,
     EditorMode,
     InsertMode,
-    type LeftPanelTabValue
+    type LeftPanelTabValue,
+    OPENROUTER_MODELS,
 } from '@onlook/models';
 import { debounce } from 'lodash';
 import { makeAutoObservable } from 'mobx';
@@ -25,6 +26,7 @@ export class StateManager {
     manageBranchId: string | null = null;
 
     chatMode: ChatType = ChatType.EDIT;
+    chatModel: OPENROUTER_MODELS = OPENROUTER_MODELS.CLAUDE_4_6_SONNET;
 
     constructor() {
         makeAutoObservable(this);
