@@ -5,7 +5,7 @@ import { CurrentUserAvatar } from '@/components/ui/avatar-dropdown';
 import { transKeys } from '@/i18n/keys';
 import { api } from '@/trpc/react';
 import { LocalForageKeys, Routes } from '@/utils/constants';
-import { SandboxTemplates, Templates } from '@onlook/constants';
+import { getPreviewUrl, SandboxTemplates, Templates } from '@onlook/constants';
 import { Button } from '@onlook/ui/button';
 import {
     DropdownMenu,
@@ -237,7 +237,7 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
                     tags: ['expo', 'snack'],
                 },
                 sandboxId,
-                sandboxUrl: `https://snack.expo.dev/embedded/@snack/${sandboxId}`,
+                sandboxUrl: getPreviewUrl(sandboxId, 0),
                 userId: user.id,
             });
 

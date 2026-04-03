@@ -1,4 +1,5 @@
 import type { SandboxTemplate } from '@onlook/models';
+import { getSnackWebPreviewUrl } from './snack';
 
 export enum Templates {
     BLANK = 'BLANK',
@@ -21,4 +22,18 @@ export const CSB_DOMAIN = 'csb.app';
 
 export function getSandboxPreviewUrl(sandboxId: string, port: number) {
     return `https://${sandboxId}-${port}.${CSB_DOMAIN}`;
+}
+
+/**
+ * Snack-aware preview URL resolver.
+ *
+ * If `sandboxId` starts with `"snack-"`, returns the Snack web player URL
+ * (port is ignored). Otherwise falls through to the CodeSandbox URL.
+ */
+export function getPreviewUrl(sandboxId: string, port: number): string {
+    if (sandboxId.startsWith('snack-')) {
+        const snackId = sandboxId.slice('snack-'.length);
+        return getSnackWebPreviewUrl(snackId);
+    }
+    return getSandboxPreviewUrl(sandboxId, port);
 }

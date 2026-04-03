@@ -48,11 +48,11 @@ describe('SNACK_BLANK_TEMPLATE', () => {
 describe('getSnackWebPreviewUrl', () => {
     it('returns the correct URL for a given snack ID', () => {
         const url = getSnackWebPreviewUrl('abc123');
-        expect(url).toBe('https://snack.expo.dev/embedded/@snack/abc123');
+        expect(url).toBe('https://snack.expo.dev/embedded/@snack/abc123?preview=true&platform=web');
     });
 
     it('handles IDs with special characters', () => {
         const url = getSnackWebPreviewUrl('my-snack_v2');
-        expect(url).toBe('https://snack.expo.dev/embedded/@snack/my-snack_v2');
+        expect(url).toBe('https://snack.expo.dev/embedded/@snack/my-snack_v2?preview=true&platform=web');
     });
 });

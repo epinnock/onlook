@@ -3,7 +3,7 @@ import { createTRPCRouter, protectedProcedure } from '@/server/api/trpc';
 import { trackEvent } from '@/utils/analytics/server';
 import FirecrawlApp from '@mendable/firecrawl-js';
 import { initModel } from '@onlook/ai';
-import { getSandboxPreviewUrl, STORAGE_BUCKETS } from '@onlook/constants';
+import { getPreviewUrl, STORAGE_BUCKETS } from '@onlook/constants';
 import {
     branches,
     canvases,
@@ -81,7 +81,7 @@ export const projectRouter = createTRPCRouter({
 
                 // Extract port from existing frame URL or fall back to 3000
                 const port = extractCsbPort(branch.frames) ?? 3000;
-                const url = getSandboxPreviewUrl(branch.sandboxId, port);
+                const url = getPreviewUrl(branch.sandboxId, port);
                 const app = new FirecrawlApp({ apiKey: env.FIRECRAWL_API_KEY });
 
                 // Optional: Add actions to click the button for CSB free tier

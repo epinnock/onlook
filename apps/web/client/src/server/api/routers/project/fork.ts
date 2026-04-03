@@ -1,7 +1,7 @@
 import { protectedProcedure } from '@/server/api/trpc';
 import { trackEvent } from '@/utils/analytics/server';
 import { CodeProvider, getStaticCodeProvider } from '@onlook/code-provider';
-import { getSandboxPreviewUrl, Tags } from '@onlook/constants';
+import { getPreviewUrl, Tags } from '@onlook/constants';
 import {
     branches,
     canvases,
@@ -71,7 +71,7 @@ async function forkAllBranches(
             tags: ['template-fork'],
         });
 
-        const newSandboxUrl = getSandboxPreviewUrl(newSandbox.id, 3000);
+        const newSandboxUrl = getPreviewUrl(newSandbox.id, 3000);
         const newBranch: Branch = {
             ...sourceBranch,
             id: uuidv4(),

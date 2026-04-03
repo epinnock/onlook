@@ -6,7 +6,7 @@ import {
     createCodeProviderClient,
     getStaticCodeProvider,
 } from '@onlook/code-provider';
-import { getSandboxPreviewUrl, SandboxTemplates, Templates } from '@onlook/constants';
+import { getPreviewUrl, SandboxTemplates, Templates } from '@onlook/constants';
 import { shortenUuid } from '@onlook/utility/src/id';
 
 import { createTRPCRouter, protectedProcedure } from '../../trpc';
@@ -62,7 +62,7 @@ export const sandboxRouter = createTRPCRouter({
 
             return {
                 sandboxId: newSandbox.id,
-                previewUrl: getSandboxPreviewUrl(newSandbox.id, template.port),
+                previewUrl: getPreviewUrl(newSandbox.id, template.port),
             };
         }),
 
@@ -142,7 +142,7 @@ export const sandboxRouter = createTRPCRouter({
                         tags: input.config?.tags,
                     });
 
-                    const previewUrl = getSandboxPreviewUrl(sandbox.id, input.sandbox.port);
+                    const previewUrl = getPreviewUrl(sandbox.id, input.sandbox.port);
 
                     return {
                         sandboxId: sandbox.id,
@@ -202,7 +202,7 @@ export const sandboxRouter = createTRPCRouter({
                         branch: input.branch,
                     });
 
-                    const previewUrl = getSandboxPreviewUrl(sandbox.id, DEFAULT_PORT);
+                    const previewUrl = getPreviewUrl(sandbox.id, DEFAULT_PORT);
 
                     return {
                         sandboxId: sandbox.id,

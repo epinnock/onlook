@@ -3,7 +3,7 @@
 import { useAuthContext } from '@/app/auth/auth-context';
 import { api } from '@/trpc/react';
 import { LocalForageKeys, Routes } from '@/utils/constants';
-import { getSandboxPreviewUrl } from '@onlook/constants';
+import { getPreviewUrl } from '@onlook/constants';
 import type { Project, User } from '@onlook/models';
 import { Button } from '@onlook/ui/button';
 import {
@@ -102,7 +102,7 @@ export function TemplateModal({
             return;
         }
 
-        const sandboxUrl = getSandboxPreviewUrl(branches[0].sandbox.id, 3000);
+        const sandboxUrl = getPreviewUrl(branches[0].sandbox.id, 3000);
         window.open(sandboxUrl, '_blank');
     }
 

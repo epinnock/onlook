@@ -1,5 +1,5 @@
 import { CodeProvider, getStaticCodeProvider } from '@onlook/code-provider';
-import { getSandboxPreviewUrl, SandboxTemplates, Templates } from '@onlook/constants';
+import { getPreviewUrl, SandboxTemplates, Templates } from '@onlook/constants';
 import { branches, branchInsertSchema, branchUpdateSchema, canvases, createDefaultFrame, frames, fromDbBranch, fromDbFrame } from '@onlook/db';
 import type { Frame } from '@onlook/models';
 import { calculateNonOverlappingPosition, generateUniqueBranchName } from '@onlook/utility';
@@ -126,7 +126,7 @@ export const branchRouter = createTRPCRouter({
                 const sandboxId = forkedSandbox.id;
                 // Extract port from source branch frames or fall back to 3000
                 const port = extractCsbPort(sourceBranch.frames) ?? 3000;
-                const previewUrl = getSandboxPreviewUrl(sandboxId, port);
+                const previewUrl = getPreviewUrl(sandboxId, port);
 
                 // Create new branch
                 const newBranchId = uuidv4();
@@ -270,7 +270,7 @@ export const branchRouter = createTRPCRouter({
                     // Extract port from existing project frames or fall back to 3000
                     const allFrames = existingBranches.flatMap(branch => branch.frames || []);
                     const port = extractCsbPort(allFrames) ?? 3000;
-                    const previewUrl = getSandboxPreviewUrl(sandboxId, port);
+                    const previewUrl = getPreviewUrl(sandboxId, port);
 
                     // Create new branch
                     const newBranchId = uuidv4();

@@ -9,6 +9,10 @@ export function extractCsbPort(frames: Frame[]): number | null {
 
     for (const frame of frames) {
         if (frame.url) {
+            // Snack preview URLs have no port — skip them
+            if (frame.url.includes('snack.expo.dev')) {
+                continue;
+            }
             // Match CSB preview URL pattern: https://sandboxId-port.csb.app
             const match = frame.url.match(/https:\/\/[^-]+-(\d+)\.csb\.app/);
             if (match && match[1]) {
