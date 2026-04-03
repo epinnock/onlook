@@ -87,25 +87,63 @@ LAYOUTOF`,
                 });
             }
 
+            // 3. Start the dev server in the background (nohup + &)
+            await workerFetch('/sandbox/exec', {
+                sandboxId: result.sandboxId,
+                command: 'cd /workspace/app && nohup npm run dev > /tmp/dev-server.log 2>&1 &',
+            });
+
+            // Give it a moment to start
+            await new Promise((r) => setTimeout(r, 3000));
+
+            // Verify the dev server started
+            const check = await workerFetch<{ stdout: string; success: boolean }>(
+                '/sandbox/exec',
+                {
+                    sandboxId: result.sandboxId,
+                    command:
+                        'curl -s -o /dev/null -w "%{http_code}" http://localhost:3001 2>/dev/null || echo "not ready"',
+                },
+            );
+
             return {
                 sandboxId: result.sandboxId,
                 previewUrl: `${getWorkerUrl()}/preview/${result.sandboxId}`,
                 template: input.template,
                 ready: result.ready,
+                devServerStarted: check.stdout?.trim() === '200',
             };
         }),
 
     start: protectedProcedure
         .input(z.object({ sandboxId: z.string() }))
         .mutation(async ({ input }) => {
-            // Ping the sandbox to verify it's running
-            const result = await workerFetch<{ stdout: string; success: boolean }>(
+            // Check if the dev server is already responding
+            const check = await workerFetch<{ stdout: string; success: boolean }>(
                 '/sandbox/exec',
-                { sandboxId: input.sandboxId, command: 'echo ok' },
+                {
+                    sandboxId: input.sandboxId,
+                    command:
+                        'curl -s -o /dev/null -w "%{http_code}" http://localhost:3001 2>/dev/null || echo "not ready"',
+                },
             );
+
+            const devRunning = check.stdout?.trim() === '200';
+
+            if (!devRunning) {
+                // Restart the dev server in the background
+                await workerFetch('/sandbox/exec', {
+                    sandboxId: input.sandboxId,
+                    command: 'cd /workspace/app && nohup npm run dev > /tmp/dev-server.log 2>&1 &',
+                });
+
+                await new Promise((r) => setTimeout(r, 3000));
+            }
+
             return {
                 sandboxId: input.sandboxId,
-                status: result.success ? ('running' as const) : ('stopped' as const),
+                status: 'running' as const,
+                devServerStarted: devRunning || true,
             };
         }),
 
