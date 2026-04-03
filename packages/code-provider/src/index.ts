@@ -1,10 +1,12 @@
 import { CodeProvider } from './providers';
 import { CodesandboxProvider, type CodesandboxProviderOptions } from './providers/codesandbox';
 import { NodeFsProvider, type NodeFsProviderOptions } from './providers/nodefs';
+import { SnackProvider } from './providers/snack';
 import type { SnackProviderOptions } from './providers/snack/types';
 export * from './providers';
 export { CodesandboxProvider } from './providers/codesandbox';
 export { NodeFsProvider } from './providers/nodefs';
+export { SnackProvider } from './providers/snack';
 export * from './types';
 
 export interface CreateClientOptions {
@@ -34,6 +36,10 @@ export async function getStaticCodeProvider(
     if (codeProvider === CodeProvider.NodeFs) {
         return NodeFsProvider;
     }
+
+    if (codeProvider === CodeProvider.ExpoSnack) {
+        return SnackProvider as any;
+    }
     throw new Error(`Unimplemented code provider: ${codeProvider}`);
 }
 
@@ -56,6 +62,13 @@ function newProviderInstance(codeProvider: CodeProvider, providerOptions: Provid
             throw new Error('NodeFs provider options are required.');
         }
         return new NodeFsProvider(providerOptions.nodefs);
+    }
+
+    if (codeProvider === CodeProvider.ExpoSnack) {
+        if (!providerOptions.snack) {
+            throw new Error('Snack provider options are required.');
+        }
+        return new SnackProvider(providerOptions.snack) as any;
     }
 
     throw new Error(`Unimplemented code provider: ${codeProvider}`);
