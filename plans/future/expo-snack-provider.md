@@ -291,13 +291,18 @@ Unlike CodeSandbox (which needs server-side SDK + tRPC), Snack runs entirely cli
 - No Worker, no Docker, no server proxy
 - Reduces complexity significantly
 
-### 3. Preview via Snack Web Player
+### 3. Preview via Snack Web Player + Existing QR UI
 
 Snack's web player renders in an iframe:
 ```
 https://snack.expo.dev/embedded/@snack/{id}?preview=true&platform=web
 ```
 This replaces the `{sandboxId}-{port}.csb.app` pattern. No 502 errors, no privacy issues.
+
+For mobile preview, wire `snack.getUrlAsync()` into the existing QR code button at
+`apps/web/client/src/app/project/[id]/_components/bottom-bar/expo-qr-button.tsx`
+(from the `unified` branch). No new QR UI needed — just pass the Snack URL
+(`exp://exp.host/@snack/...`) to the existing component instead of the CSB tunnel URL.
 
 ### 4. File Sync Strategy
 
