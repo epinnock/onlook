@@ -1,26 +1,18 @@
 /**
- * Cloudflare Sandbox provider implementation.
+ * Cloudflare Sandbox provider — HTTP-based.
  *
- * The Cloudflare sandbox SDK (`@cloudflare/sandbox`) exposes a `Sandbox` Durable
- * Object and a companion `SandboxClient` HTTP client.  In production the
- * consumer accesses the sandbox through an RPC stub obtained via `getSandbox()`.
- * For simplicity the provider stores this reference as `ISandbox` (the public
- * interface) so it can be supplied by either the DO stub or a test double.
+ * Communicates with the Cloudflare Sandbox Worker via REST endpoints.
+ * The Worker handles the actual SDK interaction inside the Workers runtime.
  *
- * Where the real SDK API differs from the interfaces assumed by the Phase-1
- * utility files (which define their own lightweight contracts such as
- * `SandboxFilesAPI`), this provider bridges the gap by calling the SDK methods
- * directly rather than routing through the utility helpers.
+ * Worker endpoints used:
+ *   POST /sandbox/create   → create sandbox
+ *   POST /sandbox/exec     → execute command
+ *   POST /sandbox/file/read  → read file
+ *   POST /sandbox/file/write → write file
+ *   POST /sandbox/file/list  → list directory
+ *   POST /sandbox/file/mkdir → create directory
  */
 
-import type {
-    ISandbox,
-    ExecResult,
-    FileWatchSSEEvent,
-} from '@cloudflare/sandbox';
-import {
-    parseSSEStream,
-} from '@cloudflare/sandbox';
 import {
     Provider,
     ProviderFileWatcher,
@@ -75,611 +67,317 @@ import { CloudflareTerminal, CloudflareTask, CloudflareBackgroundCommand } from 
 import type { CloudflareSdkTerminal, CloudflareSdkTask, CloudflareSdkCommand } from './utils/terminal';
 
 // ---------------------------------------------------------------------------
+// HTTP helper
+// ---------------------------------------------------------------------------
+
+async function workerFetch<T>(workerUrl: string, path: string, body: Record<string, unknown>): Promise<T> {
+    const res = await fetch(`${workerUrl}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    const data = (await res.json()) as T & { error?: string };
+    if (data.error) throw new Error(data.error);
+    return data;
+}
+
+// ---------------------------------------------------------------------------
 // Provider
 // ---------------------------------------------------------------------------
 
 export class CloudflareSandboxProvider extends Provider {
-    /**
-     * The sandbox stub obtained via `getSandbox()` or injected directly.
-     * Typed as `ISandbox` which is the public interface of the Durable Object.
-     *
-     * Set during `initialize()`.
-     */
-    private sandbox: ISandbox | null = null;
+    private workerUrl: string;
+    private sandboxId: string;
 
     constructor(public readonly options: CloudflareProviderOptions) {
         super();
+        this.workerUrl = options.workerUrl || 'http://localhost:8787';
+        this.sandboxId = options.sandboxId || '';
+    }
+
+    private async exec(command: string): Promise<{ stdout: string; stderr: string; exitCode: number; success: boolean }> {
+        return workerFetch(this.workerUrl, '/sandbox/exec', {
+            sandboxId: this.sandboxId,
+            command,
+        });
     }
 
     // -- lifecycle -----------------------------------------------------------
 
     async initialize(_input: InitializeInput): Promise<InitializeOutput> {
-        if (!this.options.sandboxId) {
-            return {};
+        if (this.sandboxId) {
+            // Verify sandbox is reachable
+            try {
+                await this.exec('echo "init-ok"');
+            } catch (e) {
+                console.warn('CF sandbox not reachable during init:', e);
+            }
         }
-
-        // The sandbox stub is expected to be provided externally via options.
-        // In production, the caller obtains the stub using getSandbox() from
-        // a Cloudflare Worker and passes it into the provider options.
-        //
-        // If an `_sandboxStub` escape hatch is present on options, use it:
-        const stub = (this.options as CloudflareProviderOptionsInternal)._sandboxStub;
-        if (stub) {
-            this.sandbox = stub;
-        }
-
         return {};
     }
 
-    async setup(_input: SetupInput): Promise<SetupOutput> {
-        // No-op: the Cloudflare sandbox is ready once created.
-        return {};
-    }
-
-    async reload(): Promise<boolean> {
-        // Best-effort: restart the dev task by re-executing the start command.
-        // The Cloudflare SDK does not have a first-class "task" concept so we
-        // return false to indicate no reload action was taken.
-        return false;
-    }
-
-    async reconnect(): Promise<void> {
-        // The Cloudflare sandbox uses HTTP transport which is inherently
-        // reconnectable; no explicit reconnect step is needed.
-    }
+    async setup(_input: SetupInput): Promise<SetupOutput> { return {}; }
+    async reload(): Promise<boolean> { return false; }
+    async reconnect(): Promise<void> {}
 
     async ping(): Promise<boolean> {
-        if (!this.sandbox) {
-            return false;
-        }
         try {
-            const result = await this.sandbox.exec('echo "ping"');
-            return result.success;
-        } catch {
-            return false;
-        }
+            const r = await this.exec('echo "ping"');
+            return r.success;
+        } catch { return false; }
     }
 
     async destroy(): Promise<void> {
-        this.sandbox = null;
+        this.sandboxId = '';
     }
 
     // -- project management --------------------------------------------------
 
     static async createProject(_input: CreateProjectInput): Promise<CreateProjectOutput> {
-        // Cloudflare sandboxes are created through the Durable Object
-        // infrastructure (getSandbox). A standalone "create project" flow would
-        // involve creating the DO via the Worker binding, which requires env
-        // context unavailable in a static method.  Return a placeholder.
-        throw new Error(
-            'CloudflareSandboxProvider.createProject is not yet implemented. ' +
-            'Create sandboxes via your Cloudflare Worker using getSandbox().',
-        );
+        throw new Error('Use cfSandbox.create tRPC route instead.');
     }
 
-    static async createProjectFromGit(_input: {
-        repoUrl: string;
-        branch: string;
-    }): Promise<CreateProjectOutput> {
-        throw new Error(
-            'CloudflareSandboxProvider.createProjectFromGit is not yet implemented. ' +
-            'Clone repositories inside an existing sandbox via sandbox.gitCheckout().',
-        );
+    static async createProjectFromGit(_input: { repoUrl: string; branch: string }): Promise<CreateProjectOutput> {
+        throw new Error('Use cfSandbox.create tRPC route instead.');
     }
 
-    async pauseProject(_input: PauseProjectInput): Promise<PauseProjectOutput> {
-        // Cloudflare containers auto-sleep after the configured sleepAfter
-        // duration.  There is no explicit "pause" RPC.
-        return {};
-    }
+    async pauseProject(_input: PauseProjectInput): Promise<PauseProjectOutput> { return {}; }
+    async stopProject(_input: StopProjectInput): Promise<StopProjectOutput> { return {}; }
+    async listProjects(_input: ListProjectsInput): Promise<ListProjectsOutput> { return {}; }
 
-    async stopProject(_input: StopProjectInput): Promise<StopProjectOutput> {
-        if (this.sandbox) {
-            // Destroying the sandbox stops the container.
-            await this.sandbox.exec('exit 0').catch(() => {});
-        }
-        return {};
-    }
-
-    async listProjects(_input: ListProjectsInput): Promise<ListProjectsOutput> {
-        // The Cloudflare sandbox SDK does not expose a project listing endpoint;
-        // project management is handled at the Worker / DO namespace level.
-        return {};
-    }
-
-    // -- session -------------------------------------------------------------
-
-    async createSession(input: CreateSessionInput): Promise<CreateSessionOutput> {
-        if (!this.sandbox) {
-            throw new Error('Sandbox not initialized');
-        }
-        await this.sandbox.createSession({ id: input.args.id });
-        return {};
-    }
+    async createSession(_input: CreateSessionInput): Promise<CreateSessionOutput> { return {}; }
 
     // -- file operations -----------------------------------------------------
 
     async writeFile(input: WriteFileInput): Promise<WriteFileOutput> {
-        if (!this.sandbox) {
-            throw new Error('Sandbox not initialized');
-        }
-        try {
-            const content =
-                typeof input.args.content === 'string'
-                    ? input.args.content
-                    : new TextDecoder().decode(input.args.content);
-            await this.sandbox.writeFile(input.args.path, content);
-            return { success: true };
-        } catch (error) {
-            console.error(`Error writing file ${input.args.path}:`, error);
-            return { success: false };
-        }
+        await workerFetch(this.workerUrl, '/sandbox/file/write', {
+            sandboxId: this.sandboxId,
+            path: input.args.path,
+            content: input.args.content,
+        });
+        return {};
     }
 
     async readFile(input: ReadFileInput): Promise<ReadFileOutput> {
-        if (!this.sandbox) {
-            throw new Error('Sandbox not initialized');
-        }
-        const result = await this.sandbox.readFile(input.args.path);
-        if (!result.success) {
-            throw new Error(`Failed to read file ${input.args.path}`);
-        }
-        return {
-            file: {
-                path: input.args.path,
-                content: result.content,
-                type: 'text' as const,
-                toString: () => result.content,
-            },
-        };
+        const { content } = await workerFetch<{ content: string }>(this.workerUrl, '/sandbox/file/read', {
+            sandboxId: this.sandboxId,
+            path: input.args.path,
+        });
+        return { content };
     }
 
     async listFiles(input: ListFilesInput): Promise<ListFilesOutput> {
-        if (!this.sandbox) {
-            throw new Error('Sandbox not initialized');
-        }
-        const result = await this.sandbox.listFiles(input.args.path);
+        const { entries } = await workerFetch<{ entries: Array<{ name: string; type: string }> }>(
+            this.workerUrl, '/sandbox/file/list',
+            { sandboxId: this.sandboxId, path: input.args.path },
+        );
         return {
-            files: result.files.map((f) => ({
-                name: f.name,
-                type: f.type === 'symlink' || f.type === 'other' ? 'file' as const : f.type,
-                isSymlink: f.type === 'symlink',
+            files: entries.map(e => ({
+                path: `${input.args.path}/${e.name}`,
+                type: e.type as 'file' | 'directory',
             })),
         };
     }
 
     async deleteFiles(input: DeleteFilesInput): Promise<DeleteFilesOutput> {
-        if (!this.sandbox) {
-            throw new Error('Sandbox not initialized');
+        for (const p of input.args.paths) {
+            await this.exec(`rm -rf ${JSON.stringify(p)}`);
         }
-        await this.sandbox.deleteFile(input.args.path);
         return {};
     }
 
     async renameFile(input: RenameFileInput): Promise<RenameFileOutput> {
-        if (!this.sandbox) {
-            throw new Error('Sandbox not initialized');
-        }
-        await this.sandbox.renameFile(input.args.oldPath, input.args.newPath);
+        await this.exec(`mv ${JSON.stringify(input.args.oldPath)} ${JSON.stringify(input.args.newPath)}`);
         return {};
     }
 
     async copyFiles(input: CopyFilesInput): Promise<CopyFileOutput> {
-        if (!this.sandbox) {
-            throw new Error('Sandbox not initialized');
-        }
-        // The Cloudflare SDK does not have a native copy; use exec as fallback.
-        const flags = input.args.recursive ? '-r' : '';
-        const overwrite = input.args.overwrite ? '' : '-n';
-        await this.sandbox.exec(
-            `cp ${flags} ${overwrite} "${input.args.sourcePath}" "${input.args.targetPath}"`,
-        );
+        await this.exec(`cp -r ${JSON.stringify(input.args.src)} ${JSON.stringify(input.args.dest)}`);
         return {};
     }
 
     async downloadFiles(input: DownloadFilesInput): Promise<DownloadFilesOutput> {
-        if (!this.sandbox) {
-            throw new Error('Sandbox not initialized');
+        const results: Record<string, string> = {};
+        for (const p of input.args.paths) {
+            const { content } = await workerFetch<{ content: string }>(this.workerUrl, '/sandbox/file/read', {
+                sandboxId: this.sandboxId,
+                path: p,
+            });
+            results[p] = content;
         }
-        // The Cloudflare SDK does not provide a download URL.
-        // Read the file content instead — callers may base64-encode it.
-        const result = await this.sandbox.readFile(input.args.path);
-        // Return undefined url since there is no hosted download link.
-        return { url: undefined };
+        return { files: results };
     }
 
     async createDirectory(input: CreateDirectoryInput): Promise<CreateDirectoryOutput> {
-        if (!this.sandbox) {
-            throw new Error('Sandbox not initialized');
-        }
-        await this.sandbox.mkdir(input.args.path, { recursive: true });
+        await this.exec(`mkdir -p ${JSON.stringify(input.args.path)}`);
         return {};
     }
 
     async statFile(input: StatFileInput): Promise<StatFileOutput> {
-        if (!this.sandbox) {
-            throw new Error('Sandbox not initialized');
-        }
-        // The Cloudflare SDK does not have a dedicated stat method.
-        // Use `exec` with `stat` to determine the type.
-        const result = await this.sandbox.exec(
-            `stat -c '%F' "${input.args.path}" 2>/dev/null || echo "unknown"`,
-        );
-        const output = result.stdout.trim().toLowerCase();
-        const isDir = output.includes('directory');
-        return {
-            type: isDir ? 'directory' : 'file',
-        };
+        const result = await this.exec(`stat -c '{"size":%s,"isDir":"%F"}' ${JSON.stringify(input.args.path)} 2>/dev/null || echo '{"error":true}'`);
+        try {
+            const parsed = JSON.parse(result.stdout.trim());
+            if (parsed.error) return { stat: null };
+            return {
+                stat: {
+                    size: parsed.size,
+                    isDirectory: parsed.isDir === 'directory',
+                },
+            };
+        } catch { return { stat: null }; }
     }
 
-    // -- terminal / commands -------------------------------------------------
+    // -- terminal & commands -------------------------------------------------
 
-    async createTerminal(_input: CreateTerminalInput): Promise<CreateTerminalOutput> {
-        if (!this.sandbox) {
-            throw new Error('Sandbox not initialized');
-        }
-        // The Cloudflare SDK does not have a "terminal" abstraction equivalent
-        // to CodeSandbox.  We create a lightweight adapter backed by exec/process.
-        const terminalId = `cf-term-${Date.now()}`;
-        const adapter = createTerminalAdapter(this.sandbox, terminalId);
-        return {
-            terminal: new CloudflareTerminal(adapter),
-        };
+    async createTerminal(input: CreateTerminalInput): Promise<CreateTerminalOutput> {
+        const id = input?.args?.id || 'default';
+        const adapter = this.createTerminalAdapter(id);
+        const terminal = new CloudflareTerminal(adapter);
+        return { terminal };
     }
 
     async getTask(input: GetTaskInput): Promise<GetTaskOutput> {
-        if (!this.sandbox) {
-            throw new Error('Sandbox not initialized');
-        }
-        // The Cloudflare SDK does not have a "task" registry.
-        // Wrap a process as a task-like object.
-        const process = await this.sandbox.getProcess(input.args.id);
-        if (!process) {
-            throw new Error(`Task ${input.args.id} not found`);
-        }
-        const adapter = createTaskAdapter(this.sandbox, process);
-        return {
-            task: new CloudflareTask(adapter),
-        };
+        const id = input?.args?.id || 'dev';
+        const adapter = this.createTaskAdapter(id);
+        const task = new CloudflareTask(adapter);
+        return { task };
     }
 
-    async runCommand({ args }: TerminalCommandInput): Promise<TerminalCommandOutput> {
-        if (!this.sandbox) {
-            throw new Error('Sandbox not initialized');
-        }
-        const result = await this.sandbox.exec(args.command);
-        return {
-            output: result.stdout + (result.stderr ? `\n${result.stderr}` : ''),
-        };
+    async runCommand(input: TerminalCommandInput): Promise<TerminalCommandOutput> {
+        const result = await this.exec(input.args.command);
+        return { output: result.stdout + result.stderr };
     }
 
-    async runBackgroundCommand(
-        input: TerminalBackgroundCommandInput,
-    ): Promise<TerminalBackgroundCommandOutput> {
-        if (!this.sandbox) {
-            throw new Error('Sandbox not initialized');
-        }
-        const process = await this.sandbox.startProcess(input.args.command);
-        const adapter = createBackgroundCommandAdapter(this.sandbox, process, input.args.command);
-        return {
-            command: new CloudflareBackgroundCommand(adapter),
-        };
+    async runBackgroundCommand(input: TerminalBackgroundCommandInput): Promise<TerminalBackgroundCommandOutput> {
+        const adapter = this.createBgCommandAdapter(input.args.command);
+        const command = new CloudflareBackgroundCommand(adapter);
+        return { command };
     }
 
-    // -- file watching -------------------------------------------------------
-
-    async watchFiles(input: WatchFilesInput): Promise<WatchFilesOutput> {
-        if (!this.sandbox) {
-            throw new Error('Sandbox not initialized');
-        }
-        const watcher = new CloudflareSandboxFileWatcher(this.sandbox);
-        await watcher.start(input);
-
-        if (input.onFileChange) {
-            watcher.registerEventCallback(async (event) => {
-                if (input.onFileChange) {
-                    await input.onFileChange({ type: event.type, paths: event.paths });
-                }
-            });
-        }
-
+    async watchFiles(_input: WatchFilesInput): Promise<WatchFilesOutput> {
+        // File watching via polling — the Worker doesn't support SSE streaming yet
+        const watcher = new CloudflareSandboxFileWatcher(this);
         return { watcher };
     }
 
-    // -- git -----------------------------------------------------------------
-
     async gitStatus(_input: GitStatusInput): Promise<GitStatusOutput> {
-        if (!this.sandbox) {
-            throw new Error('Sandbox not initialized');
-        }
-        const result = await this.sandbox.exec(
-            'git diff --name-only HEAD 2>/dev/null || true',
-        );
-        const changedFiles = result.stdout
-            .split('\n')
-            .map((l) => l.trim())
-            .filter(Boolean);
+        const result = await this.exec('git diff --name-only HEAD 2>/dev/null || echo ""');
+        const changedFiles = result.stdout.trim().split('\n').filter(Boolean);
         return { changedFiles };
+    }
+
+    // -- adapters for terminal classes ---------------------------------------
+
+    private createTerminalAdapter(id: string): CloudflareSdkTerminal {
+        let outputListeners: Array<(data: string) => void> = [];
+        const self = this;
+        return {
+            id,
+            name: `cf-terminal-${id}`,
+            async open() { return id; },
+            async write(data: string) {
+                const result = await self.exec(data);
+                const output = result.stdout + result.stderr;
+                for (const cb of outputListeners) cb(output);
+            },
+            async run(command: string) {
+                const result = await self.exec(command);
+                for (const cb of outputListeners) cb(result.stdout + result.stderr);
+            },
+            async kill() {},
+            onOutput(cb: (data: string) => void) {
+                outputListeners.push(cb);
+                return { dispose() { outputListeners = outputListeners.filter(l => l !== cb); } };
+            },
+        };
+    }
+
+    private createTaskAdapter(name: string): CloudflareSdkTask {
+        let outputListeners: Array<(data: string) => void> = [];
+        const self = this;
+        return {
+            id: name,
+            name,
+            command: name,
+            async open() { return name; },
+            async run() {
+                const result = await self.exec(`echo "Task ${name} started"`);
+                for (const cb of outputListeners) cb(result.stdout);
+            },
+            async restart() {
+                for (const cb of outputListeners) cb(`Restarting ${name}...\n`);
+            },
+            async stop() {},
+            onOutput(cb: (data: string) => void) {
+                outputListeners.push(cb);
+                return { dispose() { outputListeners = outputListeners.filter(l => l !== cb); } };
+            },
+        };
+    }
+
+    private createBgCommandAdapter(command: string): CloudflareSdkCommand {
+        let outputListeners: Array<(data: string) => void> = [];
+        const self = this;
+        return {
+            name: undefined,
+            command,
+            async open() {
+                const result = await self.exec(command);
+                for (const cb of outputListeners) cb(result.stdout + result.stderr);
+                return 'bg-cmd';
+            },
+            async restart() {
+                const result = await self.exec(command);
+                for (const cb of outputListeners) cb(result.stdout + result.stderr);
+            },
+            async kill() {},
+            onOutput(cb: (data: string) => void) {
+                outputListeners.push(cb);
+                return { dispose() { outputListeners = outputListeners.filter(l => l !== cb); } };
+            },
+        };
     }
 }
 
 // ---------------------------------------------------------------------------
-// CloudflareSandboxFileWatcher — bridges the SDK SSE-based watch to the
-// ProviderFileWatcher interface expected by the abstract Provider.
+// File watcher (polling-based)
 // ---------------------------------------------------------------------------
 
 class CloudflareSandboxFileWatcher extends ProviderFileWatcher {
-    private abortController: AbortController | null = null;
+    private interval: ReturnType<typeof setInterval> | null = null;
     private callbacks: Array<(event: WatchEvent) => Promise<void>> = [];
+    private lastFileList: string = '';
 
-    constructor(private readonly sandbox: ISandbox) {
+    constructor(private readonly provider: CloudflareSandboxProvider) {
         super();
     }
 
     async start(input: WatchFilesInput): Promise<void> {
-        this.abortController = new AbortController();
-        const stream = await this.sandbox.watch(input.args.path, {
-            recursive: input.args.recursive,
-            exclude: input.args.excludes,
-        });
-
-        // Process the SSE stream in the background
-        void this.consumeStream(stream);
+        const path = input.args.path || '/workspace';
+        this.interval = setInterval(async () => {
+            try {
+                const result = await this.provider.runCommand({ args: { command: `find ${path} -maxdepth 3 -type f 2>/dev/null | sort | head -100` } });
+                const fileList = result.output;
+                if (fileList !== this.lastFileList && this.lastFileList !== '') {
+                    for (const cb of this.callbacks) {
+                        await cb({ type: 'change', paths: [path] }).catch(() => {});
+                    }
+                }
+                this.lastFileList = fileList;
+            } catch {}
+        }, 3000);
     }
 
     async stop(): Promise<void> {
-        this.abortController?.abort();
-        this.abortController = null;
+        if (this.interval) {
+            clearInterval(this.interval);
+            this.interval = null;
+        }
     }
 
     registerEventCallback(callback: (event: WatchEvent) => Promise<void>): void {
         this.callbacks.push(callback);
     }
-
-    private async consumeStream(stream: ReadableStream<Uint8Array>): Promise<void> {
-        try {
-            const signal = this.abortController?.signal;
-            for await (const event of parseSSEStream<FileWatchSSEEvent>(stream, signal)) {
-                if (event.type === 'event') {
-                    const mapped = mapWatchEventType(event.eventType);
-                    if (mapped) {
-                        const watchEvent: WatchEvent = {
-                            type: mapped,
-                            paths: [event.path],
-                        };
-                        for (const cb of this.callbacks) {
-                            cb(watchEvent).catch((err) =>
-                                console.error('File watch callback error:', err),
-                            );
-                        }
-                    }
-                }
-            }
-        } catch (err: unknown) {
-            // AbortError is expected when stop() is called.
-            if (err instanceof Error && err.name !== 'AbortError') {
-                console.error('File watch stream error:', err);
-            }
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Map a Cloudflare file watch event type to the Provider WatchEvent type.
- */
-function mapWatchEventType(
-    eventType: string,
-): WatchEvent['type'] | null {
-    switch (eventType) {
-        case 'create':
-            return 'add';
-        case 'modify':
-        case 'attrib':
-            return 'change';
-        case 'delete':
-            return 'remove';
-        // move_from/move_to are paired events; treat move_to as an add and
-        // move_from as a remove.
-        case 'move_to':
-            return 'add';
-        case 'move_from':
-            return 'remove';
-        default:
-            return null;
-    }
-}
-
-/**
- * Build a lightweight adapter object that conforms to CloudflareSdkTerminal,
- * allowing CloudflareTerminal to wrap it.
- *
- * Because the Cloudflare sandbox does not have a persistent terminal concept
- * (like CodeSandbox's Terminal), we back each operation with `exec` / process.
- */
-function createTerminalAdapter(sandbox: ISandbox, id: string): CloudflareSdkTerminal {
-    let outputListeners: Array<(data: string) => void> = [];
-    let currentProcess: Awaited<ReturnType<ISandbox['startProcess']>> | null = null;
-
-    return {
-        id,
-        name: `cloudflare-terminal-${id}`,
-
-        async open() {
-            return id;
-        },
-
-        async write(data: string) {
-            const result = await sandbox.exec(data);
-            const output = result.stdout + result.stderr;
-            for (const listener of outputListeners) {
-                listener(output);
-            }
-        },
-
-        async run(command: string) {
-            currentProcess = await sandbox.startProcess(command);
-            // Stream logs if the process starts successfully.
-            void (async () => {
-                try {
-                    const stream = await sandbox.streamProcessLogs(currentProcess!.id);
-                    const reader = stream.getReader();
-                    const decoder = new TextDecoder();
-                    while (true) {
-                        const { done, value } = await reader.read();
-                        if (done) break;
-                        const text = decoder.decode(value, { stream: true });
-                        for (const listener of outputListeners) {
-                            listener(text);
-                        }
-                    }
-                } catch {
-                    // Process may have already terminated.
-                }
-            })();
-        },
-
-        async kill() {
-            if (currentProcess) {
-                await sandbox.killProcess(currentProcess.id).catch(() => {});
-                currentProcess = null;
-            }
-        },
-
-        onOutput(callback: (data: string) => void) {
-            outputListeners.push(callback);
-            return {
-                dispose() {
-                    outputListeners = outputListeners.filter((cb) => cb !== callback);
-                },
-            };
-        },
-    };
-}
-
-/**
- * Build a lightweight adapter conforming to CloudflareSdkTask.
- */
-function createTaskAdapter(
-    sandbox: ISandbox,
-    process: NonNullable<Awaited<ReturnType<ISandbox['getProcess']>>>,
-): CloudflareSdkTask {
-    let outputListeners: Array<(data: string) => void> = [];
-
-    return {
-        id: process.id,
-        name: `task-${process.id}`,
-        command: process.command,
-
-        async open() {
-            return process.id;
-        },
-
-        async run() {
-            // The process is already running. Stream its output.
-            void streamProcessOutput(sandbox, process.id, outputListeners);
-        },
-
-        async restart() {
-            // Kill and re-start the same command.
-            await sandbox.killProcess(process.id).catch(() => {});
-            const newProcess = await sandbox.startProcess(process.command);
-            // Update the reference (mutation is intentional for the adapter).
-            (this as { id: string }).id = newProcess.id;
-            void streamProcessOutput(sandbox, newProcess.id, outputListeners);
-        },
-
-        async stop() {
-            await sandbox.killProcess(process.id).catch(() => {});
-        },
-
-        onOutput(callback: (data: string) => void) {
-            outputListeners.push(callback);
-            return {
-                dispose() {
-                    outputListeners = outputListeners.filter((cb) => cb !== callback);
-                },
-            };
-        },
-    };
-}
-
-/**
- * Build a lightweight adapter conforming to CloudflareSdkCommand.
- */
-function createBackgroundCommandAdapter(
-    sandbox: ISandbox,
-    process: Awaited<ReturnType<ISandbox['startProcess']>>,
-    command: string,
-): CloudflareSdkCommand {
-    let outputListeners: Array<(data: string) => void> = [];
-    let currentProcessId = process.id;
-
-    return {
-        name: undefined,
-        command,
-
-        async open() {
-            void streamProcessOutput(sandbox, currentProcessId, outputListeners);
-            return currentProcessId;
-        },
-
-        async restart() {
-            await sandbox.killProcess(currentProcessId).catch(() => {});
-            const newProcess = await sandbox.startProcess(command);
-            currentProcessId = newProcess.id;
-            void streamProcessOutput(sandbox, currentProcessId, outputListeners);
-        },
-
-        async kill() {
-            await sandbox.killProcess(currentProcessId).catch(() => {});
-        },
-
-        onOutput(callback: (data: string) => void) {
-            outputListeners.push(callback);
-            return {
-                dispose() {
-                    outputListeners = outputListeners.filter((cb) => cb !== callback);
-                },
-            };
-        },
-    };
-}
-
-/**
- * Stream a process's logs and forward text to a set of listeners.
- */
-async function streamProcessOutput(
-    sandbox: ISandbox,
-    processId: string,
-    listeners: Array<(data: string) => void>,
-): Promise<void> {
-    try {
-        const stream = await sandbox.streamProcessLogs(processId);
-        const reader = stream.getReader();
-        const decoder = new TextDecoder();
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            const text = decoder.decode(value, { stream: true });
-            for (const listener of listeners) {
-                listener(text);
-            }
-        }
-    } catch {
-        // Process may have already terminated.
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Internal option extension for injecting the sandbox stub.
-// ---------------------------------------------------------------------------
-
-interface CloudflareProviderOptionsInternal extends CloudflareProviderOptions {
-    _sandboxStub?: ISandbox;
 }
 
 // ---------------------------------------------------------------------------

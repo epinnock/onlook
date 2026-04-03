@@ -3,6 +3,8 @@ export interface CloudflareProviderOptions {
     apiToken?: string;
     accountId?: string;
     image?: string;
+    /** URL of the Cloudflare Sandbox Worker (e.g. http://localhost:8787) */
+    workerUrl?: string;
 }
 
 export interface CloudflareSandboxConfig {

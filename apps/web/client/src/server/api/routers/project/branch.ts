@@ -140,7 +140,6 @@ export const branchRouter = createTRPCRouter({
                     gitBranch: null,
                     gitCommitSha: null,
                     gitRepoUrl: null,
-                    providerType: 'code_sandbox',
                     createdAt: new Date(),
                     updatedAt: new Date(),
                 };
@@ -286,8 +285,7 @@ export const branchRouter = createTRPCRouter({
                         gitBranch: null,
                         gitCommitSha: null,
                         gitRepoUrl: null,
-                        providerType: 'code_sandbox',
-                        createdAt: new Date(),
+                            createdAt: new Date(),
                         updatedAt: new Date(),
                     };
 

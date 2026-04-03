@@ -11,6 +11,7 @@ export const env = createEnv({
         CSB_API_KEY: z.string(),
         CLOUDFLARE_SANDBOX_API_TOKEN: z.string().optional(),
         CLOUDFLARE_ACCOUNT_ID: z.string().optional(),
+        CLOUDFLARE_SANDBOX_WORKER_URL: z.string().url().optional(),
         SUPABASE_DATABASE_URL: z.url(),
         SUPABASE_SERVICE_ROLE_KEY: z.string(),
         RESEND_API_KEY: z.string().optional(),
@@ -90,6 +91,7 @@ export const env = createEnv({
         CSB_API_KEY: process.env.CSB_API_KEY,
         CLOUDFLARE_SANDBOX_API_TOKEN: process.env.CLOUDFLARE_SANDBOX_API_TOKEN,
         CLOUDFLARE_ACCOUNT_ID: process.env.CLOUDFLARE_ACCOUNT_ID,
+        CLOUDFLARE_SANDBOX_WORKER_URL: process.env.CLOUDFLARE_SANDBOX_WORKER_URL,
         RESEND_API_KEY: process.env.RESEND_API_KEY,
         NEXT_PUBLIC_FEATURE_COLLABORATION: process.env.NEXT_PUBLIC_FEATURE_COLLABORATION,
 

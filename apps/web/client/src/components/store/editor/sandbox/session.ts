@@ -28,9 +28,11 @@ export class SessionManager {
 
         this.isConnecting = true;
 
-        // Detect provider type: local paths start with / or contain path separators
+        // Detect provider type from sandboxId prefix
         const resolvedProvider = providerType
-            ?? (sandboxId.startsWith('/') || sandboxId.includes('/') ? CodeProvider.NodeFs : CodeProvider.CodeSandbox);
+            ?? (sandboxId.startsWith('cf-') ? CodeProvider.Cloudflare
+            : sandboxId.startsWith('/') || sandboxId.includes('/') ? CodeProvider.NodeFs
+            : CodeProvider.CodeSandbox);
 
         const attemptConnection = async () => {
             let provider;
@@ -38,7 +40,10 @@ export class SessionManager {
             if (resolvedProvider === CodeProvider.Cloudflare) {
                 provider = await createCodeProviderClient(CodeProvider.Cloudflare, {
                     providerOptions: {
-                        cloudflare: { sandboxId },
+                        cloudflare: {
+                            sandboxId,
+                            workerUrl: process.env.NEXT_PUBLIC_CF_SANDBOX_WORKER_URL || 'http://localhost:8787',
+                        },
                     },
                 });
             } else if (resolvedProvider === CodeProvider.NodeFs) {

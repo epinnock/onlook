@@ -207,6 +207,128 @@ empty Next.js template.
 - If Supabase or other external services are unavailable in local dev, the app
   can still boot but background requests may error in logs.
 
+## Experimental: Cloudflare Sandbox (Option B)
+
+This branch includes an alternative cloud sandbox backend using Cloudflare
+Containers via the [`@cloudflare/sandbox`](https://github.com/cloudflare/sandbox-sdk)
+SDK. It can be used alongside or instead of CodeSandbox.
+
+### Why Cloudflare Sandbox
+
+- **Stable file sync** — no WebSocket disconnections or dropped writes
+- **Public preview URLs** — auto-generated, no 401 errors from privacy settings
+- **Custom container images** — Expo + Next.js pre-installed, preload scripts baked in
+- **Usage-based pricing** — $5/mo base (Workers plan) + ~$0.18/hr per active sandbox, no per-seat cost
+- **Open-source SDK** — path to self-managed infrastructure
+
+### Prerequisites
+
+- A [Cloudflare Workers paid plan](https://dash.cloudflare.com/) ($5/mo)
+- A Cloudflare API token with Container permissions
+- (Optional) Custom container images pushed to the CF Container Registry
+
+### Setup
+
+1. **Get your Cloudflare credentials.**
+
+   - Go to the [Cloudflare dashboard](https://dash.cloudflare.com/)
+   - Copy your **Account ID** from the right sidebar of the Workers & Pages section
+   - Create an **API Token** at My Profile > API Tokens > Create Token
+     - Use the "Edit Cloudflare Workers" template or create a custom token with
+       `Workers Scripts:Edit` and `Account Settings:Read` permissions
+
+2. **Add environment variables.**
+
+   Add these to your local `apps/web/client/.env`:
+
+   ```bash
+   # Cloudflare Sandbox
+   CLOUDFLARE_SANDBOX_API_TOKEN="<Your API token from step 1>"
+   CLOUDFLARE_ACCOUNT_ID="<Your account ID from step 1>"
+
+   # Enable the Cloudflare provider in the UI
+   NEXT_PUBLIC_ENABLED_PROVIDERS="cloudflare,codesandbox"
+   ```
+
+   To use Cloudflare only (disabling CodeSandbox):
+
+   ```bash
+   NEXT_PUBLIC_ENABLED_PROVIDERS="cloudflare"
+   ```
+
+3. **(Optional) Build and push custom container images.**
+
+   The project includes Dockerfiles for Expo and Next.js at `docker/cloudflare/`:
+
+   ```bash
+   # Build both images locally
+   ./docker/cloudflare/build.sh
+
+   # Push to Cloudflare Container Registry (requires wrangler)
+   wrangler containers push scry-expo:latest
+   wrangler containers push scry-nextjs:latest
+   ```
+
+   If you skip this step, the default Cloudflare container images will be used.
+
+4. **Start Onlook locally.**
+
+   ```bash
+   bun install
+   bun run dev
+   ```
+
+5. **Create a project using Cloudflare.**
+
+   In the Create dropdown, you'll see new options when the feature flag is enabled:
+   - **Next.js (Cloud)** — creates a CF sandbox with Next.js
+   - **Expo / RN (Cloud)** — creates a CF sandbox with Expo
+
+   Existing CodeSandbox and Local options remain available.
+
+### Architecture
+
+```
+Onlook Editor (Browser)
+    |
+    |--- tRPC API (cfSandbox router)
+    |       |
+    |       |--- @cloudflare/sandbox SDK
+    |       |--- Container lifecycle (create, start, stop, hibernate)
+    |       |--- Preview URL management
+    |
+    |--- CloudflareSandboxProvider (code-provider package)
+            |
+            |--- File read/write/watch
+            |--- Terminal (PTY via WebSocket)
+            |--- Dev server management
+```
+
+### Provider configuration
+
+| Environment Variable | Required | Description |
+|---------------------|----------|-------------|
+| `CLOUDFLARE_SANDBOX_API_TOKEN` | Yes | API token with Workers permissions |
+| `CLOUDFLARE_ACCOUNT_ID` | Yes | Your Cloudflare account ID |
+| `NEXT_PUBLIC_ENABLED_PROVIDERS` | No | Comma-separated list: `cloudflare`, `codesandbox` (default: `codesandbox`) |
+
+### Cost comparison
+
+| Usage | Cloudflare | CodeSandbox |
+|-------|-----------|-------------|
+| 20 hrs/mo (light) | ~$2.50 | Free (within credits) |
+| 60 hrs/mo (medium) | ~$9.70 | ~$3 overage |
+| 160 hrs/mo (heavy) | ~$27.70 | ~$21 (Pro + overage) |
+| Per-seat cost | $0 | $12/mo |
+| Base plan | $5/mo (Workers) | Free/$12 |
+
+### Known constraints (Cloudflare)
+
+- Cloudflare Sandbox SDK is in **public beta** — CodeSandbox is kept as fallback
+- Container cold starts may add a few seconds to initial project creation
+- The `@cloudflare/sandbox` SDK API may change between versions; we pin to v0.8.x
+- Existing CodeSandbox projects are not automatically migrated
+
 ### Usage
 
 Onlook will run on any Next.js + TailwindCSS project, import your project into
@@ -287,6 +409,7 @@ For a full walkthrough, check out our
 #### Sandbox and hosting
 
 - [CodeSandboxSDK](https://codesandbox.io/docs/sdk) - Dev sandbox
+- [Cloudflare Sandbox SDK](https://github.com/cloudflare/sandbox-sdk) - Dev sandbox (alternative)
 - [Freestyle](https://www.freestyle.sh/) - Hosting
 
 #### Runtime

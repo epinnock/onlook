@@ -39,5 +39,6 @@ export const toDbBranch = (branch: Branch): DbBranch => {
         gitCommitSha: branch.git?.commitSha ?? null,
         gitRepoUrl: branch.git?.repoUrl ?? null,
         sandboxId: branch.sandbox.id,
+        providerType: null,
     };
 };

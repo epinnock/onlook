@@ -27,7 +27,8 @@ export const branches = pgTable('branches', {
 
     // sandbox
     sandboxId: varchar('sandbox_id').notNull(),
-    providerType: varchar('provider_type', { length: 50 }).default('code_sandbox'),
+    // providerType will be added via migration when DB is ready.
+    // For now, CF sandboxes are identified by their 'cf-' prefix on sandboxId.
 }, (table) => [
     index('branches_project_id_idx').on(table.projectId),
     uniqueIndex('branches_name_per_project_ux').on(table.projectId, table.name),
