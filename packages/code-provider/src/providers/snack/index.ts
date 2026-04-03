@@ -113,7 +113,7 @@ export class SnackProvider extends Provider {
     async initialize(_input: InitializeInput): Promise<InitializeOutput> {
         // Dynamically import snack-sdk to avoid bundling issues.
         // The Snack constructor accepts the same shape as SnackProviderOptions.
-        const { default: Snack } = await import('snack-sdk');
+        const { Snack } = await import('snack-sdk');
         this.snack = new (Snack as any)({
             name: this.options.name,
             description: this.options.description,
@@ -178,7 +178,7 @@ export class SnackProvider extends Provider {
     }
 
     static async createProject(input: CreateProjectInput): Promise<CreateProjectOutput> {
-        const { default: Snack } = await import('snack-sdk');
+        const { Snack } = await import('snack-sdk');
         const snack = new (Snack as any)({
             name: input.title ?? 'Untitled',
             description: input.description ?? '',
@@ -199,7 +199,7 @@ export class SnackProvider extends Provider {
     }): Promise<CreateProjectOutput> {
         const files = await fetchGitHubRepoAsSnackFiles(input.repoUrl, input.branch);
 
-        const { default: Snack } = await import('snack-sdk');
+        const { Snack } = await import('snack-sdk');
         const snack = new (Snack as any)({
             name: 'Imported from GitHub',
             files,
