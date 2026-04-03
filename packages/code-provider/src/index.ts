@@ -1,6 +1,7 @@
 import { CodeProvider } from './providers';
 import { CodesandboxProvider, type CodesandboxProviderOptions } from './providers/codesandbox';
 import { NodeFsProvider, type NodeFsProviderOptions } from './providers/nodefs';
+import type { SnackProviderOptions } from './providers/snack/types';
 export * from './providers';
 export { CodesandboxProvider } from './providers/codesandbox';
 export { NodeFsProvider } from './providers/nodefs';
@@ -39,6 +40,7 @@ export async function getStaticCodeProvider(
 export interface ProviderInstanceOptions {
     codesandbox?: CodesandboxProviderOptions;
     nodefs?: NodeFsProviderOptions;
+    snack?: SnackProviderOptions;
 }
 
 function newProviderInstance(codeProvider: CodeProvider, providerOptions: ProviderInstanceOptions) {
