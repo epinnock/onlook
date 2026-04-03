@@ -12,6 +12,21 @@ import { getAstFromContent, getContentFromAst, injectPreloadScript } from '@onlo
 import { isRootLayoutFile, normalizePath } from '@onlook/utility';
 import path from 'path';
 
+const CF_WORKSPACE_PREFIX = '/workspace/app';
+
+/**
+ * Resolve a relative project path for the correct sandbox environment.
+ * Cloudflare sandboxes (sandbox IDs starting with 'cf-') scaffold projects
+ * under /workspace/app, so all file operations need that prefix.
+ */
+function resolveProjectPath(sandboxId: string, relativePath: string): string {
+    if (sandboxId.startsWith('cf-')) {
+        const normalized = relativePath.startsWith('/') ? relativePath : `/${relativePath}`;
+        return `${CF_WORKSPACE_PREFIX}${normalized}`;
+    }
+    return relativePath;
+}
+
 const EXPO_WEB_TEMPLATE_PATH = 'web/index.html';
 const EXPO_WEB_TEMPLATE_FALLBACK = `<!DOCTYPE html>
 <html lang="en">
@@ -26,14 +41,14 @@ const EXPO_WEB_TEMPLATE_FALLBACK = `<!DOCTYPE html>
 </html>
 `;
 
-export async function detectProjectTypeFromProvider(provider: Provider): Promise<ProjectType> {
+export async function detectProjectTypeFromProvider(provider: Provider, sandboxId: string = ''): Promise<ProjectType> {
     let rootFiles: Array<{ type: string; name: string }> = [];
     try {
-        const root = await provider.listFiles({ args: { path: '.' } });
+        const root = await provider.listFiles({ args: { path: resolveProjectPath(sandboxId, '.') } });
         rootFiles = root.files;
     } catch {
         try {
-            const root = await provider.listFiles({ args: { path: '' } });
+            const root = await provider.listFiles({ args: { path: resolveProjectPath(sandboxId, '') } });
             rootFiles = root.files;
         } catch {
             return ProjectType.NEXTJS;
@@ -50,7 +65,7 @@ export async function detectProjectTypeFromProvider(provider: Provider): Promise
     }
 
     try {
-        const packageJsonResponse = await provider.readFile({ args: { path: 'package.json' } });
+        const packageJsonResponse = await provider.readFile({ args: { path: resolveProjectPath(sandboxId, 'package.json') } });
         const packageJsonContent = packageJsonResponse.file.content;
         if (typeof packageJsonContent !== 'string') {
             return initialType;
@@ -78,18 +93,23 @@ export async function copyPreloadScriptToPublic(
     provider: Provider,
     projectType: ProjectType,
     routerConfig: RouterConfig | null,
+    sandboxId: string = '',
 ): Promise<void> {
     try {
         console.log('[PreloadScript] copyPreloadScriptToPublic called');
         console.log('[PreloadScript]   projectType:', projectType);
+        console.log('[PreloadScript]   sandboxId:', sandboxId);
         console.log('[PreloadScript]   ONLOOK_DEV_PRELOAD_SCRIPT_SRC:', ONLOOK_DEV_PRELOAD_SCRIPT_SRC);
         console.log('[PreloadScript]   ONLOOK_DEV_PRELOAD_SCRIPT_PATH:', ONLOOK_DEV_PRELOAD_SCRIPT_PATH);
 
+        const publicDir = resolveProjectPath(sandboxId, 'public');
+        const scriptPath = resolveProjectPath(sandboxId, ONLOOK_DEV_PRELOAD_SCRIPT_PATH);
+
         try {
-            await provider.createDirectory({ args: { path: 'public' } });
-            console.log('[PreloadScript]   Created public/ directory');
+            await provider.createDirectory({ args: { path: publicDir } });
+            console.log('[PreloadScript]   Created directory:', publicDir);
         } catch {
-            console.log('[PreloadScript]   public/ directory already exists');
+            console.log('[PreloadScript]   Directory already exists:', publicDir);
         }
 
         console.log('[PreloadScript]   Fetching preload script from:', ONLOOK_DEV_PRELOAD_SCRIPT_SRC);
@@ -99,16 +119,16 @@ export async function copyPreloadScriptToPublic(
 
         await provider.writeFile({
             args: {
-                path: ONLOOK_DEV_PRELOAD_SCRIPT_PATH,
+                path: scriptPath,
                 content: scriptContent,
                 overwrite: true
             }
         });
-        console.log('[PreloadScript]   Wrote script to:', ONLOOK_DEV_PRELOAD_SCRIPT_PATH);
+        console.log('[PreloadScript]   Wrote script to:', scriptPath);
 
         if (projectType === ProjectType.EXPO) {
             console.log('[PreloadScript]   Project is EXPO, injecting into Expo template...');
-            await injectPreloadScriptIntoExpoTemplate(provider);
+            await injectPreloadScriptIntoExpoTemplate(provider, sandboxId);
             return;
         }
 
@@ -116,18 +136,19 @@ export async function copyPreloadScriptToPublic(
             throw new Error('Router config is required for Next.js preload script injection');
         }
         console.log('[PreloadScript]   Project is NextJS, injecting into layout...');
-        await injectPreloadScriptIntoLayout(provider, routerConfig);
+        await injectPreloadScriptIntoLayout(provider, routerConfig, sandboxId);
     } catch (error) {
         console.error('[PreloadScript] Failed to copy preload script:', error);
     }
 }
 
-export async function injectPreloadScriptIntoLayout(provider: Provider, routerConfig: RouterConfig): Promise<void> {
+export async function injectPreloadScriptIntoLayout(provider: Provider, routerConfig: RouterConfig, sandboxId: string = ''): Promise<void> {
     if (!routerConfig) {
         throw new Error('Could not detect router type for script injection. This is required for iframe communication.');
     }
 
-    const result = await provider.listFiles({ args: { path: routerConfig.basePath } });
+    const listPath = resolveProjectPath(sandboxId, routerConfig.basePath);
+    const result = await provider.listFiles({ args: { path: listPath } });
     const [layoutFile] = result.files.filter(file =>
         file.type === 'file' && isRootLayoutFile(`${routerConfig.basePath}/${file.name}`, routerConfig.type)
     );
@@ -136,7 +157,7 @@ export async function injectPreloadScriptIntoLayout(provider: Provider, routerCo
         throw new Error(`No layout files found in ${routerConfig.basePath}`);
     }
 
-    const layoutPath = `${routerConfig.basePath}/${layoutFile.name}`;
+    const layoutPath = resolveProjectPath(sandboxId, `${routerConfig.basePath}/${layoutFile.name}`);
 
     const layoutResponse = await provider.readFile({ args: { path: layoutPath } });
     if (typeof layoutResponse.file.content !== 'string') {
@@ -161,14 +182,15 @@ export async function injectPreloadScriptIntoLayout(provider: Provider, routerCo
     });
 }
 
-export async function injectPreloadScriptIntoExpoTemplate(provider: Provider): Promise<void> {
+export async function injectPreloadScriptIntoExpoTemplate(provider: Provider, sandboxId: string = ''): Promise<void> {
     console.log('[PreloadScript] injectPreloadScriptIntoExpoTemplate called');
 
     // Strategy 1: Inject into web/index.html (works for standard Expo web builds)
     try {
         let templateContent = EXPO_WEB_TEMPLATE_FALLBACK;
+        const templatePath = resolveProjectPath(sandboxId, EXPO_WEB_TEMPLATE_PATH);
         try {
-            const response = await provider.readFile({ args: { path: EXPO_WEB_TEMPLATE_PATH } });
+            const response = await provider.readFile({ args: { path: templatePath } });
             if (typeof response.file.content === 'string') {
                 templateContent = response.file.content;
             }
@@ -183,7 +205,7 @@ export async function injectPreloadScriptIntoExpoTemplate(provider: Provider): P
                 : `${templateContent}\n${scriptTag}\n`;
 
             await provider.writeFile({
-                args: { path: EXPO_WEB_TEMPLATE_PATH, content: modifiedTemplate, overwrite: true },
+                args: { path: templatePath, content: modifiedTemplate, overwrite: true },
             });
             console.log('[PreloadScript]   Injected into web/index.html');
         }
@@ -198,7 +220,8 @@ export async function injectPreloadScriptIntoExpoTemplate(provider: Provider): P
 
     for (const entryFile of entryFiles) {
         try {
-            const response = await provider.readFile({ args: { path: entryFile } });
+            const entryPath = resolveProjectPath(sandboxId, entryFile);
+            const response = await provider.readFile({ args: { path: entryPath } });
             if (typeof response.file.content !== 'string') continue;
 
             const content = response.file.content;
@@ -208,17 +231,19 @@ export async function injectPreloadScriptIntoExpoTemplate(provider: Provider): P
             }
 
             // Copy preload script to project root (so import resolves)
-            const scriptResponse = await provider.readFile({ args: { path: ONLOOK_DEV_PRELOAD_SCRIPT_PATH } });
+            const scriptSrcPath = resolveProjectPath(sandboxId, ONLOOK_DEV_PRELOAD_SCRIPT_PATH);
+            const scriptDestPath = resolveProjectPath(sandboxId, ONLOOK_PRELOAD_SCRIPT_FILE);
+            const scriptResponse = await provider.readFile({ args: { path: scriptSrcPath } });
             if (typeof scriptResponse.file.content === 'string') {
                 await provider.writeFile({
-                    args: { path: ONLOOK_PRELOAD_SCRIPT_FILE, content: scriptResponse.file.content, overwrite: true },
+                    args: { path: scriptDestPath, content: scriptResponse.file.content, overwrite: true },
                 });
             }
 
             // Add import at the top of the entry file
             const modifiedContent = importLine + content;
             await provider.writeFile({
-                args: { path: entryFile, content: modifiedContent, overwrite: true },
+                args: { path: entryPath, content: modifiedContent, overwrite: true },
             });
             console.log(`[PreloadScript]   Injected import into ${entryFile}`);
             return;

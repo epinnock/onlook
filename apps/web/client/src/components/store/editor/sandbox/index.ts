@@ -89,7 +89,7 @@ export class SandboxManager {
         if (!this.session.provider) {
             throw new Error('Provider not initialized');
         }
-        this.projectType = await detectProjectTypeFromProvider(this.session.provider);
+        this.projectType = await detectProjectTypeFromProvider(this.session.provider, this.branch.sandbox.id);
         return this.projectType;
     }
 
@@ -140,7 +140,7 @@ export class SandboxManager {
             console.log('[SandboxManager] routerConfig:', routerConfig ? JSON.stringify(routerConfig) : 'null (Expo)');
 
             console.log('[SandboxManager] Calling copyPreloadScriptToPublic...');
-            await copyPreloadScriptToPublic(this.session.provider, projectType, routerConfig);
+            await copyPreloadScriptToPublic(this.session.provider, projectType, routerConfig, this.branch.sandbox.id);
             this.preloadScriptState = PreloadScriptState.INJECTED
             console.log('[SandboxManager] Preload script state set to INJECTED');
         } catch (error) {
