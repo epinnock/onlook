@@ -37,5 +37,5 @@ const styles = StyleSheet.create({
 } as const;
 
 export function getSnackWebPreviewUrl(snackId: string): string {
-    return `${SNACK_WEB_PLAYER_BASE_URL}/@snack/${snackId}?preview=true&platform=web`;
+    return `${SNACK_WEB_PLAYER_BASE_URL}/${snackId}?preview=true&platform=web`;
 }

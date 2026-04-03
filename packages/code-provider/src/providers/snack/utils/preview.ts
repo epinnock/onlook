@@ -9,7 +9,7 @@
 // Constants
 // ---------------------------------------------------------------------------
 
-const SNACK_EMBEDDED_BASE = 'https://snack.expo.dev/embedded/@snack';
+const SNACK_EMBEDDED_BASE = 'https://snack.expo.dev/embedded';
 const FETCH_TIMEOUT_MS = 5_000;
 
 // ---------------------------------------------------------------------------
