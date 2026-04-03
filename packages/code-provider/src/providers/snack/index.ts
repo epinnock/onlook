@@ -112,16 +112,55 @@ export class SnackProvider extends Provider {
 
     async initialize(_input: InitializeInput): Promise<InitializeOutput> {
         // Dynamically import snack-sdk to avoid bundling issues.
-        // The Snack constructor accepts the same shape as SnackProviderOptions.
         const { Snack } = await import('snack-sdk');
+
+        // Use blank template if no initial files provided
+        const defaultFiles = {
+            'App.tsx': {
+                type: 'CODE' as const,
+                contents: `import { StatusBar } from 'expo-status-bar';
+import { StyleSheet, Text, View } from 'react-native';
+
+export default function App() {
+  return (
+    <View style={styles.container}>
+      <Text>Hello from Scry IDE!</Text>
+      <StatusBar style="auto" />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+});`,
+            },
+        };
+
         this.snack = new (Snack as any)({
-            name: this.options.name,
-            description: this.options.description,
-            sdkVersion: this.options.sdkVersion,
-            files: this.options.initialFiles,
-            dependencies: this.options.dependencies,
+            name: this.options.name || 'Scry Project',
+            description: this.options.description || 'Created with Scry IDE',
+            sdkVersion: this.options.sdkVersion || '52.0.0',
+            files: this.options.initialFiles || defaultFiles,
+            dependencies: this.options.dependencies || {
+                'expo': { version: '~52.0.0' },
+                'expo-status-bar': { version: '~3.0.0' },
+            },
         }) as SnackInstance;
+
         this.snack.setOnline(true);
+
+        // Save to Expo servers so the embedded preview URL works
+        try {
+            const saved = await (this.snack as any).saveAsync();
+            if (saved?.id) {
+                console.log('[SnackProvider] Saved to Expo, snack ID:', saved.id);
+                // Store the real ID for preview URL
+                (this as any)._savedSnackId = saved.id;
+            }
+        } catch (err) {
+            console.warn('[SnackProvider] Failed to save to Expo servers:', err);
+        }
+
         return {};
     }
 

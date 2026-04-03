@@ -227,9 +227,36 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
         try {
             toast.info('Creating Expo project...');
 
-            const sandboxId = `snack-${Date.now()}`;
-            // No tRPC call needed — Snack is client-side
-            // Just create the project record
+            // Create Snack instance and save to Expo servers to get a real ID
+            const { Snack } = await import('snack-sdk');
+            const snack = new (Snack as any)({
+                name: 'Scry Project',
+                description: 'Created with Scry IDE',
+                sdkVersion: '52.0.0',
+                files: {
+                    'App.tsx': {
+                        type: 'CODE',
+                        contents: `import { StatusBar } from 'expo-status-bar';\nimport { StyleSheet, Text, View } from 'react-native';\n\nexport default function App() {\n  return (\n    <View style={styles.container}>\n      <Text>Hello from Scry IDE!</Text>\n      <StatusBar style="auto" />\n    </View>\n  );\n}\n\nconst styles = StyleSheet.create({\n  container: { flex: 1, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },\n});`,
+                    },
+                },
+                dependencies: {
+                    'expo': { version: '~52.0.0' },
+                    'expo-status-bar': { version: '~3.0.0' },
+                },
+            });
+            snack.setOnline(true);
+
+            let sandboxId = `snack-${Date.now()}`;
+            try {
+                const saved = await snack.saveAsync();
+                if (saved?.id) {
+                    sandboxId = `snack-${saved.id}`;
+                    console.log('[Snack] Saved with ID:', saved.id);
+                }
+            } catch (saveErr) {
+                console.warn('[Snack] Failed to save, using timestamp ID:', saveErr);
+            }
+
             const newProject = await createProject({
                 project: {
                     name: 'New Project',
