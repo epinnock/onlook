@@ -29,18 +29,28 @@ export class SessionManager {
         this.isConnecting = true;
 
         const attemptConnection = async () => {
-            const provider = await createCodeProviderClient(CodeProvider.CodeSandbox, {
-                providerOptions: {
-                    codesandbox: {
-                        sandboxId,
-                        userId,
-                        initClient: true,
-                        getSession: async (sandboxId, userId) => {
-                            return api.sandbox.start.mutate({ sandboxId });
+            let provider;
+
+            if (sandboxId.startsWith('snack-')) {
+                provider = await createCodeProviderClient(CodeProvider.ExpoSnack, {
+                    providerOptions: {
+                        snack: { snackId: sandboxId },
+                    },
+                });
+            } else {
+                provider = await createCodeProviderClient(CodeProvider.CodeSandbox, {
+                    providerOptions: {
+                        codesandbox: {
+                            sandboxId,
+                            userId,
+                            initClient: true,
+                            getSession: async (sandboxId, userId) => {
+                                return api.sandbox.start.mutate({ sandboxId });
+                            },
                         },
                     },
-                },
-            });
+                });
+            }
 
             this.provider = provider;
             await this.createTerminalSessions(provider);
