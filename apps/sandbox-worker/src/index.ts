@@ -12,7 +12,9 @@
  *   POST /sandbox/file/list  { sandboxId, path }     → { entries }
  *   POST /sandbox/process/start { sandboxId, command } → { processId }
  *   POST /sandbox/process/kill  { sandboxId, processId } → { ok }
- *   GET  /sandbox/preview/:sandboxId/:port            → proxy to sandbox preview
+ *   POST /sandbox/preview-url { sandboxId, port }     → { previewUrl, workerPreviewUrl }
+ *   GET  /preview/:sandboxId/*                         → proxy to container's dev server
+ *   GET  /sandbox/preview/:sandboxId/:port            → proxy to sandbox preview (SDK)
  *   GET  /health                                      → { status: "ok" }
  */
 
@@ -48,6 +50,37 @@ export default {
 			// Health check
 			if (path === '/health') {
 				return json({ status: 'ok', timestamp: new Date().toISOString() }, corsHeaders);
+			}
+
+			// Preview proxy: GET /preview/:sandboxId/* → proxy to container's dev server
+			if (request.method === 'GET' && path.startsWith('/preview/')) {
+				const parts = path.split('/');
+				const previewSandboxId = parts[2];
+				const proxyPath = '/' + parts.slice(3).join('/');
+
+				if (!previewSandboxId) {
+					return json({ error: 'sandboxId required in preview URL' }, corsHeaders, 400);
+				}
+
+				try {
+					const sandbox = getSandbox(env.SANDBOX, previewSandboxId);
+					const previewUrl = sandbox.getPreviewUrl(3001);
+					const targetUrl = `${previewUrl}${proxyPath}${url.search}`;
+
+					const proxyRes = await fetch(targetUrl, {
+						headers: request.headers,
+					});
+
+					const headers = new Headers(proxyRes.headers);
+					for (const [k, v] of Object.entries(corsHeaders)) headers.set(k, v);
+
+					return new Response(proxyRes.body, {
+						status: proxyRes.status,
+						headers,
+					});
+				} catch (err) {
+					return json({ error: `Preview proxy error: ${err instanceof Error ? err.message : err}` }, corsHeaders, 502);
+				}
 			}
 
 			// All sandbox routes require POST with JSON body
@@ -162,8 +195,11 @@ export default {
 			// --- Get preview URL ---
 			if (path === '/sandbox/preview-url') {
 				const { port } = body;
-				const previewUrl = sandbox.getPreviewUrl(Number(port) || 3000);
-				return json({ previewUrl }, corsHeaders);
+				const previewUrl = sandbox.getPreviewUrl(Number(port) || 3001);
+				return json({
+					previewUrl,
+					workerPreviewUrl: `${url.origin}/preview/${sandboxId}`,
+				}, corsHeaders);
 			}
 
 			return json({ error: `Unknown route: ${path}` }, corsHeaders, 404);
