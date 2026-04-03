@@ -216,6 +216,44 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
         }
     };
 
+    const handleCreateSnackProject = async () => {
+        if (!user?.id) {
+            await localforage.setItem(LocalForageKeys.RETURN_URL, window.location.pathname);
+            setIsAuthModalOpen(true);
+            return;
+        }
+
+        setIsCreatingProject(true);
+        try {
+            toast.info('Creating Expo project...');
+
+            const sandboxId = `snack-${Date.now()}`;
+            // No tRPC call needed — Snack is client-side
+            // Just create the project record
+            const newProject = await createProject({
+                project: {
+                    name: 'New Project',
+                    description: 'Expo project (Snack)',
+                    tags: ['expo', 'snack'],
+                },
+                sandboxId,
+                sandboxUrl: `https://snack.expo.dev/embedded/@snack/${sandboxId}`,
+                userId: user.id,
+            });
+
+            if (newProject) {
+                router.push(`${Routes.PROJECT}/${newProject.id}`);
+            }
+        } catch (error) {
+            console.error('Error creating Snack project:', error);
+            toast.error('Failed to create project', {
+                description: error instanceof Error ? error.message : String(error),
+            });
+        } finally {
+            setIsCreatingProject(false);
+        }
+    };
+
     return (
         <div className="w-full max-w-6xl mx-auto flex items-center justify-between p-4 text-small text-foreground-secondary gap-6">
             <Link href={Routes.HOME} className="flex items-center justify-start mt-0 py-3">
@@ -313,6 +351,24 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
                                 <Icons.FilePlus className="w-4 h-4 mr-1 text-foreground-secondary group-hover:text-violet-100" />
                             )}
                             <p className="text-microPlus">Expo / React Native</p>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            className={cn(
+                                'focus:bg-emerald-100 focus:text-emerald-900',
+                                'hover:bg-emerald-100 hover:text-emerald-900',
+                                'dark:focus:bg-emerald-900 dark:focus:text-emerald-100',
+                                'dark:hover:bg-emerald-900 dark:hover:text-emerald-100',
+                                'cursor-pointer select-none group',
+                            )}
+                            onSelect={handleCreateSnackProject}
+                            disabled={isCreatingProject}
+                        >
+                            {isCreatingProject ? (
+                                <Icons.LoadingSpinner className="w-4 h-4 mr-1 animate-spin" />
+                            ) : (
+                                <Icons.FilePlus className="w-4 h-4 mr-1 text-foreground-secondary group-hover:text-emerald-100" />
+                            )}
+                            <p className="text-microPlus">Expo (Instant)</p>
                         </DropdownMenuItem>
                         <DropdownMenuItem
                             className={cn(
