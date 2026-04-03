@@ -184,11 +184,12 @@ export const sandboxRouter = createTRPCRouter({
             z.object({
                 repoUrl: z.string(),
                 branch: z.string(),
+                port: z.number().optional(),
             }),
         )
         .mutation(async ({ input }) => {
             const MAX_RETRY_ATTEMPTS = 3;
-            const DEFAULT_PORT = 3000;
+            const DEFAULT_PORT = input.port ?? 3000;
             let lastError: Error | null = null;
 
             for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {

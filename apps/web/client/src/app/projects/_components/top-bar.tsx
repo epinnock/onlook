@@ -45,6 +45,7 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
     // API hooks
     const { data: user } = api.user.get.useQuery();
     const { mutateAsync: forkSandbox } = api.sandbox.fork.useMutation();
+    const { mutateAsync: createFromGitHub } = api.sandbox.createFromGitHub.useMutation();
     const { mutateAsync: createProject } = api.project.create.useMutation();
     const { setIsAuthModalOpen } = useAuthContext();
 
@@ -164,6 +165,57 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
         }
     };
 
+    const handleCreateExpoProject = async () => {
+        if (!user?.id) {
+            await localforage.setItem(LocalForageKeys.RETURN_URL, window.location.pathname);
+            setIsAuthModalOpen(true);
+            return;
+        }
+
+        setIsCreatingProject(true);
+        try {
+            toast.info('Creating Expo project...', {
+                description: 'Cloning template from GitHub. This may take a minute.',
+            });
+
+            const { sandboxId, previewUrl } = await createFromGitHub({
+                repoUrl: 'https://github.com/epinnock/playful-green-cashew',
+                branch: 'main',
+                port: 8081,
+            });
+
+            const newProject = await createProject({
+                project: {
+                    name: 'New Project',
+                    description: 'Expo / React Native project',
+                    tags: ['expo', 'react-native'],
+                },
+                sandboxId,
+                sandboxUrl: previewUrl,
+                userId: user.id,
+            });
+
+            if (newProject) {
+                router.push(`${Routes.PROJECT}/${newProject.id}`);
+            }
+        } catch (error) {
+            console.error('Error creating Expo project:', error);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+
+            if (errorMessage.includes('502') || errorMessage.includes('sandbox')) {
+                toast.error('Sandbox service temporarily unavailable', {
+                    description: 'Please try again in a few moments.',
+                });
+            } else {
+                toast.error('Failed to create project', {
+                    description: errorMessage,
+                });
+            }
+        } finally {
+            setIsCreatingProject(false);
+        }
+    };
+
     return (
         <div className="w-full max-w-6xl mx-auto flex items-center justify-between p-4 text-small text-foreground-secondary gap-6">
             <Link href={Routes.HOME} className="flex items-center justify-start mt-0 py-3">
@@ -243,6 +295,24 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
                                 <Icons.FilePlus className="w-4 h-4 mr-1 text-foreground-secondary group-hover:text-blue-100" />
                             )}
                             {t(transKeys.projects.actions.blankProject)}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            className={cn(
+                                'focus:bg-violet-100 focus:text-violet-900',
+                                'hover:bg-violet-100 hover:text-violet-900',
+                                'dark:focus:bg-violet-900 dark:focus:text-violet-100',
+                                'dark:hover:bg-violet-900 dark:hover:text-violet-100',
+                                'cursor-pointer select-none group',
+                            )}
+                            onSelect={handleCreateExpoProject}
+                            disabled={isCreatingProject}
+                        >
+                            {isCreatingProject ? (
+                                <Icons.LoadingSpinner className="w-4 h-4 mr-1 animate-spin text-foreground-secondary group-hover:text-violet-100" />
+                            ) : (
+                                <Icons.FilePlus className="w-4 h-4 mr-1 text-foreground-secondary group-hover:text-violet-100" />
+                            )}
+                            <p className="text-microPlus">Expo / React Native</p>
                         </DropdownMenuItem>
                         <DropdownMenuItem
                             className={cn(

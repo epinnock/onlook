@@ -75,22 +75,30 @@ export class SessionManager {
             console.error('No provider found in restartDevServer');
             return false;
         }
-        const { task } = await this.provider.getTask({
-            args: {
-                id: 'dev',
-            },
-        });
-        if (task) {
-            await task.restart();
-            return true;
+        for (const taskId of ['dev', 'start']) {
+            try {
+                const { task } = await this.provider.getTask({ args: { id: taskId } });
+                if (task) {
+                    await task.restart();
+                    return true;
+                }
+            } catch {
+                // Try next task name
+            }
         }
         return false;
     }
 
     async readDevServerLogs(): Promise<string> {
-        const result = await this.provider?.getTask({ args: { id: 'dev' } });
-        if (result) {
-            return await result.task.open();
+        for (const taskId of ['dev', 'start']) {
+            try {
+                const result = await this.provider?.getTask({ args: { id: taskId } });
+                if (result) {
+                    return await result.task.open();
+                }
+            } catch {
+                // Try next task name
+            }
         }
         return 'Dev server not found';
     }

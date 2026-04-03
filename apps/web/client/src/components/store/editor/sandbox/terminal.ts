@@ -192,16 +192,24 @@ export class CLISessionImpl implements CLISession {
     }
 
     async createDevTaskTerminal() {
-        const { task } = await this.provider.getTask({
-            args: {
-                id: 'dev',
-            },
-        });
-        if (!task) {
-            console.error('No dev task found');
-            return;
+        // Try common task names — CSB templates use 'dev' (Next.js) or 'start' (Expo)
+        for (const taskId of ['dev', 'start']) {
+            try {
+                const { task } = await this.provider.getTask({
+                    args: {
+                        id: taskId,
+                    },
+                });
+                if (task) {
+                    console.log(`[Terminal] Found dev server task: '${taskId}'`);
+                    return task;
+                }
+            } catch {
+                // Task not found, try next
+            }
         }
-        return task;
+        console.error('No dev task found (tried: dev, start)');
+        return;
     }
 
     dispose() {
