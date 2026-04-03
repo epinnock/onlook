@@ -48,6 +48,49 @@ http.createServer((req, res) => {
           success: true,
         }));
       }
+      if (path === "/api/read") {
+        const fs = require("fs");
+        const content = fs.readFileSync(data.path, data.encoding || "utf8");
+        return res.end(JSON.stringify({ content }));
+      }
+      if (path === "/api/write") {
+        const fs = require("fs");
+        const dir = require("path").dirname(data.path);
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(data.path, data.content || "", data.encoding || "utf8");
+        return res.end(JSON.stringify({ success: true }));
+      }
+      if (path === "/api/ls" || path === "/api/list") {
+        const fs = require("fs");
+        const entries = fs.readdirSync(data.path || "/workspace", { withFileTypes: true })
+            .map(e => ({ name: e.name, type: e.isDirectory() ? "directory" : "file" }));
+        return res.end(JSON.stringify({ entries }));
+      }
+      if (path === "/api/mkdir") {
+        const fs = require("fs");
+        fs.mkdirSync(data.path, { recursive: true });
+        return res.end(JSON.stringify({ success: true }));
+      }
+      if (path === "/api/delete") {
+        const fs = require("fs");
+        fs.rmSync(data.path, { recursive: true, force: true });
+        return res.end(JSON.stringify({ success: true }));
+      }
+      if (path === "/api/exists") {
+        const fs = require("fs");
+        return res.end(JSON.stringify({ exists: fs.existsSync(data.path) }));
+      }
+      if (path === "/api/process/start") {
+        const proc = spawn("sh", ["-c", data.command], {
+          detached: true, cwd: data.workdir || "/workspace",
+          stdio: ["ignore", "pipe", "pipe"]
+        });
+        proc.unref();
+        return res.end(JSON.stringify({ processId: String(proc.pid), command: data.command }));
+      }
+      if (path === "/api/process/list") {
+        return res.end(JSON.stringify({ processes: [] }));
+      }
 
       res.statusCode = 404;
       res.end(JSON.stringify({ error: "Unknown endpoint: " + path }));
