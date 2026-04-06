@@ -47,6 +47,7 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
     // API hooks
     const { data: user } = api.user.get.useQuery();
     const { mutateAsync: forkSandbox } = api.sandbox.fork.useMutation();
+    const { mutateAsync: createFromGitHub } = api.sandbox.createFromGitHub.useMutation();
     const { mutateAsync: createLocalSandbox } = api.sandbox.createLocal.useMutation();
     const { mutateAsync: createCfSandbox } = api.cfSandbox.create.useMutation();
     const { mutateAsync: createProject } = api.project.create.useMutation();
@@ -154,6 +155,54 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
             toast.error('Failed to create local project', {
                 description: error instanceof Error ? error.message : String(error),
             });
+        } finally {
+            setIsCreatingProject(false);
+        }
+    };
+
+    const handleCreateExpoProject = async () => {
+        if (!user?.id) {
+            await localforage.setItem(LocalForageKeys.RETURN_URL, window.location.pathname);
+            setIsAuthModalOpen(true);
+            return;
+        }
+
+        setIsCreatingProject(true);
+        try {
+            toast.info('Creating Expo project...', {
+                description: 'Cloning template from GitHub. This may take a minute.',
+            });
+
+            const { sandboxId, previewUrl } = await createFromGitHub({
+                repoUrl: 'https://github.com/epinnock/expo-sandbox',
+                branch: 'main',
+                port: 8080,
+            });
+
+            const newProject = await createProject({
+                project: {
+                    name: 'New Project',
+                    description: 'Expo / React Native project',
+                    tags: ['expo', 'react-native'],
+                },
+                sandboxId,
+                sandboxUrl: previewUrl,
+                userId: user.id,
+            });
+
+            if (newProject) {
+                router.push(`${Routes.PROJECT}/${newProject.id}`);
+            }
+        } catch (error) {
+            console.error('Error creating Expo project:', error);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            if (errorMessage.includes('502') || errorMessage.includes('sandbox')) {
+                toast.error('Sandbox service temporarily unavailable', {
+                    description: 'Please try again in a few moments.',
+                });
+            } else {
+                toast.error('Failed to create project', { description: errorMessage });
+            }
         } finally {
             setIsCreatingProject(false);
         }
@@ -381,7 +430,7 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
                                 'dark:hover:bg-violet-900 dark:hover:text-violet-100',
                                 'cursor-pointer select-none group',
                             )}
-                            onSelect={() => handleStartBlankProject(Templates.EXPO_WEB)}
+                            onSelect={() => handleCreateExpoProject()}
                             disabled={isCreatingProject}
                         >
                             {isCreatingProject ? (

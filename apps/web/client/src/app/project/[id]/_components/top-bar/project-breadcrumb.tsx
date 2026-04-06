@@ -145,17 +145,14 @@ export const ProjectBreadcrumb = observer(() => {
                     <NewProjectMenu onShowCloneDialog={setShowCloneDialog} />
                     <DropdownMenuItem
                         onClick={handleDownloadCode}
-                        disabled={isDownloading || !isPro}
+                        disabled={isDownloading}
                         className="cursor-pointer"
                     >
-                        <div className="flex flex-row center items-center justify-between group w-full">
-                            <div className="flex flex-row center items-center">
-                                <Icons.Download className="mr-2" />
-                                {isDownloading
-                                    ? t(transKeys.projects.actions.downloadingCode)
-                                    : t(transKeys.projects.actions.downloadCode)}
-                            </div>
-                            <Badge variant="secondary" className="ml-2 text-xs bg-blue-400 text-white rounded-full p-0.5 px-1.5">PRO</Badge>
+                        <div className="flex flex-row center items-center group">
+                            <Icons.Download className="mr-2" />
+                            {isDownloading
+                                ? t(transKeys.projects.actions.downloadingCode)
+                                : t(transKeys.projects.actions.downloadCode)}
                         </div>
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />

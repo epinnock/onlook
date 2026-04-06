@@ -228,20 +228,62 @@ export class SandboxManager {
             console.error('No sandbox provider found for download');
             return null;
         }
+
+        // Try the provider's native download first
         try {
             const { url } = await this.session.provider.downloadFiles({
                 args: {
                     path: './',
                 },
             });
-            return {
-                // in case there is no URL provided then the code must be updated
-                // to handle this case
-                downloadUrl: url ?? '',
-                fileName: `${projectName ?? 'onlook-project'}-${Date.now()}.zip`,
-            };
+            if (url) {
+                return {
+                    downloadUrl: url,
+                    fileName: `${projectName ?? 'onlook-project'}-${Date.now()}.zip`,
+                };
+            }
         } catch (error) {
-            console.error('Error generating download URL:', error);
+            console.warn('Native download failed, falling back to file-by-file download:', error);
+        }
+
+        // Fallback: read all files and create a client-side download
+        try {
+            const { files } = await this.session.provider.listFiles({ args: { path: '.' } });
+            if (!files || files.length === 0) {
+                console.error('No files found for download');
+                return null;
+            }
+
+            // Read each file's content
+            const fileContents: Array<{ path: string; content: string }> = [];
+            for (const file of files) {
+                if (file.type === 'file') {
+                    try {
+                        const { content } = await this.session.provider.readFile({ args: { path: file.path } });
+                        if (content) {
+                            fileContents.push({ path: file.path, content });
+                        }
+                    } catch {
+                        // Skip files that can't be read
+                    }
+                }
+            }
+
+            // Create a downloadable text bundle (JSON with all files)
+            const bundle = JSON.stringify(
+                fileContents.reduce((acc, f) => ({ ...acc, [f.path]: f.content }), {}),
+                null,
+                2,
+            );
+            const blob = new Blob([bundle], { type: 'application/json' });
+            const downloadUrl = URL.createObjectURL(blob);
+
+            return {
+                downloadUrl,
+                fileName: `${projectName ?? 'onlook-project'}-${Date.now()}.json`,
+            };
+        } catch (fallbackError) {
+            console.error('Fallback download also failed:', fallbackError);
             return null;
         }
     }
