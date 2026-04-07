@@ -40,6 +40,7 @@
     "@codemirror/lang-javascript": "^6.2.3",
     "@codemirror/lang-json": "^6.0.1",
     "@codemirror/lang-markdown": "^6.1.7",
+    "@onlook/browser-metro": "*",
     "@onlook/code-provider": "*",
     "@onlook/constants": "*",
     "@onlook/db": "*",

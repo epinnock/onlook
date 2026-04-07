@@ -1,5 +1,6 @@
 import { CodeProviderSync } from '@/services/sync-engine/sync-engine';
-import type { Provider } from '@onlook/code-provider';
+import { BrowserMetro, type BundleResult } from '@onlook/browser-metro';
+import { CodeProvider, ExpoBrowserProvider, type Provider } from '@onlook/code-provider';
 import { EXCLUDED_SYNC_PATHS, ProjectType } from '@onlook/constants';
 import type { CodeFileSystem } from '@onlook/file-system';
 import { type FileEntry } from '@onlook/file-system';
@@ -26,6 +27,8 @@ export class SandboxManager {
     readonly gitManager: GitManager;
     private providerReactionDisposer?: () => void;
     private sync: CodeProviderSync | null = null;
+    private bundler: BrowserMetro | null = null;
+    private bundlerSubscriptions: Array<() => void> = [];
     preloadScriptState: PreloadScriptState = PreloadScriptState.NOT_INJECTED
     routerConfig: RouterConfig | null = null;
     projectType: ProjectType | null = null;
@@ -114,6 +117,110 @@ export class SandboxManager {
         }
 
         await this.fs.rebuildIndex();
+
+        // Wave H §1.3 follow-up: wire @onlook/browser-metro into the editor
+        // for ExpoBrowser branches. The bundler reads from the local
+        // CodeFileSystem (already populated by CodeProviderSync above),
+        // bundles via Sucrase, and posts the result to the preview
+        // service worker via both BroadcastChannel AND a direct
+        // postMessage to the active SW (more reliable across browsers).
+        await this.attachBrowserMetro(provider);
+    }
+
+    /**
+     * Wire @onlook/browser-metro into the editor for ExpoBrowser branches.
+     * Idempotent: tearing down any previous bundler before constructing
+     * a new one. Called from initializeSyncEngine after the local
+     * CodeFileSystem has been populated.
+     */
+    private async attachBrowserMetro(provider: Provider): Promise<void> {
+        console.info('[SandboxManager] attachBrowserMetro called for branch', this.branch.id);
+
+        // Tear down any previous bundler instance
+        for (const unsub of this.bundlerSubscriptions) {
+            try { unsub(); } catch { /* ignore */ }
+        }
+        this.bundlerSubscriptions = [];
+        if (this.bundler) {
+            try { this.bundler.dispose(); } catch { /* ignore */ }
+            this.bundler = null;
+        }
+
+        // Only no-shell providers (ExpoBrowser) get a real bundler.
+        // Duck-type via getCapabilities() instead of instanceof — Next.js
+        // can load the same class from server + client bundles, breaking
+        // instanceof checks across the RSC/client boundary.
+        const caps = provider.getCapabilities?.();
+        const isBrowserPreviewProvider = caps != null && caps.supportsTerminal === false && caps.supportsShell === false;
+        console.info('[SandboxManager] attachBrowserMetro: provider caps =', caps, 'isBrowserPreview =', isBrowserPreviewProvider);
+        if (!isBrowserPreviewProvider) {
+            console.info('[SandboxManager] attachBrowserMetro: provider does not need a browser bundler — skipping');
+            return;
+        }
+
+        const branchId = this.branch.id;
+
+        const bundler = new BrowserMetro({
+            vfs: this.fs,
+            esmUrl: process.env.NEXT_PUBLIC_BROWSER_METRO_ESM_URL ?? 'https://esm.sh',
+            broadcastChannel: 'onlook-preview',
+            logger: {
+                debug: (m) => console.debug('[browser-metro]', m),
+                info: (m) => console.info('[browser-metro]', m),
+                error: (m, e) => console.error('[browser-metro]', m, e),
+            },
+        });
+        this.bundler = bundler;
+
+        // Tag every published bundle with the branchId so the SW can key
+        // its cache correctly. The SW listens on both BroadcastChannel
+        // AND self.message — we publish on both to maximise reliability.
+        const publish = (result: BundleResult) => {
+            try {
+                const channel = new BroadcastChannel('onlook-preview');
+                channel.postMessage({ type: 'bundle', branchId, result });
+                channel.close();
+            } catch (err) {
+                console.error('[SandboxManager] BroadcastChannel publish failed:', err);
+            }
+            if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+                navigator.serviceWorker.getRegistration('/preview/').then((reg) => {
+                    reg?.active?.postMessage({ type: 'bundle', branchId, result });
+                }).catch((err) => {
+                    console.error('[SandboxManager] SW postMessage failed:', err);
+                });
+            }
+        };
+
+        // Subscribe to bundler updates
+        const unsubUpdate = bundler.onUpdate(publish);
+        this.bundlerSubscriptions.push(unsubUpdate);
+
+        // Hook the bundler into the provider's BrowserTask so
+        // SessionManager.restartDevServer triggers a re-bundle.
+        // Cast to ExpoBrowserProvider for the attachBundler() method —
+        // we already verified above that the provider is a browser-
+        // preview provider via getCapabilities() duck-typing.
+        const expoProvider = provider as unknown as ExpoBrowserProvider;
+        if (typeof expoProvider.attachBundler === 'function') {
+            expoProvider.attachBundler({
+                onRebundle: async () => {
+                    await bundler.invalidate();
+                },
+                onStop: async () => {
+                    bundler.dispose();
+                },
+                banner: '[browser-metro] bundling Expo project in your browser…\n',
+            });
+        }
+
+        // Run the initial bundle now that everything is wired
+        try {
+            console.info('[SandboxManager] Running initial browser-metro bundle for branch', branchId);
+            await bundler.bundle();
+        } catch (err) {
+            console.error('[SandboxManager] Initial bundle failed:', err);
+        }
     }
 
     private async ensurePreloadScriptExists(): Promise<void> {
