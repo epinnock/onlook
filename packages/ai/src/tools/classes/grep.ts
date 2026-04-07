@@ -1,5 +1,7 @@
 import { Icons } from '@onlook/ui/icons';
 import type { EditorEngine } from '@onlook/web-client/src/components/store/editor/engine';
+// @ts-expect-error - picomatch ships its own JS-only export; types not declared.
+import picomatch from 'picomatch';
 import { z } from 'zod';
 import { ClientTool } from '../models/client';
 import {
@@ -7,6 +9,7 @@ import {
     escapeForShell,
     getFileTypePattern
 } from '../shared/helpers/cli';
+import { getFileSystem } from '../shared/helpers/files';
 import { BRANCH_ID_SCHEMA } from '../shared/type';
 
 interface GrepResult {
@@ -80,6 +83,14 @@ export class GrepTool extends ClientTool {
             }
 
             const searchPath = args.path || '.';
+
+            // Per-branch capability gate (Wave B / §1.7.5).
+            // For ExpoBrowser branches (no shell), run the regex in JS over
+            // the local CodeFileSystem mirror. No provider round-trip.
+            const caps = sandbox.session.provider?.getCapabilities?.();
+            if (caps && !caps.supportsShell) {
+                return tryInProcessGrep(args, editorEngine, searchPath);
+            }
 
             // Enhanced input validation
             const validationError = await validateGrepInputs(args.pattern, searchPath, args, sandbox);
@@ -411,4 +422,150 @@ function formatCountOutput(output: string, pattern: string): string {
     });
 
     return `Total: ${totalMatches} matches across ${lines.length} files\n\n${formattedLines.join('\n')}`;
+}
+
+// ---------------------------------------------------------------------------
+// In-process grep (Wave B / §1.7.5) for ExpoBrowser branches
+// ---------------------------------------------------------------------------
+
+const TEXT_FILE_EXTENSIONS = new Set([
+    'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs',
+    'json', 'jsonc',
+    'md', 'mdx',
+    'css', 'scss', 'sass', 'less',
+    'html', 'htm', 'xml', 'svg',
+    'yaml', 'yml', 'toml',
+    'txt', 'text',
+    'sh', 'bash', 'zsh',
+    'env', 'gitignore', 'editorconfig',
+]);
+
+function isProbablyTextFile(filePath: string): boolean {
+    const lower = filePath.toLowerCase();
+    if (lower.endsWith('package.json') || lower.endsWith('tsconfig.json')) return true;
+    const ext = lower.split('.').pop();
+    if (!ext || ext === lower) return false;
+    return TEXT_FILE_EXTENSIONS.has(ext);
+}
+
+async function tryInProcessGrep(
+    args: z.infer<typeof GrepTool.parameters>,
+    editorEngine: EditorEngine,
+    searchPath: string,
+): Promise<string> {
+    try {
+        const fs = await getFileSystem(args.branchId, editorEngine);
+        const allEntries = await fs.listAll();
+
+        // Filter to text files only — binary search would just produce noise.
+        let candidates = allEntries
+            .filter((e) => e.type === 'file' && isProbablyTextFile(e.path))
+            .map((e) => (e.path.startsWith('/') ? e.path.slice(1) : e.path));
+
+        // Scope to searchPath
+        if (searchPath !== '.' && searchPath !== '') {
+            const prefix = searchPath.replace(/\/$/, '') + '/';
+            candidates = candidates.filter((p) => p === searchPath || p.startsWith(prefix));
+        }
+
+        // Apply --glob filter if present
+        if (args.glob) {
+            const matcher = picomatch(args.glob, { dot: false, basename: true });
+            candidates = candidates.filter((p) => matcher(p));
+        }
+
+        // Apply --type filter if present (extension-based shortcut)
+        if (args.type) {
+            const extByType: Record<string, string[]> = {
+                js: ['js', 'jsx', 'mjs', 'cjs'],
+                ts: ['ts', 'tsx'],
+                py: ['py'],
+                rust: ['rs'],
+                go: ['go'],
+                java: ['java'],
+                json: ['json', 'jsonc'],
+                md: ['md', 'mdx'],
+            };
+            const exts = extByType[args.type] ?? [args.type];
+            candidates = candidates.filter((p) => {
+                const ext = p.split('.').pop()?.toLowerCase();
+                return ext ? exts.includes(ext) : false;
+            });
+        }
+
+        // Build the regex
+        const flags = (args['-i'] ? 'i' : '') + (args.multiline ? 's' : '') + 'g';
+        let regex: RegExp;
+        try {
+            regex = new RegExp(args.pattern, flags);
+        } catch (err) {
+            return `Error: invalid regex '${args.pattern}': ${err instanceof Error ? err.message : String(err)}`;
+        }
+
+        const outputMode = args.output_mode ?? 'files_with_matches';
+        const headLimit = args.head_limit ?? 1000;
+
+        const matchedFiles: Array<{ path: string; matches: Array<{ line: number; text: string }> }> = [];
+        for (const filePath of candidates) {
+            try {
+                const raw = await fs.readFile(filePath);
+                const content = typeof raw === 'string' ? raw : new TextDecoder().decode(raw);
+                const matches: Array<{ line: number; text: string }> = [];
+                if (args.multiline) {
+                    let m;
+                    while ((m = regex.exec(content)) !== null) {
+                        const upToMatch = content.slice(0, m.index);
+                        const lineNumber = upToMatch.split('\n').length;
+                        matches.push({ line: lineNumber, text: m[0] });
+                        if (matches.length >= 100) break;
+                    }
+                } else {
+                    const lines = content.split('\n');
+                    for (let i = 0; i < lines.length; i++) {
+                        const line = lines[i] ?? '';
+                        regex.lastIndex = 0;
+                        if (regex.test(line)) {
+                            matches.push({ line: i + 1, text: line });
+                            if (matches.length >= 100) break;
+                        }
+                    }
+                }
+                if (matches.length > 0) matchedFiles.push({ path: filePath, matches });
+                if (matchedFiles.length >= headLimit) break;
+            } catch {
+                // Skip unreadable files (binary, permission, etc.)
+            }
+        }
+
+        if (matchedFiles.length === 0) {
+            return `No matches found for '${args.pattern}'`;
+        }
+
+        if (outputMode === 'files_with_matches') {
+            return `Found ${matchedFiles.length} files with matches:\n\n${matchedFiles
+                .map((f) => f.path)
+                .join('\n')}`;
+        }
+
+        if (outputMode === 'count') {
+            const total = matchedFiles.reduce((sum, f) => sum + f.matches.length, 0);
+            const lines = matchedFiles.map((f) => `${f.path}: ${f.matches.length} matches`);
+            return `Total: ${total} matches across ${matchedFiles.length} files\n\n${lines.join('\n')}`;
+        }
+
+        // content mode
+        const out: string[] = [];
+        for (const file of matchedFiles) {
+            for (const match of file.matches) {
+                if (args['-n']) {
+                    out.push(`${file.path}:${match.line}:${match.text}`);
+                } else {
+                    out.push(`${file.path}: ${match.text}`);
+                }
+            }
+        }
+        return out.slice(0, headLimit).join('\n');
+    } catch (error) {
+        return `Error: in-process grep failed: ${error instanceof Error ? error.message : String(error)}`;
+    }
 }
