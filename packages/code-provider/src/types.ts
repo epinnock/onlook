@@ -187,6 +187,49 @@ export interface CreateSessionInput {
 }
 export interface CreateSessionOutput {}
 
+/**
+ * Static description of what a Provider implementation actually supports.
+ *
+ * Read by SessionManager.createTerminalSessions to decide whether to set up
+ * an interactive terminal session, by tools like BashReadTool/BashEditTool to
+ * decide whether to surface PROVIDER_NO_SHELL, and by getSandboxPreviewUrl
+ * to choose the right URL strategy.
+ *
+ * Every Provider declares its own capabilities. The abstract method on the
+ * base class forces each implementation to be explicit — there is no
+ * implicit default.
+ */
+export interface ProviderCapabilities {
+    /**
+     * Whether createTerminal returns a usable interactive terminal that
+     * accepts user keystrokes from xterm. False for ExpoBrowser and NodeFs.
+     */
+    supportsTerminal: boolean;
+    /**
+     * Whether runCommand actually executes arbitrary shell commands.
+     * False for ExpoBrowser (interceptor only) and NodeFs (no-op stub).
+     */
+    supportsShell: boolean;
+    /**
+     * Whether runBackgroundCommand returns a real long-running process
+     * handle. False when there is no host OS to run background commands on.
+     */
+    supportsBackgroundCommands: boolean;
+    /**
+     * Whether pauseProject / stopProject have meaningful effect on a remote
+     * runtime. True for CSB. False for ExpoBrowser, NodeFs, and Cloudflare
+     * (CF Sandbox does not have hibernate/resume semantics).
+     */
+    supportsHibernate: boolean;
+    /**
+     * Whether the provider exposes a publicly-reachable preview URL that a
+     * server-side headless browser can hit for screenshot capture.
+     * True for CSB. False for ExpoBrowser (uses in-browser html2canvas via
+     * the same-origin /preview/ route instead).
+     */
+    supportsRemoteScreenshot: boolean;
+}
+
 export abstract class Provider {
     abstract writeFile(input: WriteFileInput): Promise<WriteFileOutput>;
     abstract renameFile(input: RenameFileInput): Promise<RenameFileOutput>;
@@ -224,6 +267,13 @@ export abstract class Provider {
     abstract reload(): Promise<boolean>;
     abstract reconnect(): Promise<void>;
     abstract ping(): Promise<boolean>;
+
+    /**
+     * Returns a static description of what this provider supports. Called
+     * synchronously by SessionManager and tool handlers; must not perform
+     * I/O.
+     */
+    abstract getCapabilities(): ProviderCapabilities;
 
     static createProject(input: CreateProjectInput): Promise<CreateProjectOutput> {
         throw new Error('createProject must be implemented by subclass');

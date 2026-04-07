@@ -19,6 +19,7 @@ import {
     ProviderFileWatcher,
     ProviderTask,
     ProviderTerminal,
+    type ProviderCapabilities,
     type CopyFileOutput,
     type CopyFilesInput,
     type CreateDirectoryInput,
@@ -105,6 +106,16 @@ export class ExpoBrowserProvider extends Provider {
 
     async ping(): Promise<boolean> {
         return true;
+    }
+
+    getCapabilities(): ProviderCapabilities {
+        return {
+            supportsTerminal: false,
+            supportsShell: false,
+            supportsBackgroundCommands: false,
+            supportsHibernate: false,
+            supportsRemoteScreenshot: false,
+        };
     }
 
     async destroy(): Promise<void> {

@@ -4,6 +4,7 @@ import {
     ProviderFileWatcher,
     ProviderTask,
     ProviderTerminal,
+    type ProviderCapabilities,
     type CopyFileOutput,
     type CopyFilesInput,
     type CreateDirectoryInput,
@@ -175,6 +176,20 @@ export class NodeFsProvider extends Provider {
 
     async ping(): Promise<boolean> {
         return true;
+    }
+
+    getCapabilities(): ProviderCapabilities {
+        // Current NodeFs implementation is a no-op stub: createTerminal,
+        // runCommand, etc. return inert objects. Mark all shell-related
+        // capabilities as false so SessionManager skips terminal creation
+        // and tools surface PROVIDER_NO_SHELL instead of pretending.
+        return {
+            supportsTerminal: false,
+            supportsShell: false,
+            supportsBackgroundCommands: false,
+            supportsHibernate: false,
+            supportsRemoteScreenshot: false,
+        };
     }
 
     static async createProject(input: CreateProjectInput): Promise<CreateProjectOutput> {

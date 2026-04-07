@@ -15,6 +15,7 @@ import {
     ProviderFileWatcher,
     ProviderTask,
     ProviderTerminal,
+    type ProviderCapabilities,
     type CopyFileOutput,
     type CopyFilesInput,
     type CreateDirectoryInput,
@@ -151,6 +152,16 @@ export class CodesandboxProvider extends Provider {
             console.error('Failed to ping sandbox', error);
             return false;
         }
+    }
+
+    getCapabilities(): ProviderCapabilities {
+        return {
+            supportsTerminal: true,
+            supportsShell: true,
+            supportsBackgroundCommands: true,
+            supportsHibernate: true,
+            supportsRemoteScreenshot: true,
+        };
     }
 
     async destroy(): Promise<void> {
