@@ -1,0 +1,28 @@
+{
+    "$schema": "node_modules/wrangler/config-schema.json",
+    "name": "esm-builder",
+    "main": "src/worker.ts",
+    "compatibility_date": "2025-12-01",
+    "containers": [
+        {
+            "class_name": "EsmBuilder",
+            "image": "./Dockerfile",
+            "instance_type": "basic",
+            "max_instances": 3
+        }
+    ],
+    "durable_objects": {
+        "bindings": [
+            {
+                "name": "ESM_BUILDER",
+                "class_name": "EsmBuilder"
+            }
+        ]
+    },
+    "migrations": [
+        {
+            "tag": "v1",
+            "new_sqlite_classes": ["EsmBuilder"]
+        }
+    ]
+}

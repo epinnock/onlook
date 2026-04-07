@@ -1,0 +1,31 @@
+{
+    "$schema": "node_modules/wrangler/config-schema.json",
+    "name": "expo-relay",
+    "main": "src/worker.ts",
+    "compatibility_date": "2025-12-01",
+    /**
+     * The BUNDLES KV namespace must be created manually before deploy via:
+     *   wrangler kv:namespace create BUNDLES
+     * then replace the placeholder id below with the real namespace id.
+     */
+    "kv_namespaces": [
+        {
+            "binding": "BUNDLES",
+            "id": "placeholder-bundles-kv-id"
+        }
+    ],
+    "durable_objects": {
+        "bindings": [
+            {
+                "name": "EXPO_SESSION",
+                "class_name": "ExpoSession"
+            }
+        ]
+    },
+    "migrations": [
+        {
+            "tag": "v1",
+            "new_sqlite_classes": ["ExpoSession"]
+        }
+    ]
+}

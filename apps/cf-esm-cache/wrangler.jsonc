@@ -1,0 +1,28 @@
+/**
+ * cf-esm-cache Worker config.
+ *
+ * NOTE: The R2 bucket `onlook-expo-packages` referenced below must be created
+ * out-of-band before deploying this Worker. Run (once, manually):
+ *
+ *     wrangler r2 bucket create onlook-expo-packages
+ *
+ * This task does NOT create the bucket and does NOT run `wrangler deploy`.
+ */
+{
+    "$schema": "node_modules/wrangler/config-schema.json",
+    "name": "esm-cache",
+    "main": "src/worker.ts",
+    "compatibility_date": "2025-12-01",
+    "r2_buckets": [
+        {
+            "binding": "PACKAGES",
+            "bucket_name": "onlook-expo-packages"
+        }
+    ],
+    "services": [
+        {
+            "binding": "ESM_BUILDER",
+            "service": "esm-builder"
+        }
+    ]
+}
