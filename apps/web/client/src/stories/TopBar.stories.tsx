@@ -50,6 +50,7 @@ const mockUser: User = {
   updatedAt: new Date('2024-11-01'),
   stripeCustomerId: null,
   githubInstallationId: null,
+  featureFlags: {},
 };
 
 // Action callbacks
@@ -134,6 +135,7 @@ export const MinimalUser: Story = {
       updatedAt: new Date(),
       stripeCustomerId: null,
       githubInstallationId: null,
+      featureFlags: {},
     },
     searchQuery: '',
     onSearchChange,

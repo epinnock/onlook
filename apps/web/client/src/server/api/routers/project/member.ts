@@ -38,6 +38,7 @@ export const memberRouter = createTRPCRouter({
                     stripeCustomerId: member.user.stripeCustomerId ?? null,
                     // @ts-expect-error - TODO: Fix this later
                     githubInstallationId: member.user.githubInstallationId ?? null,
+                    featureFlags: {},
                 }),
             }));
         }),
