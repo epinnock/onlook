@@ -141,6 +141,13 @@
       "when": 1758255985926,
       "tag": "0019_abandoned_psylocke",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1775904000000,
+      "tag": "0020_branches_provider_type",
+      "breakpoints": true
     }
   ]
 }
