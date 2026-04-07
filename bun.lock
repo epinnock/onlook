@@ -265,6 +265,7 @@
         "@onlook/models": "*",
         "@onlook/parser": "*",
         "@onlook/utility": "*",
+        "@supabase/supabase-js": "^2.45.4",
       },
       "devDependencies": {
         "@onlook/eslint": "*",

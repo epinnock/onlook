@@ -1,23 +1,29 @@
 /**
- * ExpoBrowserProvider — Sprint 0 stub.
+ * ExpoBrowserProvider — Wave A wired version.
  *
- * Implements the Provider interface with no-op stubs everywhere except for
- * runCommand, which returns the typed PROVIDER_NO_SHELL error so callers
- * can detect that shell is unavailable on this branch.
+ * File ops are backed by SupabaseStorageAdapter (TA.5). The dev/start task
+ * is a real BrowserTask (TA.6). runCommand goes through the narrow Layer C
+ * interceptor (TA.7) and falls through to PROVIDER_NO_SHELL for anything
+ * outside the install/uninstall/dev/build allowlist.
  *
- * Wave A (Sprint 1) replaces these stubs with:
- *   - Supabase Storage REST adapter for file ops
- *   - BrowserTask for the dev server task
- *   - Layer C narrow interceptor for npm install/run dev/run build patterns
+ * `getCapabilities().supportsTerminal` is false, so SessionManager
+ * (§1.7.2, lands later) skips calling createTerminal entirely. The
+ * createTerminal stub here is only invoked by code that hasn't been
+ * upgraded yet — it returns an inert ProviderTerminal so existing call
+ * sites don't crash.
  *
- * See plans/expo-browser-implementation.md §0.3 for the method coverage
- * table and the bigger picture.
+ * The bundler (browser-metro) doesn't exist in this branch yet; it's a
+ * Wave C package. Until then BrowserTask runs without a `triggerBundle`
+ * callback, which makes restart() emit a placeholder banner. The bundler
+ * gets attached in Wave H §1.3 via the optional `bundlerHost` option.
+ *
+ * See plans/expo-browser-implementation.md §0.3 for the full method
+ * coverage table.
  */
 import {
     Provider,
     ProviderBackgroundCommand,
     ProviderFileWatcher,
-    ProviderTask,
     ProviderTerminal,
     type ProviderCapabilities,
     type CopyFileOutput,
@@ -66,6 +72,9 @@ import {
     type WriteFileInput,
     type WriteFileOutput,
 } from '../../types';
+import { BrowserTask, type BrowserTaskHost } from './utils/browser-task';
+import { intercept, type InterceptorContext } from './utils/run-command';
+import { SupabaseStorageAdapter, type StorageAdapter } from './utils/storage';
 import type { ExpoBrowserProviderOptions } from './types';
 
 export type { ExpoBrowserProviderOptions } from './types';
@@ -78,17 +87,36 @@ export type { ExpoBrowserProviderOptions } from './types';
 export const PROVIDER_NO_SHELL =
     'PROVIDER_NO_SHELL: shell unavailable in browser-preview mode. use file edit tools instead.';
 
+const DEFAULT_SUPABASE_URL = 'http://127.0.0.1:54321';
+
 export class ExpoBrowserProvider extends Provider {
     private readonly options: ExpoBrowserProviderOptions;
+    private storage: StorageAdapter | null = null;
+    private devTask: BrowserTask | null = null;
+    private startTask: BrowserTask | null = null;
 
     constructor(options: ExpoBrowserProviderOptions) {
         super();
         this.options = options;
     }
 
-    // -- lifecycle (Sprint 0 stubs) -----------------------------------------
+    // -- lifecycle ----------------------------------------------------------
 
     async initialize(_input: InitializeInput): Promise<InitializeOutput> {
+        const supabaseUrl = this.options.supabaseUrl ?? DEFAULT_SUPABASE_URL;
+        const supabaseKey = this.options.supabaseAnonKey;
+        if (!supabaseKey) {
+            throw new Error(
+                'ExpoBrowserProvider: supabaseAnonKey is required (or set NEXT_PUBLIC_SUPABASE_ANON_KEY in the calling layer).',
+            );
+        }
+        this.storage = new SupabaseStorageAdapter({
+            projectId: this.options.projectId,
+            branchId: this.options.branchId,
+            bucket: this.options.storageBucket,
+            supabaseUrl,
+            supabaseKey,
+        });
         return {};
     }
 
@@ -97,15 +125,17 @@ export class ExpoBrowserProvider extends Provider {
     }
 
     async reload(): Promise<boolean> {
+        // Triggers a re-bundle on the dev task. Mirrors CSB's reload contract.
+        await this.devTask?.restart();
         return true;
     }
 
     async reconnect(): Promise<void> {
-        // no-op
+        // No remote connection to re-establish; storage adapter is stateless.
     }
 
     async ping(): Promise<boolean> {
-        return true;
+        return this.storage !== null;
     }
 
     getCapabilities(): ProviderCapabilities {
@@ -119,14 +149,32 @@ export class ExpoBrowserProvider extends Provider {
     }
 
     async destroy(): Promise<void> {
-        // no-op for Sprint 0
+        await this.devTask?.stop();
+        await this.startTask?.stop();
+        this.devTask = null;
+        this.startTask = null;
+        this.storage = null;
     }
 
     async createSession(_input: CreateSessionInput): Promise<CreateSessionOutput> {
         return {};
     }
 
-    // -- project lifecycle (Sprint 0 no-ops) --------------------------------
+    /**
+     * Test/Wave-H seam: attach a real bundler control surface so the dev
+     * task's restart() actually runs the browser-metro bundler.
+     */
+    attachBundler(host: BrowserTaskHost): void {
+        if (this.devTask) {
+            // Re-create with the new host so the listener wiring is fresh.
+            this.devTask = new BrowserTask('dev', host);
+        }
+        if (this.startTask) {
+            this.startTask = new BrowserTask('start', host);
+        }
+    }
+
+    // -- project lifecycle (no-ops; createProject is a Wave 5 task) ---------
 
     static async createProject(input: CreateProjectInput): Promise<CreateProjectOutput> {
         // ExpoBrowser does NOT create new branches from scratch in v1.
@@ -154,89 +202,125 @@ export class ExpoBrowserProvider extends Provider {
         return {};
     }
 
-    // -- file ops (Sprint 0 stubs; Wave A replaces with Supabase Storage) ---
+    // -- file ops (Supabase Storage) ----------------------------------------
 
-    async writeFile(_input: WriteFileInput): Promise<WriteFileOutput> {
-        return { success: true };
+    async writeFile(input: WriteFileInput): Promise<WriteFileOutput> {
+        return this.requireStorage().writeFile(input);
     }
 
     async readFile(input: ReadFileInput): Promise<ReadFileOutput> {
-        return {
-            file: {
-                path: input.args.path,
-                content: '',
-                type: 'text',
-                toString: () => '',
-            },
-        };
+        return this.requireStorage().readFile(input);
     }
 
-    async listFiles(_input: ListFilesInput): Promise<ListFilesOutput> {
-        return { files: [] };
+    async listFiles(input: ListFilesInput): Promise<ListFilesOutput> {
+        return this.requireStorage().listFiles(input);
     }
 
-    async statFile(_input: StatFileInput): Promise<StatFileOutput> {
-        return { type: 'file' };
+    async statFile(input: StatFileInput): Promise<StatFileOutput> {
+        return this.requireStorage().statFile(input);
     }
 
-    async deleteFiles(_input: DeleteFilesInput): Promise<DeleteFilesOutput> {
-        return {};
+    async deleteFiles(input: DeleteFilesInput): Promise<DeleteFilesOutput> {
+        return this.requireStorage().deleteFiles(input);
     }
 
-    async renameFile(_input: RenameFileInput): Promise<RenameFileOutput> {
-        return {};
+    async renameFile(input: RenameFileInput): Promise<RenameFileOutput> {
+        return this.requireStorage().renameFile(input);
     }
 
-    async copyFiles(_input: CopyFilesInput): Promise<CopyFileOutput> {
-        return {};
+    async copyFiles(input: CopyFilesInput): Promise<CopyFileOutput> {
+        return this.requireStorage().copyFiles(input);
     }
 
-    async createDirectory(_input: CreateDirectoryInput): Promise<CreateDirectoryOutput> {
-        return {};
+    async createDirectory(input: CreateDirectoryInput): Promise<CreateDirectoryOutput> {
+        return this.requireStorage().createDirectory(input);
     }
 
-    async downloadFiles(_input: DownloadFilesInput): Promise<DownloadFilesOutput> {
-        return { url: undefined };
+    async downloadFiles(input: DownloadFilesInput): Promise<DownloadFilesOutput> {
+        return this.requireStorage().downloadFiles(input);
     }
 
     async watchFiles(_input: WatchFilesInput): Promise<WatchFilesOutput> {
+        // Supabase Realtime subscription lands in Wave H. For now return an
+        // inert watcher so callers don't crash.
         return { watcher: new ExpoBrowserFileWatcher() };
     }
 
     async gitStatus(_input: GitStatusInput): Promise<GitStatusOutput> {
+        // Wired to isomorphic-git over the local CodeFileSystem in §1.7.3.
+        // Until then there's no remote git source — return clean.
         return { changedFiles: [] };
     }
 
-    // -- shell / terminal (PROVIDER_NO_SHELL) -------------------------------
+    // -- shell / terminal ---------------------------------------------------
 
     async createTerminal(_input: CreateTerminalInput): Promise<CreateTerminalOutput> {
-        // SessionManager.createTerminalSessions will gate on
-        // provider.getCapabilities().supportsTerminal once §1.7.2 lands and
-        // skip calling this entirely. Until then, return a no-op terminal so
-        // existing call sites don't crash.
-        return { terminal: new ExpoBrowserTerminal() };
+        // SessionManager.createTerminalSessions skips this call entirely
+        // when getCapabilities().supportsTerminal is false (§1.7.2, lands
+        // later). For any caller that hasn't been upgraded yet, return an
+        // inert terminal so the bottom panel doesn't crash.
+        return { terminal: new ExpoBrowserInertTerminal() };
     }
 
-    async getTask(_input: GetTaskInput): Promise<GetTaskOutput> {
-        // Wave A (TA.6) replaces this with a real BrowserTask that triggers
-        // bundler.bundle() on restart and pipes bundler events to onOutput.
-        return { task: new ExpoBrowserTask() };
+    async getTask(input: GetTaskInput): Promise<GetTaskOutput> {
+        const id = input.args.id;
+        if (id === 'dev') {
+            if (!this.devTask) this.devTask = new BrowserTask('dev');
+            return { task: this.devTask };
+        }
+        if (id === 'start') {
+            if (!this.startTask) this.startTask = new BrowserTask('start');
+            return { task: this.startTask };
+        }
+        // Unknown task — return a fresh BrowserTask anyway. The bundler
+        // doesn't differentiate beyond dev/start in Sprint 0.
+        return { task: new BrowserTask('dev') };
     }
 
-    async runCommand(_input: TerminalCommandInput): Promise<TerminalCommandOutput> {
-        // Wave A (TA.7) replaces this with the narrow Layer C interceptor
-        // that handles npm install/uninstall/run dev/run build patterns.
-        return { output: PROVIDER_NO_SHELL };
+    async runCommand(input: TerminalCommandInput): Promise<TerminalCommandOutput> {
+        return intercept(input, this.interceptorContext());
     }
 
     async runBackgroundCommand(
         _input: TerminalBackgroundCommandInput,
     ): Promise<TerminalBackgroundCommandOutput> {
-        return { command: new ExpoBrowserBackgroundCommand() };
+        // No background processes in browser-preview mode. Return an inert
+        // command that responds with PROVIDER_NO_SHELL on output.
+        return { command: new ExpoBrowserInertBackgroundCommand() };
+    }
+
+    // -- helpers -------------------------------------------------------------
+
+    private requireStorage(): StorageAdapter {
+        if (!this.storage) {
+            throw new Error(
+                'ExpoBrowserProvider: storage adapter not initialized. Did you forget to call initialize()?',
+            );
+        }
+        return this.storage;
+    }
+
+    private interceptorContext(): InterceptorContext {
+        return {
+            readPackageJson: async () => {
+                const { file } = await this.readFile({ args: { path: 'package.json' } });
+                return file.toString();
+            },
+            writePackageJson: async (content) => {
+                await this.writeFile({
+                    args: { path: 'package.json', content, overwrite: true },
+                });
+            },
+            triggerBundle: async () => {
+                await this.devTask?.restart();
+            },
+            // prefetchPackage is intentionally omitted in Sprint 0; Wave 2
+            // wires it to the cf-esm-cache Worker.
+        };
     }
 }
 
-// -- inert helpers used only by Sprint 0 stubs --------------------------------
+// -- inert helpers used when capability gates haven't migrated yet ----------
 
 class ExpoBrowserFileWatcher extends ProviderFileWatcher {
     start(_input: WatchFilesInput): Promise<void> {
@@ -250,12 +334,12 @@ class ExpoBrowserFileWatcher extends ProviderFileWatcher {
     }
 }
 
-class ExpoBrowserTerminal extends ProviderTerminal {
+class ExpoBrowserInertTerminal extends ProviderTerminal {
     get id(): string {
-        return 'expo-browser-terminal-stub';
+        return 'expo-browser-terminal-inert';
     }
     get name(): string {
-        return 'expo-browser-terminal-stub';
+        return 'expo-browser-terminal-inert';
     }
     open(): Promise<string> {
         return Promise.resolve(PROVIDER_NO_SHELL);
@@ -274,36 +358,9 @@ class ExpoBrowserTerminal extends ProviderTerminal {
     }
 }
 
-class ExpoBrowserTask extends ProviderTask {
-    get id(): string {
-        return 'expo-browser-task-stub';
-    }
+class ExpoBrowserInertBackgroundCommand extends ProviderBackgroundCommand {
     get name(): string {
-        return 'expo-browser-task-stub';
-    }
-    get command(): string {
-        return 'browser-metro bundle';
-    }
-    open(): Promise<string> {
-        return Promise.resolve('');
-    }
-    run(): Promise<void> {
-        return Promise.resolve();
-    }
-    restart(): Promise<void> {
-        return Promise.resolve();
-    }
-    stop(): Promise<void> {
-        return Promise.resolve();
-    }
-    onOutput(_callback: (data: string) => void): () => void {
-        return () => {};
-    }
-}
-
-class ExpoBrowserBackgroundCommand extends ProviderBackgroundCommand {
-    get name(): string {
-        return 'expo-browser-bg-stub';
+        return 'expo-browser-bg-inert';
     }
     get command(): string {
         return PROVIDER_NO_SHELL;
