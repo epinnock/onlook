@@ -1,10 +1,13 @@
 import { CodeProvider } from './providers';
 import type { CloudflareProviderOptions } from './providers/cloudflare/types';
 import { CodesandboxProvider, type CodesandboxProviderOptions } from './providers/codesandbox';
+import { ExpoBrowserProvider, type ExpoBrowserProviderOptions } from './providers/expo-browser';
 import { NodeFsProvider, type NodeFsProviderOptions } from './providers/nodefs';
 export * from './providers';
 export type { CloudflareProviderOptions } from './providers/cloudflare/types';
 export { CodesandboxProvider } from './providers/codesandbox';
+export { ExpoBrowserProvider, PROVIDER_NO_SHELL } from './providers/expo-browser';
+export type { ExpoBrowserProviderOptions } from './providers/expo-browser/types';
 export { NodeFsProvider } from './providers/nodefs';
 export * from './types';
 
@@ -40,12 +43,17 @@ export async function getStaticCodeProvider(
     if (codeProvider === CodeProvider.NodeFs) {
         return NodeFsProvider;
     }
+
+    if (codeProvider === CodeProvider.ExpoBrowser) {
+        return ExpoBrowserProvider;
+    }
     throw new Error(`Unimplemented code provider: ${codeProvider}`);
 }
 
 export interface ProviderInstanceOptions {
     cloudflare?: CloudflareProviderOptions;
     codesandbox?: CodesandboxProviderOptions;
+    expoBrowser?: ExpoBrowserProviderOptions;
     nodefs?: NodeFsProviderOptions;
 }
 
@@ -70,6 +78,13 @@ async function newProviderInstance(codeProvider: CodeProvider, providerOptions: 
             throw new Error('NodeFs provider options are required.');
         }
         return new NodeFsProvider(providerOptions.nodefs);
+    }
+
+    if (codeProvider === CodeProvider.ExpoBrowser) {
+        if (!providerOptions.expoBrowser) {
+            throw new Error('ExpoBrowser provider options are required.');
+        }
+        return new ExpoBrowserProvider(providerOptions.expoBrowser);
     }
 
     throw new Error(`Unimplemented code provider: ${codeProvider}`);
