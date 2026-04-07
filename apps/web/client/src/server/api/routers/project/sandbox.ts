@@ -149,8 +149,17 @@ export const sandboxRouter = createTRPCRouter({
         )
         .mutation(async ({ input }) => {
             const provider = await getProvider({ sandboxId: input.sandboxId });
+            // Capability gate (Wave G / §0.9): providers without hibernate
+            // (ExpoBrowser, NodeFs, Cloudflare) short-circuit cleanly. CSB
+            // continues to hibernate as before.
+            const caps = provider.getCapabilities?.();
+            if (caps && !caps.supportsHibernate) {
+                await provider.destroy().catch(() => {});
+                return { ok: true, hibernated: false };
+            }
             try {
                 await provider.pauseProject({});
+                return { ok: true, hibernated: true };
             } finally {
                 await provider.destroy().catch(() => {});
             }
