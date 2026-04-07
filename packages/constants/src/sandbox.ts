@@ -20,7 +20,7 @@ export const SANDBOX_TEMPLATES = {
 export type SandboxTemplate = keyof typeof SANDBOX_TEMPLATES;
 
 /** Provider identifiers matching the CodeProvider enum values */
-export type SandboxProvider = 'cloudflare' | 'code_sandbox' | 'node_fs';
+export type SandboxProvider = 'cloudflare' | 'code_sandbox' | 'node_fs' | 'expo_browser';
 
 /** Dev server task name (same across providers) */
 export const SANDBOX_DEV_TASK_NAME = 'dev';
@@ -33,6 +33,16 @@ export const PROVIDER_DOMAINS = {
 
 /**
  * Generate a preview URL for any supported provider.
+ *
+ * For ExpoBrowser branches, returns a same-origin path that the in-app
+ * service worker (Wave H §1.3, TH.1) intercepts to serve the browser-metro
+ * bundled HTML/JS shell. The frame.url field stores this exact path so
+ * <iframe src={frame.url}> works unchanged on multi-frame canvases.
+ *
+ * The sandboxId for ExpoBrowser branches is the branch UUID itself
+ * (Position B does NOT mint synthetic sandbox identifiers — branches that
+ * opt into ExpoBrowser keep their existing CSB sandboxId for fallback;
+ * sandboxId here is just used as the URL key).
  */
 export function getSandboxPreviewUrl(
     provider: SandboxProvider,
@@ -47,7 +57,11 @@ export function getSandboxPreviewUrl(
             return `https://${sandboxId}-${port}.${PROVIDER_DOMAINS.code_sandbox}`;
         case 'node_fs':
             return `http://localhost:${port}`;
+        case 'expo_browser':
+            // Same-origin path; Wave H service worker serves the bundle.
+            // Port is ignored — bundling happens client-side.
+            return `/preview/${sandboxId}`;
         default:
-            throw new Error(`Unknown provider: ${provider}`);
+            throw new Error(`Unknown provider: ${provider satisfies never}`);
     }
 }
