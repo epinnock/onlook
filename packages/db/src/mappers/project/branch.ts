@@ -22,6 +22,7 @@ export const fromDbBranch = (dbBranch: DbBranch): Branch => {
                 : null,
         sandbox: {
             id: dbBranch.sandboxId,
+            providerType: dbBranch.providerType,
         },
     };
 };
@@ -39,9 +40,6 @@ export const toDbBranch = (branch: Branch): DbBranch => {
         gitCommitSha: branch.git?.commitSha ?? null,
         gitRepoUrl: branch.git?.repoUrl ?? null,
         sandboxId: branch.sandbox.id,
-        // providerType is added in T0.5 once the public Branch model exposes it.
-        // Until then this defaults to 'code_sandbox' so the column NOT NULL
-        // constraint is satisfied for branches written through the old API.
-        providerType: 'code_sandbox',
+        providerType: branch.sandbox.providerType,
     };
 };
