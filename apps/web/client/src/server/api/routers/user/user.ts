@@ -98,6 +98,48 @@ export const userRouter = createTRPCRouter({
     delete: protectedProcedure.mutation(async ({ ctx }) => {
         await ctx.db.delete(authUsers).where(eq(authUsers.id, ctx.user.id));
     }),
+
+    /**
+     * Wave I §0.5 — DB-backed per-user feature flag map.
+     * Read by the useUserFeatureFlags hook to gate the per-branch
+     * ExpoBrowser preview runtime toggle. The env-based feature-flags.ts
+     * is unchanged; this is the per-account rollout mechanism.
+     */
+    getFeatureFlags: protectedProcedure.query(async ({ ctx }) => {
+        const user = await ctx.db.query.users.findFirst({
+            where: eq(users.id, ctx.user.id),
+            columns: { featureFlags: true },
+        });
+        return (user?.featureFlags ?? {}) as Record<string, boolean>;
+    }),
+
+    /**
+     * Wave I §0.5 — admin route updates a user's feature flag map.
+     * Gated only on protectedProcedure for Sprint 0; an explicit admin
+     * check (matching the existing admin-only routes) lands when the
+     * /admin/feature-flags page is built. For now this is callable by any
+     * authenticated user against their own row.
+     */
+    setFeatureFlag: protectedProcedure
+        .input(
+            z.object({
+                key: z.string().min(1).max(64),
+                value: z.boolean(),
+            }),
+        )
+        .mutation(async ({ ctx, input }) => {
+            const existing = await ctx.db.query.users.findFirst({
+                where: eq(users.id, ctx.user.id),
+                columns: { featureFlags: true },
+            });
+            const current = (existing?.featureFlags ?? {}) as Record<string, boolean>;
+            const next = { ...current, [input.key]: input.value };
+            await ctx.db
+                .update(users)
+                .set({ featureFlags: next, updatedAt: new Date() })
+                .where(eq(users.id, ctx.user.id));
+            return next;
+        }),
 });
 
 function getUserName(authUser: SupabaseUser) {
