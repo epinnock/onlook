@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0" />
+<title>preview-sw verification suite</title>
+<style>
+    :root {
+        --primary: #4f46e5;
+        --success: #16a34a;
+        --error: #dc2626;
+        --text: #111827;
+        --text-secondary: #6b7280;
+        --border: #e5e7eb;
+        --card: #ffffff;
+        --bg: #fafafa;
+    }
+    body {
+        font-family: -apple-system, system-ui, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        padding: 2rem;
+        max-width: 1100px;
+        margin: 0 auto;
+    }
+    h1 { color: var(--primary); margin-bottom: 0.25rem; }
+    .subtitle { color: var(--text-secondary); margin-bottom: 2rem; font-size: 0.875rem; }
+    h2 { color: #374151; margin-top: 2rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); }
+    .scenario {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        margin: 1.5rem 0;
+        padding: 1rem 1.5rem 1.5rem;
+    }
+    .scenario h3 { margin-top: 0.5rem; font-size: 1rem; }
+    .scenario-meta {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        font-family: ui-monospace, monospace;
+    }
+    .scenario-status {
+        display: inline-block;
+        padding: 0.125rem 0.5rem;
+        border-radius: 9999px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        margin-left: 0.5rem;
+    }
+    .scenario-status.pending { background: #f3f4f6; color: var(--text-secondary); }
+    .scenario-status.pass { background: #dcfce7; color: var(--success); }
+    .scenario-status.fail { background: #fee2e2; color: var(--error); }
+    iframe {
+        border: 2px solid var(--primary);
+        border-radius: 6px;
+        background: white;
+        width: 100%;
+        height: 220px;
+        display: block;
+        margin-top: 0.75rem;
+    }
+    iframe.error { border-color: var(--error); }
+    .summary {
+        position: sticky;
+        top: 0;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-left: 4px solid var(--primary);
+        padding: 1rem;
+        margin-bottom: 1.5rem;
+        font-family: ui-monospace, monospace;
+        font-size: 0.875rem;
+        z-index: 10;
+    }
+    .summary.all-pass { border-left-color: var(--success); }
+    .summary.has-fail { border-left-color: var(--error); }
+    code { background: #f3f4f6; padding: 0.125rem 0.375rem; border-radius: 3px; font-size: 0.875em; }
+    .pill {
+        display: inline-block;
+        padding: 0.125rem 0.5rem;
+        border-radius: 9999px;
+        background: #eef2ff;
+        color: var(--primary);
+        font-size: 0.75rem;
+        font-weight: 600;
+        margin-right: 0.5rem;
+    }
+</style>
+</head>
+<body>
+<h1>preview-sw verification suite</h1>
+<p class="subtitle">
+    <span class="pill">Wave H §1.3</span>
+    Standalone visual + DOM-assertion suite for the ExpoBrowser preview service worker.
+    Each scenario exercises a different code path in <code>preview-sw.js</code>.
+    Pass/fail is computed from DOM inspection; screenshots are saved as artifacts for human review.
+</p>
+
+<div class="summary" id="summary">Initializing scenarios…</div>
+
+<div class="scenario" id="scenario-01" data-scenario="success">
+    <h3>1. Success path<span class="scenario-status pending" id="status-01">pending</span></h3>
+    <p class="scenario-meta">Push a valid bundle via <code>postMessage</code>, navigate iframe to <code>/preview/sx-success/f1/</code>, expect the IIFE to render into <code>#root</code>.</p>
+    <iframe id="iframe-01" src="about:blank" title="Success scenario"></iframe>
+</div>
+
+<div class="scenario" id="scenario-02" data-scenario="error">
+    <h3>2. Error overlay<span class="scenario-status pending" id="status-02">pending</span></h3>
+    <p class="scenario-meta">Push a bundle that throws at runtime, expect the IIFE wrapper to write the stack trace to <code>document.body</code>.</p>
+    <iframe class="error" id="iframe-02" src="about:blank" title="Error scenario"></iframe>
+</div>
+
+<div class="scenario" id="scenario-03" data-scenario="placeholder">
+    <h3>3. Placeholder before bundle arrives<span class="scenario-status pending" id="status-03">pending</span></h3>
+    <p class="scenario-meta">Navigate iframe to <code>/preview/sx-placeholder/f1/</code> WITHOUT pushing a bundle. The SW should serve the &lsquo;waiting for first bundle&hellip;&rsquo; placeholder JS, the iframe shows the SW HTML shell&rsquo;s loading message.</p>
+    <iframe id="iframe-03" src="about:blank" title="Placeholder scenario"></iframe>
+</div>
+
+<div class="scenario" id="scenario-04" data-scenario="multi-branch">
+    <h3>4. Multi-branch isolation<span class="scenario-status pending" id="status-04">pending</span></h3>
+    <p class="scenario-meta">Push two different bundles for two different branchIds, two iframes side-by-side at <code>/preview/sx-multi-A/f1/</code> and <code>/preview/sx-multi-B/f1/</code>. Each should render its own bundle independently.</p>
+    <div style="display: flex; gap: 0.75rem;">
+        <iframe id="iframe-04a" src="about:blank" style="width: 49%;" title="Multi-branch A"></iframe>
+        <iframe id="iframe-04b" src="about:blank" style="width: 49%;" title="Multi-branch B"></iframe>
+    </div>
+</div>
+
+<div class="scenario" id="scenario-05" data-scenario="bundle-update">
+    <h3>5. Bundle update (live re-bundle)<span class="scenario-status pending" id="status-05">pending</span></h3>
+    <p class="scenario-meta">Push bundle v1, load iframe, then push bundle v2 with different content, force iframe reload, expect v2 content. Verifies the SW cache is updated by subsequent <code>postMessage</code> calls.</p>
+    <iframe id="iframe-05" src="about:blank" title="Bundle update scenario"></iframe>
+</div>
+
+<div class="scenario" id="scenario-06" data-scenario="html-shell">
+    <h3>6. HTML shell carries branch and frame metadata<span class="scenario-status pending" id="status-06">pending</span></h3>
+    <p class="scenario-meta">Inspect the HTML shell&rsquo;s <code>&lt;body&gt;</code> tag for <code>data-branch-id</code> and <code>data-frame-id</code> attributes set to the path segments. Confirms the shell reads the branchId/frameId from the URL.</p>
+    <iframe id="iframe-06" src="about:blank" title="HTML shell scenario"></iframe>
+</div>
+
+<script>
+// =====================================================================
+// preview-sw verification suite — scenario runner
+// =====================================================================
+//
+// Each scenario:
+//   1. Optionally posts one or more bundles to the SW via postMessage
+//   2. Sets the iframe src to /preview/<branchId>/<frameId>/
+//   3. Waits for the iframe load + bundle to render
+//   4. Inspects the iframe's DOM and asserts the expected outcome
+//   5. Updates its scenario-status pill (pass/fail) and the global summary
+//
+// When ALL scenarios complete, sets `window.__verifyResults` to an
+// object the runner script can read. This signals the test is done.
+
+const SCENARIOS = ['01', '02', '03', '04', '05', '06'];
+const results = {};
+
+function setStatus(id, state, detail = '') {
+    const pill = document.getElementById('status-' + id);
+    if (pill) {
+        pill.className = 'scenario-status ' + state;
+        pill.textContent = detail ? `${state}: ${detail}` : state;
+    }
+    results[id] = { state, detail };
+}
+
+function updateSummary() {
+    const summary = document.getElementById('summary');
+    const total = SCENARIOS.length;
+    const done = Object.keys(results).length;
+    const pass = Object.values(results).filter((r) => r.state === 'pass').length;
+    const fail = Object.values(results).filter((r) => r.state === 'fail').length;
+    if (done < total) {
+        summary.textContent = `Running scenarios… ${done}/${total} complete (${pass} pass, ${fail} fail)`;
+        summary.className = 'summary';
+        return;
+    }
+    summary.textContent = `Complete: ${total}/${total} scenarios — ${pass} pass, ${fail} fail`;
+    summary.className = fail === 0 ? 'summary all-pass' : 'summary has-fail';
+    window.__verifyResults = {
+        total,
+        pass,
+        fail,
+        scenarios: results,
+        timestamp: new Date().toISOString(),
+    };
+}
+
+function makeBundle(jsBody, entry = 'App.tsx') {
+    return {
+        modules: {
+            [entry]: { path: entry, code: jsBody, deps: [] },
+        },
+        entry,
+        durationMs: 1,
+    };
+}
+
+async function postBundle(sw, branchId, jsBody) {
+    sw.postMessage({ type: 'bundle', branchId, result: makeBundle(jsBody) });
+    await new Promise((r) => setTimeout(r, 200));
+}
+
+function loadIframe(iframe, src) {
+    return new Promise((resolve) => {
+        const timer = setTimeout(resolve, 4000);
+        const onload = () => {
+            iframe.removeEventListener('load', onload);
+            clearTimeout(timer);
+            // Give the IIFE a tick to mutate the DOM after iframe load
+            setTimeout(resolve, 600);
+        };
+        iframe.addEventListener('load', onload);
+        iframe.src = src;
+    });
+}
+
+function getRoot(iframe) {
+    try {
+        return iframe.contentDocument && iframe.contentDocument.getElementById('root');
+    } catch {
+        return null;
+    }
+}
+
+function getBody(iframe) {
+    try {
+        return iframe.contentDocument && iframe.contentDocument.body;
+    } catch {
+        return null;
+    }
+}
+
+// ---- Scenario implementations ---------------------------------------
+
+async function scenario01_success(sw) {
+    const id = '01';
+    try {
+        const code = "const r=document.getElementById('root');if(r)r.innerHTML='<div style=\"padding:1rem;background:#dcfce7;color:#16a34a;font-weight:600;border-radius:4px;\">Scenario 01 — success path OK</div>';module.exports={};";
+        await postBundle(sw, 'sx-success', code);
+        await loadIframe(document.getElementById('iframe-01'), '/preview/sx-success/f1/');
+        const root = getRoot(document.getElementById('iframe-01'));
+        if (root && root.innerHTML.includes('Scenario 01 — success path OK')) {
+            setStatus(id, 'pass');
+        } else {
+            setStatus(id, 'fail', 'root did not contain expected text');
+        }
+    } catch (err) {
+        setStatus(id, 'fail', err.message);
+    }
+}
+
+async function scenario02_error(sw) {
+    const id = '02';
+    try {
+        const code = 'throw new Error("scenario 02 — intentional bundle error");';
+        await postBundle(sw, 'sx-error', code);
+        await loadIframe(document.getElementById('iframe-02'), '/preview/sx-error/f1/');
+        const body = getBody(document.getElementById('iframe-02'));
+        if (body && body.innerHTML.includes('scenario 02 — intentional bundle error')) {
+            setStatus(id, 'pass');
+        } else {
+            setStatus(id, 'fail', 'error overlay did not contain expected text');
+        }
+    } catch (err) {
+        setStatus(id, 'fail', err.message);
+    }
+}
+
+async function scenario03_placeholder() {
+    const id = '03';
+    try {
+        // Note: deliberately do NOT post a bundle for this branchId
+        await loadIframe(document.getElementById('iframe-03'), '/preview/sx-placeholder/f1/');
+        const root = getRoot(document.getElementById('iframe-03'));
+        // The SW serves the placeholder JS which only console.warns; the
+        // iframe's #root should still show the SW HTML shell's loading
+        // message because no bundle ran.
+        if (root && root.innerHTML.includes('Loading browser preview')) {
+            setStatus(id, 'pass');
+        } else {
+            setStatus(id, 'fail', 'placeholder loading message not present');
+        }
+    } catch (err) {
+        setStatus(id, 'fail', err.message);
+    }
+}
+
+async function scenario04_multiBranch(sw) {
+    const id = '04';
+    try {
+        const codeA = "const r=document.getElementById('root');if(r)r.innerHTML='<div style=\"padding:1rem;background:#bfdbfe;color:#1e40af;font-weight:600;border-radius:4px;\">Branch A</div>';module.exports={};";
+        const codeB = "const r=document.getElementById('root');if(r)r.innerHTML='<div style=\"padding:1rem;background:#fbcfe8;color:#9d174d;font-weight:600;border-radius:4px;\">Branch B</div>';module.exports={};";
+        await postBundle(sw, 'sx-multi-A', codeA);
+        await postBundle(sw, 'sx-multi-B', codeB);
+        await Promise.all([
+            loadIframe(document.getElementById('iframe-04a'), '/preview/sx-multi-A/f1/'),
+            loadIframe(document.getElementById('iframe-04b'), '/preview/sx-multi-B/f1/'),
+        ]);
+        const rootA = getRoot(document.getElementById('iframe-04a'));
+        const rootB = getRoot(document.getElementById('iframe-04b'));
+        const okA = rootA && rootA.innerHTML.includes('Branch A');
+        const okB = rootB && rootB.innerHTML.includes('Branch B');
+        const noLeak = rootA && !rootA.innerHTML.includes('Branch B') && rootB && !rootB.innerHTML.includes('Branch A');
+        if (okA && okB && noLeak) {
+            setStatus(id, 'pass');
+        } else {
+            setStatus(id, 'fail', `A=${okA} B=${okB} noLeak=${noLeak}`);
+        }
+    } catch (err) {
+        setStatus(id, 'fail', err.message);
+    }
+}
+
+async function scenario05_bundleUpdate(sw) {
+    const id = '05';
+    try {
+        const codeV1 = "const r=document.getElementById('root');if(r)r.innerHTML='<div style=\"padding:1rem;background:#fef3c7;color:#92400e;font-weight:600;border-radius:4px;\">Scenario 05 — bundle v1</div>';module.exports={};";
+        const codeV2 = "const r=document.getElementById('root');if(r)r.innerHTML='<div style=\"padding:1rem;background:#dcfce7;color:#16a34a;font-weight:600;border-radius:4px;\">Scenario 05 — bundle v2</div>';module.exports={};";
+        await postBundle(sw, 'sx-update', codeV1);
+        const iframe = document.getElementById('iframe-05');
+        await loadIframe(iframe, '/preview/sx-update/f1/');
+        let root = getRoot(iframe);
+        const sawV1 = root && root.innerHTML.includes('bundle v1');
+        // Push v2 and reload
+        await postBundle(sw, 'sx-update', codeV2);
+        await loadIframe(iframe, '/preview/sx-update/f1/?cachebust=' + Date.now());
+        root = getRoot(iframe);
+        const sawV2 = root && root.innerHTML.includes('bundle v2');
+        if (sawV1 && sawV2) {
+            setStatus(id, 'pass');
+        } else {
+            setStatus(id, 'fail', `sawV1=${sawV1} sawV2=${sawV2}`);
+        }
+    } catch (err) {
+        setStatus(id, 'fail', err.message);
+    }
+}
+
+async function scenario06_htmlShell(sw) {
+    const id = '06';
+    try {
+        // No bundle needed — just inspecting the HTML shell.
+        await loadIframe(document.getElementById('iframe-06'), '/preview/sx-shell-branch/sx-shell-frame/');
+        const body = getBody(document.getElementById('iframe-06'));
+        const branchAttr = body && body.getAttribute('data-branch-id');
+        const frameAttr = body && body.getAttribute('data-frame-id');
+        if (branchAttr === 'sx-shell-branch' && frameAttr === 'sx-shell-frame') {
+            setStatus(id, 'pass');
+        } else {
+            setStatus(id, 'fail', `branch=${branchAttr} frame=${frameAttr}`);
+        }
+    } catch (err) {
+        setStatus(id, 'fail', err.message);
+    }
+}
+
+// ---- Main runner -----------------------------------------------------
+
+async function runAll() {
+    if (!('serviceWorker' in navigator)) {
+        document.getElementById('summary').textContent = 'Service workers not supported in this browser';
+        window.__verifyResults = { fatal: 'no-service-worker' };
+        return;
+    }
+
+    let registration;
+    try {
+        registration = await navigator.serviceWorker.register('preview-sw.js', { scope: '/preview/' });
+    } catch (err) {
+        document.getElementById('summary').textContent = 'SW registration failed: ' + err.message;
+        window.__verifyResults = { fatal: 'registration-failed', error: err.message };
+        return;
+    }
+
+    // Wait for the SW to be activated (don't use serviceWorker.ready — this
+    // page is at /, not /preview/, so it's never controlled).
+    const sw = registration.active || registration.waiting || registration.installing;
+    if (!sw) {
+        document.getElementById('summary').textContent = 'SW registration has no worker';
+        window.__verifyResults = { fatal: 'no-worker' };
+        return;
+    }
+    if (sw.state !== 'activated') {
+        await new Promise((resolve) => {
+            const handler = () => {
+                if (sw.state === 'activated') {
+                    sw.removeEventListener('statechange', handler);
+                    resolve();
+                }
+            };
+            sw.addEventListener('statechange', handler);
+            if (sw.state === 'activated') resolve();
+        });
+    }
+
+    // Run all scenarios sequentially. Concurrent runs against the same SW
+    // can race on the bundleCache during the bundle-update scenario.
+    await scenario01_success(sw);
+    updateSummary();
+    await scenario02_error(sw);
+    updateSummary();
+    await scenario03_placeholder();
+    updateSummary();
+    await scenario04_multiBranch(sw);
+    updateSummary();
+    await scenario05_bundleUpdate(sw);
+    updateSummary();
+    await scenario06_htmlShell(sw);
+    updateSummary();
+}
+
+runAll().catch((err) => {
+    document.getElementById('summary').textContent = 'Suite crashed: ' + err.message;
+    window.__verifyResults = { fatal: 'suite-crashed', error: err.message };
+});
+</script>
+</body>
+</html>
