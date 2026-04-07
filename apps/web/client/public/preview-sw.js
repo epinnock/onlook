@@ -1,0 +1,182 @@
+/**
+ * preview-sw.js — service worker for the ExpoBrowser preview iframe.
+ *
+ * Wave H §1.3 of plans/expo-browser-implementation.md.
+ *
+ * Intercepts /preview/<branchId>/<frameId>/* requests in the editor's
+ * origin and serves an HTML shell + bundled JS for the in-browser Expo
+ * preview. The bundle itself is published by @onlook/browser-metro on a
+ * BroadcastChannel; this worker subscribes to that channel and caches
+ * the latest result in memory.
+ *
+ * Why a service worker (and not srcdoc):
+ *   - Each <Frame> on the canvas already has a persisted `url` field;
+ *     replacing it with srcdoc would break the multi-frame model.
+ *   - Penpal click-to-edit needs a real iframe load lifecycle.
+ *   - Same-origin URL means html2canvas screenshot capture works (Wave H
+ *     §1.8) without cross-origin restrictions.
+ *
+ * The worker is registered by preview-sw-register.tsx — a client island
+ * that mounts inside the project route only when the active branch's
+ * providerType is 'expo_browser'.
+ */
+/* eslint-disable no-undef, no-restricted-globals */
+
+const VERSION = 'v1';
+const PREVIEW_PREFIX = '/preview/';
+const BROADCAST_CHANNEL = 'onlook-preview';
+
+/** Latest bundle keyed by branchId. */
+const bundleCache = new Map();
+
+self.addEventListener('install', (event) => {
+    event.waitUntil(self.skipWaiting());
+});
+
+self.addEventListener('activate', (event) => {
+    event.waitUntil(self.clients.claim());
+});
+
+// Subscribe to bundle broadcasts from BrowserMetro running on the main thread.
+let broadcastChannel = null;
+try {
+    broadcastChannel = new BroadcastChannel(BROADCAST_CHANNEL);
+    broadcastChannel.addEventListener('message', (event) => {
+        if (!event.data || event.data.type !== 'bundle') return;
+        const result = event.data.result;
+        const branchId = event.data.branchId;
+        if (!result || !branchId) return;
+        bundleCache.set(branchId, result);
+    });
+} catch (err) {
+    console.warn('[preview-sw] BroadcastChannel unavailable:', err);
+}
+
+self.addEventListener('fetch', (event) => {
+    const url = new URL(event.request.url);
+    if (url.origin !== self.location.origin) return;
+    if (!url.pathname.startsWith(PREVIEW_PREFIX)) return;
+
+    event.respondWith(handlePreviewRequest(url));
+});
+
+/**
+ * Route /preview/<branchId>/<frameId>/<rest> to the right resource.
+ *   - /preview/<branchId>/<frameId>/                 → HTML shell
+ *   - /preview/<branchId>/<frameId>/bundle.js        → latest bundle
+ *   - /preview/<branchId>/<frameId>/_assets/<file>   → static helpers
+ */
+async function handlePreviewRequest(url) {
+    const segments = url.pathname.slice(PREVIEW_PREFIX.length).split('/').filter(Boolean);
+    const branchId = segments[0];
+    const frameId = segments[1];
+    const rest = segments.slice(2).join('/');
+
+    if (!branchId) {
+        return new Response('preview-sw: missing branchId', { status: 400 });
+    }
+
+    if (!rest || rest === '') {
+        // HTML shell for the iframe
+        return new Response(htmlShell(branchId, frameId ?? 'default'), {
+            status: 200,
+            headers: {
+                'Content-Type': 'text/html; charset=utf-8',
+                'Cache-Control': 'no-store',
+            },
+        });
+    }
+
+    if (rest === 'bundle.js') {
+        const bundle = bundleCache.get(branchId);
+        if (!bundle) {
+            return new Response(
+                `// preview-sw: no bundle yet for branch ${branchId}\n` +
+                    `console.warn('[browser-metro] waiting for first bundle...');\n`,
+                {
+                    status: 200,
+                    headers: {
+                        'Content-Type': 'application/javascript',
+                        'Cache-Control': 'no-store',
+                    },
+                },
+            );
+        }
+        return new Response(serializeBundle(bundle), {
+            status: 200,
+            headers: {
+                'Content-Type': 'application/javascript',
+                'Cache-Control': 'no-store',
+            },
+        });
+    }
+
+    return new Response(`preview-sw: unknown path ${rest}`, { status: 404 });
+}
+
+/**
+ * Build a minimal IIFE that defines every module in the bundle and runs
+ * the entry point. This is intentionally simple — production-grade
+ * bundling (chunk loading, source maps, React Refresh) is the Sprint 2/3
+ * stretch from the Wave C scaffold notes.
+ */
+function serializeBundle(bundle) {
+    const entry = bundle.entry;
+    const moduleEntries = Object.entries(bundle.modules)
+        .map(([path, mod]) => {
+            return `  ${JSON.stringify(path)}: function(module, exports, require) {\n${mod.code}\n  }`;
+        })
+        .join(',\n');
+
+    return `
+(function() {
+  var __modules = {
+${moduleEntries}
+  };
+  var __cache = {};
+  function __require(path) {
+    if (__cache[path]) return __cache[path].exports;
+    var module = { exports: {} };
+    __cache[path] = module;
+    var fn = __modules[path];
+    if (!fn) {
+      throw new Error('Module not found: ' + path);
+    }
+    fn(module, module.exports, __require);
+    return module.exports;
+  }
+  try {
+    __require(${JSON.stringify(entry)});
+    if (window.parent && window.parent.postMessage) {
+      window.parent.postMessage({ type: 'browser-metro:bundle-ready', entry: ${JSON.stringify(entry)} }, '*');
+    }
+  } catch (err) {
+    console.error('[browser-metro] runtime error:', err);
+    document.body.innerHTML = '<pre style="color:#b91c1c;padding:1rem;font-family:monospace;">' + (err && err.stack ? err.stack : String(err)) + '</pre>';
+  }
+})();
+`;
+}
+
+function htmlShell(branchId, frameId) {
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <title>Onlook Browser Preview</title>
+    <style>
+        html, body { margin: 0; padding: 0; background: #fafafa; font-family: -apple-system, system-ui, sans-serif; }
+        #root { min-height: 100vh; }
+        #__loading { padding: 1rem; color: #6b7280; font-size: 0.875rem; }
+    </style>
+</head>
+<body data-branch-id="${branchId}" data-frame-id="${frameId}">
+    <div id="root">
+        <div id="__loading">Loading browser preview…</div>
+    </div>
+    <script src="/onlook-preload-script.js"></script>
+    <script src="bundle.js"></script>
+</body>
+</html>`;
+}
