@@ -89,6 +89,37 @@ export class BrowserMetro {
             const allBares = new Set<string>();
             const allBareUrls = new Set<string>();
 
+            // FOUND-06b follow-up #4 (2026-04-08): post-sucrase pass to catch
+            // bare require() calls that sucrase emits AFTER our pre-sucrase
+            // rewriter ran. The biggest offender is the automatic JSX runtime:
+            // sucrase's `jsxRuntime: 'automatic'` injects
+            // `require('react/jsx-dev-runtime')` directly into the transformed
+            // output without going through an `import` statement we could
+            // intercept upstream. The only safe place to catch it is on the
+            // transformed code, just before it goes into the IIFE wrapper.
+            const POST_REQUIRE_RE =
+                /require\((['"])([^./'"][^'"]*)\1\)/g;
+            const baseUrlNoSlash = this.esmUrl.endsWith('/')
+                ? this.esmUrl.slice(0, -1)
+                : this.esmUrl;
+            const rewritePostSucraseRequires = (code: string): string => {
+                return code.replace(POST_REQUIRE_RE, (match, quote: string, spec: string) => {
+                    // Skip if already a URL
+                    if (spec.startsWith('http://') || spec.startsWith('https://')) {
+                        return match;
+                    }
+                    // Skip if relative (regex already excludes leading . and /,
+                    // but defensively re-check)
+                    if (spec.startsWith('.') || spec.startsWith('/')) {
+                        return match;
+                    }
+                    const url = `${baseUrlNoSlash}/${spec}?bundle`;
+                    allBares.add(spec);
+                    allBareUrls.add(url);
+                    return `require(${quote}${url}${quote})`;
+                });
+            };
+
             for (const file of walked) {
                 try {
                     const rewritten = rewriteBareImports(file.content, {
@@ -106,12 +137,15 @@ export class BrowserMetro {
                         jsxRuntime: 'automatic',
                         filePath: file.path,
                     });
+                    // Post-sucrase rewrite: catch any require('bare-name')
+                    // that the JSX runtime auto-injection added.
+                    const finalCode = rewritePostSucraseRequires(transformed.code);
                     modules[file.path] = {
                         path: file.path,
-                        code: transformed.code,
+                        code: finalCode,
                         deps: rewritten.bareImports,
                     };
-                    iifeModules.push({ path: file.path, code: transformed.code });
+                    iifeModules.push({ path: file.path, code: finalCode });
                 } catch (err) {
                     throw new BundleError(
                         `Transpile failed for ${file.path}: ${err instanceof Error ? err.message : String(err)}`,

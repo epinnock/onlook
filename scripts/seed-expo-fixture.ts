@@ -104,23 +104,40 @@ const BABEL_CONFIG = `module.exports = function (api) {
 };
 `;
 
-const INDEX_TS = `import { AppRegistry } from 'react-native';
-import App from './App';
+// FOUND-06b follow-up #3 (2026-04-08): import directly from
+// 'react-native-web' instead of 'react-native'. esm.sh's CDN cannot
+// bundle 'react-native' as ESM (returns 500 because RN ships native
+// modules), and the rewriter's react-native -> react-native-web alias
+// doesn't fix the case where the FETCHED bundle's internal imports
+// reference 'react-native' through esm.sh's relative-path resolver.
+// The fixture is web-only for v1 verification — Phase H Container
+// builds will use the real react-native at Hermes-bundle time.
+//
+// expo-status-bar is also dropped from the v1 fixture for the same
+// reason: its internal imports pull 'react-native' which esm.sh
+// cannot fulfill. A future fixture revision may restore it after
+// Path A (true ESM bundle output + native importmap) lands.
 
-// Required for Hermes / Expo Go (Phase H). Must register before the JS
-// bundle finishes evaluating; the runtime looks up 'main' on first frame.
+const INDEX_TS = `// Phase R fixture (v1): direct react-native-web mount, no AppRegistry.
+// AppRegistry / Hermes bootstrap is Phase H (TH1.x) territory; until then
+// the in-browser canvas iframe just renders App via react-native-web's
+// AppRegistry shim or by direct ReactDOM.createRoot.
+import App from './App';
+import { AppRegistry } from 'react-native-web';
+
 AppRegistry.registerComponent('main', () => App);
+AppRegistry.runApplication('main', {
+  rootTag: document.getElementById('root'),
+});
 `;
 
-const APP_TSX = `import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, View } from 'react-native';
+const APP_TSX = `import { StyleSheet, View } from 'react-native-web';
 import { Hello } from './components/Hello';
 
 export default function App() {
   return (
     <View style={styles.container}>
       <Hello name="Onlook" />
-      <StatusBar style="auto" />
     </View>
   );
 }
@@ -135,7 +152,7 @@ const styles = StyleSheet.create({
 });
 `;
 
-const HELLO_TSX = `import { StyleSheet, Text, View } from 'react-native';
+const HELLO_TSX = `import { StyleSheet, Text, View } from 'react-native-web';
 
 export interface HelloProps {
   name: string;
