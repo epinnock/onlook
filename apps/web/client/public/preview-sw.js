@@ -309,7 +309,7 @@ function htmlShell(branchId, frameId) {
     <div id="root">
         <div id="__loading">Loading browser preview…</div>
     </div>
-    <script src="/onlook-preload-script.js"></script>
+    <!-- onlook-preload-script.js intentionally omitted in v1 ExpoBrowser shell — see FOUND-06a + plans/expo-browser-status.md 2026-04-08 -->
     <script>
         // <script type="importmap"> cannot be loaded externally — it must be
         // inline and must appear BEFORE any script that references a bare
