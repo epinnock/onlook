@@ -21,6 +21,21 @@ cd "${work_dir}"
 echo "[run-metro] installing project deps..." >&2
 npm install --silent --no-audit --no-fund --no-progress
 
+# Ensure babel-preset-expo is resolvable from /work. Babel resolves preset
+# names relative to babel.config.js's directory, NOT relative to its own
+# location. The global install at /usr/local/lib/node_modules/babel-preset-expo
+# is invisible to Babel running from the project's cwd.
+# Symlink the global copy into the project's node_modules if not already there.
+if [ ! -d "${work_dir}/node_modules/babel-preset-expo" ]; then
+    if [ -d "/usr/local/lib/node_modules/babel-preset-expo" ]; then
+        echo "[run-metro] symlinking global babel-preset-expo into project node_modules..." >&2
+        mkdir -p "${work_dir}/node_modules"
+        ln -sf /usr/local/lib/node_modules/babel-preset-expo "${work_dir}/node_modules/babel-preset-expo"
+    else
+        echo "[run-metro] WARN: babel-preset-expo not found in global install — Metro may fail" >&2
+    fi
+fi
+
 echo "[run-metro] running expo export:embed (android, dev=false, minify=true)..." >&2
 # Use the globally-installed expo CLI directly (the container doesn't ship bun)
 expo export:embed \

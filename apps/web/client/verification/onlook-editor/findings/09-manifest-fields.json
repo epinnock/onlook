@@ -1,0 +1,23 @@
+{
+  "runtimeVersion": "1.0.0",
+  "launchAsset": {
+    "key": "bundle-PLACEHOLDER_HASH",
+    "contentType": "application/javascript"
+  },
+  "assets": [],
+  "metadata": {},
+  "extra": {
+    "expoClient": {
+      "name": "minimal-expo-th1-3",
+      "slug": "minimal-expo-th1-3",
+      "version": "1.0.0",
+      "sdkVersion": "54.0.0",
+      "platforms": ["ios","android"],
+      "icon": null,
+      "splash": {"backgroundColor": "#ffffff"},
+      "newArchEnabled": true
+    },
+    "scopeKey": "@onlook/preview",
+    "eas": {"projectId": null}
+  }
+}
