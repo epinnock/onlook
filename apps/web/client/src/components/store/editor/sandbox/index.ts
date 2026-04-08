@@ -111,6 +111,16 @@ export class SandboxManager {
         });
 
         await this.sync.start();
+        // TR1.5: BrowserMetro reads directly from the local Vfs, so we
+        // MUST wait for the sync engine's initial pullFromSandbox() to
+        // finish populating the file system. When getInstance() returns
+        // an already-running shared instance, start() short-circuits via
+        // its `isRunning` guard and returns before the first pull is
+        // done — leaving bundler.bundle() to read an empty Vfs and
+        // produce `bundled 0 modules` / `Module not found: App.tsx`.
+        // Awaiting `firstPullComplete` covers both the first-call and
+        // shared-instance paths.
+        await this.sync.firstPullComplete;
         await this.ensurePreloadScriptExists();
 
         // Set Expo mode on the file system so OIDs use dataSet prop

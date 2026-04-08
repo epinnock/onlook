@@ -40,6 +40,22 @@ export class CodeProviderSync {
     private readonly excludePatterns: string[];
     private fileHashes = new Map<string, string>();
     private instanceKey: string | null = null;
+    private firstPullResolve: (() => void) | null = null;
+    private firstPullReject: ((err: unknown) => void) | null = null;
+    /**
+     * Resolves after the initial `pullFromSandbox()` from `start()` has
+     * finished populating the local Vfs. Callers that need to read files
+     * right after `start()` (e.g. the BrowserMetro bundler) should await
+     * this promise to avoid bundling from an empty Vfs.
+     *
+     * Note: `start()` itself resolves after `pullFromSandbox()` completes
+     * and the file watchers are set up, so this promise is largely a
+     * semantic marker today — but it is intentionally separate so future
+     * refactors that make `start()` return earlier (e.g. returning after
+     * `setupWatching` but before the initial pull) don't regress the
+     * invariant. Rejects if the initial pull throws.
+     */
+    readonly firstPullComplete: Promise<void>;
 
     private constructor(
         private provider: Provider,
@@ -49,6 +65,10 @@ export class CodeProviderSync {
         // Compute excludes once
         this.excludes = [...DEFAULT_EXCLUDES, ...(this.config.exclude ?? [])];
         this.excludePatterns = this.excludes.map((dir) => `${dir}/**`);
+        this.firstPullComplete = new Promise<void>((resolve, reject) => {
+            this.firstPullResolve = resolve;
+            this.firstPullReject = reject;
+        });
     }
 
     /**
@@ -156,11 +176,25 @@ export class CodeProviderSync {
 
         try {
             await this.pullFromSandbox();
+            // Signal that the local Vfs is populated. Consumers like
+            // BrowserMetro await `firstPullComplete` before running their
+            // initial bundle so they don't read from an empty file
+            // system. Resolving here (instead of after `setupWatching`)
+            // is safe because `pullFromSandbox` is the step that actually
+            // populates the Vfs.
+            this.firstPullResolve?.();
+            this.firstPullResolve = null;
+            this.firstPullReject = null;
             await this.setupWatching();
             // Push any locally modified files (with OIDs) back to sandbox. This is required for the first time sync.
             void this.pushModifiedFilesToSandbox();
         } catch (error) {
             this.isRunning = false;
+            // If the initial pull threw, reject the promise so awaiting
+            // consumers surface the error instead of hanging forever.
+            this.firstPullReject?.(error);
+            this.firstPullResolve = null;
+            this.firstPullReject = null;
             throw error;
         }
     }
