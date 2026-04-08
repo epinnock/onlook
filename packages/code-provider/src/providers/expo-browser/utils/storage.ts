@@ -114,8 +114,16 @@ export class SupabaseStorageAdapter implements StorageAdapter {
 
     /** Translate a logical path (e.g. 'src/App.tsx') to a bucket key. */
     private toKey(logicalPath: string): string {
-        const trimmed = logicalPath.replace(/^\/+/, '').replace(/^\.\//, '');
-        return `${this.prefix}/${trimmed}`;
+        // Strip leading slashes, leading './', and a bare '.' (root) so the
+        // resulting key is `${prefix}` for the branch root and
+        // `${prefix}/foo/bar` for everything else. Without this, listFiles('.')
+        // would call storage.list('${prefix}/.'), which Supabase treats as a
+        // literal directory called "." and returns no results.
+        const trimmed = logicalPath
+            .replace(/^\/+/, '')
+            .replace(/^\.\//, '')
+            .replace(/^\.$/, '');
+        return trimmed.length === 0 ? this.prefix : `${this.prefix}/${trimmed}`;
     }
 
     /** Strip the per-branch prefix from a bucket key. */
