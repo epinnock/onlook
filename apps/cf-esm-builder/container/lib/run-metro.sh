@@ -22,7 +22,8 @@ echo "[run-metro] installing project deps..." >&2
 npm install --silent --no-audit --no-fund --no-progress
 
 echo "[run-metro] running expo export:embed (android, dev=false, minify=true)..." >&2
-bunx expo export:embed \
+# Use the globally-installed expo CLI directly (the container doesn't ship bun)
+expo export:embed \
     --platform android \
     --dev false \
     --minify true \

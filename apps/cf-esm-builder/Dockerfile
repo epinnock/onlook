@@ -32,13 +32,23 @@ RUN npm config set fetch-retries 5 \
     && npm config set fetch-retry-maxtimeout 300000 \
     && npm config set fetch-timeout 600000
 
-# Pre-install Expo + @expo/cli globally so per-build cost is just Metro.
-# Pinned exact versions — no `latest`, no `~`.
+# Pre-install Expo + @expo/cli + babel-preset-expo globally so per-build cost
+# is just Metro. babel-preset-expo MUST be globally resolvable because Metro's
+# Babel transformer (loaded from inside the global expo install) tries to
+# require it relative to itself, not relative to the project's local
+# node_modules. Pinned exact versions — no `latest`, no `~`.
 # Single combined install so npm dedupes the dependency tree on one resolve.
 RUN npm install -g \
         expo@${EXPO_VERSION} \
         @expo/cli@${EXPO_CLI_VERSION} \
+        babel-preset-expo@~14.0.0 \
     && npm cache clean --force
+
+# Make globally-installed packages discoverable by Babel running from any
+# cwd. NODE_PATH is consulted by node's module resolver as a last-resort
+# search path. Required because Babel resolves preset names relative to its
+# own location (inside global expo install), not relative to the project.
+ENV NODE_PATH=/usr/local/lib/node_modules
 
 # Pre-install hermesc (the Hermes compiler) — ships with react-native@0.81+
 # under node_modules/react-native/sdks/hermesc/linux64-bin/hermesc.
@@ -74,8 +84,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN mkdir -p /input /output /work
 
 # Entrypoint script — TH1.2 lands the real implementation at this exact path.
+# build.sh sources lib/extract-source.sh, lib/run-metro.sh, lib/run-hermes.sh
+# from /usr/local/bin/lib/ — the COPY chain below mirrors the host layout.
 COPY container/build.sh /usr/local/bin/build.sh
-RUN chmod +x /usr/local/bin/build.sh
+COPY container/lib /usr/local/bin/lib
+RUN chmod +x /usr/local/bin/build.sh /usr/local/bin/lib/*.sh
 
 # Smoke-test the toolchain at build time so cold-start failures surface during
 # `docker build` rather than at container runtime. `|| true` keeps the layer
