@@ -6,14 +6,16 @@
  * bundle over HTTP).
  *
  * Routes:
- *   GET /session/:id/manifest   -> forwarded to ExpoSession DO
- *   GET /session/:id/bundle.js  -> forwarded to ExpoSession DO
+ *   GET /manifest/:bundleHash   -> handleManifest (TQ1.2, 64-hex only)
+ *   GET /session/:id/manifest   -> forwarded to ExpoSession DO (legacy)
+ *   GET /session/:id/bundle.js  -> forwarded to ExpoSession DO (legacy)
  *   WS  /session/:id            -> upgraded + forwarded to ExpoSession DO
  *   *                            -> 404 "expo-relay: unknown route"
  *
  * Each session id maps to a Durable Object instance via
  * `EXPO_SESSION.idFromName(sessionId)`.
  */
+import { handleManifest, type ServiceBinding } from './routes/manifest';
 import { ExpoSession } from './session';
 
 export { ExpoSession };
@@ -21,6 +23,15 @@ export { ExpoSession };
 export interface Env {
     BUNDLES: KVNamespace;
     EXPO_SESSION: DurableObjectNamespace<import('./session').ExpoSession>;
+    /**
+     * Service binding to cf-esm-cache (TQ1.3). Present in deployed
+     * environments; may be undefined in local `wrangler dev` if the sibling
+     * worker isn't running, in which case `handleManifest` falls back to a
+     * plain `fetch()` against `ESM_CACHE_URL`.
+     */
+    ESM_CACHE?: ServiceBinding;
+    /** Public cf-esm-cache origin, e.g. "https://cf-esm-cache.onlook.workers.dev". */
+    ESM_CACHE_URL: string;
 }
 
 interface ParsedSessionRoute {
@@ -28,6 +39,15 @@ interface ParsedSessionRoute {
     /** The remainder of the path forwarded to the DO, always starting with `/`. */
     subPath: string;
 }
+
+/**
+ * Regex for the TQ1.2 `/manifest/:bundleHash` route. Anchored and restricted
+ * to 64 lowercase hex characters — the canonical form emitted by
+ * cf-esm-builder. The route handler re-validates the hash, but matching this
+ * shape at the router level keeps legacy `/manifest/...` paths (if any are
+ * ever added) from colliding with the new route.
+ */
+const MANIFEST_HASH_ROUTE = /^\/manifest\/([0-9a-f]{64})$/;
 
 function parseSessionRoute(pathname: string): ParsedSessionRoute | null {
     // Expected shapes:
@@ -50,6 +70,20 @@ function parseSessionRoute(pathname: string): ParsedSessionRoute | null {
 export default {
     async fetch(request: Request, env: Env): Promise<Response> {
         const url = new URL(request.url);
+
+        // TQ1.4: `/manifest/:bundleHash` takes precedence over any legacy
+        // manifest routing. We match the strict 64-hex shape before falling
+        // through to the session router so a malformed hash 404s cleanly.
+        if (request.method === 'GET') {
+            const manifestMatch = url.pathname.match(MANIFEST_HASH_ROUTE);
+            if (manifestMatch) {
+                const bundleHash = manifestMatch[1];
+                if (bundleHash) {
+                    return handleManifest(request, env, bundleHash);
+                }
+            }
+        }
+
         const route = parseSessionRoute(url.pathname);
 
         if (!route) {

@@ -27,5 +27,62 @@
             "tag": "v1",
             "new_sqlite_classes": ["ExpoSession"]
         }
-    ]
+    ],
+    /**
+     * Service binding to cf-esm-cache (TQ1.3). The relay uses this binding to
+     * read per-build artifacts (manifest-fields.json, meta.json) written by
+     * cf-esm-builder, via the cache's R2-backed read path. When the binding is
+     * absent (e.g. local `wrangler dev` without the sibling worker running),
+     * the `/manifest/:bundleHash` route falls back to a plain `fetch()`
+     * against `ESM_CACHE_URL`.
+     */
+    "services": [
+        {
+            "binding": "ESM_CACHE",
+            "service": "cf-esm-cache"
+        }
+    ],
+    "vars": {
+        "ESM_CACHE_URL": "http://127.0.0.1:8789"
+    },
+    "env": {
+        "production": {
+            /**
+             * Wrangler does NOT inherit `kv_namespaces`, `durable_objects`,
+             * or `migrations` into named environments, so we duplicate them
+             * here. `ESM_CACHE_URL` points at the deployed cf-esm-cache
+             * `workers.dev` domain; override per-env via `wrangler secret`
+             * / `wrangler deploy --var` if a custom domain is used.
+             */
+            "kv_namespaces": [
+                {
+                    "binding": "BUNDLES",
+                    "id": "placeholder-bundles-kv-id"
+                }
+            ],
+            "durable_objects": {
+                "bindings": [
+                    {
+                        "name": "EXPO_SESSION",
+                        "class_name": "ExpoSession"
+                    }
+                ]
+            },
+            "migrations": [
+                {
+                    "tag": "v1",
+                    "new_sqlite_classes": ["ExpoSession"]
+                }
+            ],
+            "vars": {
+                "ESM_CACHE_URL": "https://cf-esm-cache.onlook.workers.dev"
+            },
+            "services": [
+                {
+                    "binding": "ESM_CACHE",
+                    "service": "cf-esm-cache"
+                }
+            ]
+        }
+    }
 }
