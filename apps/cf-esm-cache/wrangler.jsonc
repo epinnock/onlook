@@ -1,12 +1,21 @@
 /**
  * cf-esm-cache Worker config.
  *
- * NOTE: The R2 bucket `onlook-expo-packages` referenced below must be created
- * out-of-band before deploying this Worker. Run (once, manually):
+ * Two distinct caches share this Worker:
+ *
+ *   1. `PACKAGES` (`onlook-expo-packages`) — legacy ESM package cache for the
+ *      `/pkg/...` routes (front of the `esm-builder` Worker).
+ *   2. `BUNDLES` (`expo-bundles`) — Hermes bundle artifact cache for the
+ *      `/bundle/<hash>[/<file>]` routes (front of the `cf-esm-builder` Worker,
+ *      see `plans/expo-browser-bundle-artifact.md` §R2 layout). Shared with
+ *      cf-esm-builder so writers and readers see the same objects.
+ *
+ * Both R2 buckets must be created out-of-band before deploying this Worker:
  *
  *     wrangler r2 bucket create onlook-expo-packages
+ *     wrangler r2 bucket create expo-bundles
  *
- * This task does NOT create the bucket and does NOT run `wrangler deploy`.
+ * This task does NOT create buckets and does NOT run `wrangler deploy`.
  */
 {
     "$schema": "node_modules/wrangler/config-schema.json",
@@ -17,12 +26,20 @@
         {
             "binding": "PACKAGES",
             "bucket_name": "onlook-expo-packages"
+        },
+        {
+            "binding": "BUNDLES",
+            "bucket_name": "expo-bundles"
         }
     ],
     "services": [
         {
             "binding": "ESM_BUILDER",
             "service": "esm-builder"
+        },
+        {
+            "binding": "BUILDER",
+            "service": "cf-esm-builder"
         }
     ]
 }

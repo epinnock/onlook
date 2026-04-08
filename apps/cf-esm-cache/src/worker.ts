@@ -1,73 +1,122 @@
 /**
  * cf-esm-cache Worker.
  *
- * Sits in front of the `cf-esm-builder` Worker and provides an R2-backed
- * cache for built ESM bundles.
+ * Stale-while-revalidate proxy in front of `cf-esm-builder`'s
+ * `GET /bundle/:hash[/<file>]` route. Implements TH3.1 / TH3.2 / TH3.3 of
+ * `plans/expo-browser-e2e-task-queue.md`.
  *
- * Flow for `GET /pkg/<package>`:
- *   1. Compute a cache key from the request URL.
- *   2. Look up the bundle in R2 (`PACKAGES` binding).
- *      - HIT  -> return the cached body with `X-Cache: HIT`.
- *   3. On miss, forward the request to the `ESM_BUILDER` service binding.
- *      - If upstream is not OK, pass the response through unchanged
- *        (errors are NOT cached).
- *      - If upstream is OK, persist the body to R2 and return it with
- *        `X-Cache: MISS`.
+ * Cache layout (R2 `expo-bundles` bucket — shared with cf-esm-builder, see
+ * `plans/expo-browser-bundle-artifact.md` §R2 layout):
  *
- * Any request not under `/pkg/` returns 404.
+ *     bundle/<hash>/index.android.bundle    ← Hermes bytecode
+ *     bundle/<hash>/assetmap.json
+ *     bundle/<hash>/sourcemap.json
+ *     bundle/<hash>/manifest-fields.json
+ *     bundle/<hash>/meta.json
+ *
+ * Routes:
+ *
+ *   - `GET /health`                       → liveness probe
+ *   - `GET|HEAD /bundle/<hash>[/<file>]`  → R2 cache HIT or BUILDER fallthrough
+ *   - `POST /invalidate`                  → drop one hash from R2 (see
+ *                                            `routes/invalidate.ts`)
+ *   - everything else                     → 404
+ *
+ * On a cache MISS we tee the upstream body so the response can stream while
+ * R2 is written in the background. We never cache non-2xx responses.
  */
+import { handleInvalidate } from './routes/invalidate';
 
 export interface Env {
-    PACKAGES: R2Bucket;
-    ESM_BUILDER: Fetcher;
+    BUNDLES: R2Bucket;
+    BUILDER: Fetcher;
 }
 
-const CACHED_HEADERS: HeadersInit = {
-    'Content-Type': 'application/javascript',
-    'Cache-Control': 'public, max-age=31536000, immutable',
-    'Access-Control-Allow-Origin': '*',
-};
-
-function buildCacheKey(url: URL): string {
-    return `esm${url.pathname}${url.search}`;
-}
+const IMMUTABLE_CACHE_CONTROL = 'public, max-age=31536000, immutable';
 
 export default {
-    async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
+    async fetch(request: Request, env: Env): Promise<Response> {
         const url = new URL(request.url);
+        const path = url.pathname;
+        const method = request.method;
 
-        if (!url.pathname.startsWith('/pkg/')) {
-            return new Response('esm-cache: unknown route', { status: 404 });
+        if (path === '/health') {
+            return Response.json({ ok: true, version: '0.1.0' });
         }
 
-        const cacheKey = buildCacheKey(url);
-
-        const cached = await env.PACKAGES.get(cacheKey);
-        if (cached) {
-            return new Response(cached.body, {
-                headers: {
-                    ...CACHED_HEADERS,
-                    'X-Cache': 'HIT',
-                },
-            });
+        if (path === '/invalidate' && method === 'POST') {
+            return handleInvalidate(request, env);
         }
 
-        const upstream = await env.ESM_BUILDER.fetch(request);
-        if (!upstream.ok) {
-            // Do NOT cache errors - pass the upstream response through.
-            return upstream;
+        if (path.startsWith('/bundle/') && (method === 'GET' || method === 'HEAD')) {
+            return handleBundleProxy(request, env);
         }
 
-        const body = await upstream.arrayBuffer();
-        await env.PACKAGES.put(cacheKey, body, {
-            httpMetadata: { contentType: 'application/javascript' },
-        });
-
-        return new Response(body, {
-            headers: {
-                ...CACHED_HEADERS,
-                'X-Cache': 'MISS',
-            },
-        });
+        return new Response('not found', { status: 404 });
     },
 } satisfies ExportedHandler<Env>;
+
+async function handleBundleProxy(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url);
+    // /bundle/<hash>            → ['<hash>']
+    // /bundle/<hash>/<file>     → ['<hash>', '<file>']
+    const parts = url.pathname.slice('/bundle/'.length).split('/').filter(Boolean);
+    const hash = parts[0];
+    const filename = parts[1] ?? 'index.android.bundle';
+    if (!hash) {
+        return new Response('missing hash', { status: 400 });
+    }
+
+    const r2Key = `bundle/${hash}/${filename}`;
+
+    // 1. Cache lookup.
+    const cached = await env.BUNDLES.get(r2Key);
+    if (cached) {
+        return new Response(cached.body, {
+            headers: {
+                'Content-Type': contentTypeFor(filename),
+                'Cache-Control': IMMUTABLE_CACHE_CONTROL,
+                ETag: `"${hash}"`,
+                'X-Cache': 'HIT',
+            },
+        });
+    }
+
+    // 2. Cache miss → forward to the BUILDER service binding.
+    const upstream = await env.BUILDER.fetch(
+        new Request(`https://cf-esm-builder/bundle/${hash}/${filename}`, {
+            method: request.method,
+        }),
+    );
+    if (!upstream.ok) {
+        return new Response(`upstream ${upstream.status}`, { status: upstream.status });
+    }
+    if (!upstream.body) {
+        return new Response('upstream returned empty body', { status: 502 });
+    }
+
+    // Tee so we can stream the response and write R2 in the background.
+    const [forResponse, forCache] = upstream.body.tee();
+    // Fire-and-forget write — never blocks the response. Write failures only
+    // cost us a future cache hit; the next request will repopulate.
+    env.BUNDLES.put(r2Key, forCache, {
+        httpMetadata: { contentType: contentTypeFor(filename) },
+    }).catch((err: unknown) => {
+        console.error('[cf-esm-cache] R2 put failed', r2Key, err);
+    });
+
+    return new Response(forResponse, {
+        headers: {
+            'Content-Type': contentTypeFor(filename),
+            'Cache-Control': IMMUTABLE_CACHE_CONTROL,
+            ETag: `"${hash}"`,
+            'X-Cache': 'MISS',
+        },
+    });
+}
+
+function contentTypeFor(filename: string): string {
+    if (filename.endsWith('.bundle')) return 'application/javascript';
+    if (filename.endsWith('.json')) return 'application/json';
+    return 'application/octet-stream';
+}
