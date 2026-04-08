@@ -1,3 +1,9 @@
-node_modules
-dist
 .git
+node_modules
+**/node_modules
+.next
+dist
+build
+*.log
+README.md
+container/__tests__
