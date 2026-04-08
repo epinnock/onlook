@@ -7,7 +7,7 @@ import {
     ONLOOK_PRELOAD_SCRIPT_FILE,
     ProjectType,
 } from '@onlook/constants';
-import { RouterType, type RouterConfig } from '@onlook/models';
+import { RouterType, type BranchProviderType, type RouterConfig } from '@onlook/models';
 import { getAstFromContent, getContentFromAst, injectPreloadScript } from '@onlook/parser';
 import { isRootLayoutFile, normalizePath } from '@onlook/utility';
 import path from 'path';
@@ -41,7 +41,21 @@ const EXPO_WEB_TEMPLATE_FALLBACK = `<!DOCTYPE html>
 </html>
 `;
 
-export async function detectProjectTypeFromProvider(provider: Provider, sandboxId: string = ''): Promise<ProjectType> {
+export async function detectProjectTypeFromProvider(
+    provider: Provider,
+    sandboxId: string = '',
+    providerType?: BranchProviderType,
+): Promise<ProjectType> {
+    // Branch providerType is the source of truth: if the branch is an
+    // ExpoBrowser branch, short-circuit the file-listing heuristic. This
+    // avoids false-positive NEXTJS classification when listFiles returns
+    // an empty result (e.g. Cloudflare sandboxes before storage sync, or
+    // ExpoBrowser branches backed by Supabase Storage).
+    if (providerType === 'expo_browser') {
+        console.log('[PreloadScript] detectProjectTypeFromProvider: short-circuit via branch.providerType = expo_browser');
+        return ProjectType.EXPO;
+    }
+
     let rootFiles: Array<{ type: string; name: string }> = [];
     try {
         const root = await provider.listFiles({ args: { path: resolveProjectPath(sandboxId, '.') } });

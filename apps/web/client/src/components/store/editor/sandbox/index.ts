@@ -92,7 +92,11 @@ export class SandboxManager {
         if (!this.session.provider) {
             throw new Error('Provider not initialized');
         }
-        this.projectType = await detectProjectTypeFromProvider(this.session.provider, this.branch.sandbox.id);
+        this.projectType = await detectProjectTypeFromProvider(
+            this.session.provider,
+            this.branch.sandbox.id,
+            this.branch.sandbox.providerType,
+        );
         return this.projectType;
     }
 
