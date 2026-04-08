@@ -1,14 +1,31 @@
 {
     "$schema": "node_modules/wrangler/config-schema.json",
-    "name": "esm-builder",
+    "name": "cf-esm-builder",
     "main": "src/worker.ts",
     "compatibility_date": "2025-12-01",
+    "compatibility_flags": ["nodejs_compat"],
+    // TH1.4: Container binding for the Expo SDK 54 + Hermes builder image.
+    // The Dockerfile (TH1.1) runs Metro + Hermes inside a Cloudflare Container
+    // managed by the BuildSession Durable Object (TH2.2). The DO sends the
+    // source tar via TCP and reads the JSON return from build.sh on stdout.
+    //
+    // Two container classes:
+    //   - EsmBuilder    legacy reactnative-esm builder kept around for the
+    //                   Sprint 2 self-hosted CDN path (parent queue Wave F)
+    //   - BuildSession  the new TH1+TH2 Expo SDK 54 + Hermes builder
     "containers": [
         {
             "class_name": "EsmBuilder",
             "image": "./Dockerfile",
             "instance_type": "basic",
             "max_instances": 3
+        },
+        {
+            "class_name": "BuildSession",
+            "image": "./Dockerfile",
+            "instance_type": "standard-3",
+            "max_instances": 5,
+            "rollout_step_percentage": 100
         }
     ],
     "durable_objects": {
@@ -16,13 +33,31 @@
             {
                 "name": "ESM_BUILDER",
                 "class_name": "EsmBuilder"
+            },
+            {
+                "name": "BUILD_SESSION",
+                "class_name": "BuildSession"
             }
         ]
     },
+    // R2 bucket where the BuildSession DO writes the bundle artifact set
+    // (index.android.bundle, assetmap.json, sourcemap.json,
+    // manifest-fields.json, meta.json) per the bundle artifact spec
+    // (plans/expo-browser-bundle-artifact.md).
+    "r2_buckets": [
+        {
+            "binding": "BUNDLES",
+            "bucket_name": "expo-bundles"
+        }
+    ],
     "migrations": [
         {
             "tag": "v1",
             "new_sqlite_classes": ["EsmBuilder"]
+        },
+        {
+            "tag": "v2",
+            "new_sqlite_classes": ["BuildSession"]
         }
     ]
 }

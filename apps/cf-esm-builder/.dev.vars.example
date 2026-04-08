@@ -1,0 +1,16 @@
+# cf-esm-builder local dev environment variables
+#
+# Copy to .dev.vars (gitignored) and fill in real values for local development.
+# `wrangler dev --local` reads .dev.vars automatically.
+#
+# These are NOT secrets in the production sense — they're just config the
+# Worker reads via env. Real secrets should go in `wrangler secret put`.
+
+# R2 bucket name (must match the binding in wrangler.jsonc#r2_buckets)
+BUNDLES_BUCKET=expo-bundles
+
+# Container image tag — only used by the build pipeline, not at runtime
+CONTAINER_IMAGE_TAG=cf-esm-builder:dev
+
+# Optional: log level for the Worker
+LOG_LEVEL=info
