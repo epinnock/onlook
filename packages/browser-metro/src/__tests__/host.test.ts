@@ -195,8 +195,8 @@ describe('BrowserMetro', () => {
         // Entry resolver prefers index.tsx over App.tsx (TR2.2 default order).
         expect(result.entry).toBe('index.tsx');
 
-        // IIFE wrapper produced a self-contained script.
-        expect(result.iife.startsWith(';(function(')).toBe(true);
+        // IIFE wrapper produced a self-contained async script (FOUND-06b).
+        expect(result.iife.startsWith(';(async function(')).toBe(true);
         expect(result.iife).toContain('__modules');
         expect(result.iife).toContain('index.tsx');
 
