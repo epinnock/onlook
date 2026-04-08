@@ -97,6 +97,37 @@ function asAttach(sandbox: SandboxManager): WithAttach {
     return sandbox as unknown as WithAttach;
 }
 
+/**
+ * Pin the active provider on the sandbox's `SessionManager` so that
+ * FOUND-R1.5-followup's stale-provider check inside the retry path
+ * recognizes the provider under test as "still active".
+ *
+ * `SessionManager` uses `makeAutoObservable`, which wraps plain objects
+ * in a MobX observable proxy. Identity comparisons must use the proxied
+ * value read back from `session.provider`, NOT the raw object the test
+ * passed in. Returns the proxied provider for convenience.
+ */
+function bindSessionProvider(sandbox: SandboxManager, provider: Provider | null): Provider | null {
+    const session = (sandbox as unknown as { session: { provider: Provider | null } }).session;
+    session.provider = provider;
+    return session.provider;
+}
+
+/**
+ * Wait for condition() to become true, polling every 25ms up to a timeout.
+ * Used to let the defensive setTimeout-based retry inside
+ * attachBrowserMetro fire in tests without relying on fake timers.
+ */
+async function waitFor(condition: () => boolean, timeoutMs = 3000): Promise<void> {
+    const startedAt = Date.now();
+    while (!condition()) {
+        if (Date.now() - startedAt > timeoutMs) {
+            throw new Error(`waitFor timed out after ${timeoutMs}ms`);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+}
+
 describe('SandboxManager.attachBrowserMetro (TR1.5)', () => {
     // BroadcastChannel handles from the bundler's `publish()` path can
     // leak between tests — close them by stashing/restoring the global.
@@ -257,21 +288,14 @@ describe('SandboxManager.attachBrowserMetro (TR1.5)', () => {
         expect(elapsed).toBeLessThan(1000);
     });
 
-    it('does not run the initial bundle when the Vfs is empty at attach time (Option A regression)', async () => {
-        // With Option A, `initializeSyncEngine` awaits `firstPullComplete`
-        // before calling `attachBrowserMetro` — so by the time this
-        // method runs the Vfs should already be populated. The method
-        // itself does not re-check emptiness (we rely on the gate in
-        // `initializeSyncEngine`), but it still reaches the bundler.
-        //
-        // This test pins the current behavior so that if we ever swap
-        // back to Option B (defensive guard inside attachBrowserMetro)
-        // we'll see a test signal. For the Option A fix, we simulate
-        // the call path by invoking attachBrowserMetro and assert that
-        // even with an empty Vfs the bundle() call *completes*
-        // (BrowserMetro returns zero modules) without throwing — the
-        // fix in `initializeSyncEngine` is what prevents this in
-        // production.
+    it('FOUND-R1.5-followup: returns early without attaching the bundler when the Vfs is empty at attach time', async () => {
+        // The defensive guard short-circuits if the local Vfs has zero
+        // files — see `plans/expo-browser-status.md` (2026-04-08). The
+        // shared `CodeProviderSync` instance can resolve its
+        // `firstPullComplete` from a previous consumer's pull, leaving
+        // this consumer's view of the Vfs empty at the moment we attach.
+        // When that happens the bundler attach MUST be deferred, not
+        // run against an empty file system.
         const { fs } = createFakeFs(); // intentionally empty
         const sandbox = buildSandbox(fs);
 
@@ -286,12 +310,107 @@ describe('SandboxManager.attachBrowserMetro (TR1.5)', () => {
                 attachBundlerCalls++;
             },
         } as unknown as Provider;
+        // Session provider is null in this test so the scheduled retry
+        // will be a no-op — we're only asserting the early-return here.
+        bindSessionProvider(sandbox, null);
 
-        // Must not throw even with an empty vfs — the real-world
-        // protection comes from `initializeSyncEngine` awaiting
-        // `sync.firstPullComplete` before reaching this method.
         await asAttach(sandbox).attachBrowserMetro(provider);
+
+        // Bundler attach MUST NOT have happened — the Vfs is empty, so
+        // `provider.attachBundler` is never reached and `bundler.bundle`
+        // is never called.
+        expect(attachBundlerCalls).toBe(0);
+    });
+
+    it('FOUND-R1.5-followup: the scheduled retry attaches once the Vfs becomes non-empty', async () => {
+        // With the defensive guard, the empty-Vfs path schedules a
+        // re-attempt via setTimeout. Once the local file system has been
+        // populated (simulating the real sync engine landing its pull
+        // after attach was called), the next retry must succeed and
+        // attach the bundler exactly once.
+        const { fs, files } = createFakeFs(); // intentionally empty at first
+        const sandbox = buildSandbox(fs);
+
+        // Drain BroadcastChannel traffic — the bundler's publish path
+        // requires a working BC global.
+        class NoopBC {
+            constructor(_name: string) { /* no-op */ }
+            postMessage(_msg: unknown): void { /* no-op */ }
+            close(): void { /* no-op */ }
+        }
+        globalThis.BroadcastChannel = NoopBC as unknown as typeof BroadcastChannel;
+
+        let attachBundlerCalls = 0;
+        const caps: ProviderCapabilities = {
+            supportsTerminal: false,
+            supportsShell: false,
+        } as ProviderCapabilities;
+        const rawProvider = {
+            getCapabilities: () => caps,
+            attachBundler: () => {
+                attachBundlerCalls++;
+            },
+        } as unknown as Provider;
+        // The retry only fires if the session.provider still matches,
+        // so pin it here the way the real SessionManager would. Use the
+        // PROXIED value returned by bindSessionProvider — MobX wraps
+        // plain objects on assignment, and we must pass the wrapped
+        // identity all the way through to match production semantics.
+        const provider = bindSessionProvider(sandbox, rawProvider)!;
+
+        // First attach: Vfs empty, so the guard early-returns and a
+        // retry is scheduled via setTimeout(500ms).
+        await asAttach(sandbox).attachBrowserMetro(provider);
+        expect(attachBundlerCalls).toBe(0);
+
+        // Simulate the sync engine finally landing its pull by writing
+        // to the fake Vfs AFTER the guard ran.
+        files.set('App.tsx', 'export default function App() { return null; }');
+        files.set('package.json', '{"name":"expo-test"}');
+
+        // Wait for the scheduled retry to fire and actually attach.
+        await waitFor(() => attachBundlerCalls > 0, 3000);
         expect(attachBundlerCalls).toBe(1);
+    });
+
+    it('FOUND-R1.5-followup: retry is a no-op if the session provider has been swapped out', async () => {
+        // Guardrail: a deferred retry must not bundle for a stale
+        // provider. If the SessionManager has torn down or swapped the
+        // active provider between the early-return and the scheduled
+        // retry, the retry callback must skip the re-attach entirely.
+        const { fs, files } = createFakeFs(); // intentionally empty
+        const sandbox = buildSandbox(fs);
+
+        let attachBundlerCalls = 0;
+        const caps: ProviderCapabilities = {
+            supportsTerminal: false,
+            supportsShell: false,
+        } as ProviderCapabilities;
+        const rawProvider = {
+            getCapabilities: () => caps,
+            attachBundler: () => {
+                attachBundlerCalls++;
+            },
+        } as unknown as Provider;
+        // Pin this provider as "active" so the early-return path
+        // schedules the retry. Use the MobX-proxied identity from
+        // bindSessionProvider so the retry's `===` check would match
+        // if we didn't swap it out below.
+        const provider = bindSessionProvider(sandbox, rawProvider)!;
+
+        await asAttach(sandbox).attachBrowserMetro(provider);
+        expect(attachBundlerCalls).toBe(0);
+
+        // Swap out the active provider BEFORE the retry fires, then
+        // populate the Vfs. The retry callback should see a mismatched
+        // `session.provider` and bail out without attaching.
+        bindSessionProvider(sandbox, null);
+        files.set('App.tsx', 'export default function App() { return null; }');
+
+        // Wait longer than the retry interval (500ms) so the callback
+        // has definitely fired, then assert no attach happened.
+        await new Promise((resolve) => setTimeout(resolve, 750));
+        expect(attachBundlerCalls).toBe(0);
     });
 });
 

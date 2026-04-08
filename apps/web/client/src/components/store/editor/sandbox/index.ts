@@ -29,6 +29,13 @@ export class SandboxManager {
     private sync: CodeProviderSync | null = null;
     private bundler: BrowserMetro | null = null;
     private bundlerSubscriptions: Array<() => void> = [];
+    // FOUND-R1.5-followup: tracks scheduled re-attach retries when the Vfs
+    // is empty at attach time. Bounded to avoid runaway setTimeout loops if
+    // the sync never populates the local file system.
+    private attachRetryTimer: ReturnType<typeof setTimeout> | null = null;
+    private attachRetryCount = 0;
+    private static readonly ATTACH_MAX_RETRIES = 10;
+    private static readonly ATTACH_RETRY_INTERVAL_MS = 500;
     preloadScriptState: PreloadScriptState = PreloadScriptState.NOT_INJECTED
     routerConfig: RouterConfig | null = null;
     projectType: ProjectType | null = null;
@@ -159,6 +166,56 @@ export class SandboxManager {
             try { this.bundler.dispose(); } catch { /* ignore */ }
             this.bundler = null;
         }
+
+        // Cancel any in-flight re-attach retry — we're about to either run
+        // a fresh attach or schedule a new retry below, so the previous
+        // one (if any) is stale.
+        if (this.attachRetryTimer !== null) {
+            clearTimeout(this.attachRetryTimer);
+            this.attachRetryTimer = null;
+        }
+
+        // FOUND-R1.5-followup (2026-04-08): defensive guard — even with
+        // `sync.firstPullComplete` awaited in `initializeSyncEngine`, a
+        // shared `CodeProviderSync` instance (getInstance + refCount > 1)
+        // can resolve `firstPullComplete` from a previous consumer's pull,
+        // leaving this consumer's view of the Vfs empty. If the Vfs has
+        // zero files at this moment, defer the bundler attach until the
+        // local file system has been populated. See the follow-up note in
+        // `plans/expo-browser-status.md` (2026-04-08).
+        const allFiles = await this.fs.listAll();
+        if (allFiles.length === 0) {
+            if (this.attachRetryCount >= SandboxManager.ATTACH_MAX_RETRIES) {
+                console.error(
+                    '[SandboxManager] attachBrowserMetro: Vfs still empty after',
+                    SandboxManager.ATTACH_MAX_RETRIES,
+                    'retries — giving up for branch',
+                    this.branch.id,
+                );
+                this.attachRetryCount = 0;
+                return;
+            }
+            this.attachRetryCount++;
+            console.info(
+                '[SandboxManager] attachBrowserMetro: Vfs empty, deferring until first file lands (retry',
+                this.attachRetryCount,
+                'of',
+                SandboxManager.ATTACH_MAX_RETRIES,
+                ')',
+            );
+            this.attachRetryTimer = setTimeout(() => {
+                this.attachRetryTimer = null;
+                // Only retry if the original provider is still the active one —
+                // if the session has torn down or swapped providers, bundling
+                // for a stale provider would be wrong.
+                if (this.session.provider === provider) {
+                    void this.attachBrowserMetro(provider);
+                }
+            }, SandboxManager.ATTACH_RETRY_INTERVAL_MS);
+            return;
+        }
+        // Reset the retry counter once the Vfs has been populated.
+        this.attachRetryCount = 0;
 
         // Only no-shell providers (ExpoBrowser) get a real bundler.
         // Duck-type via getCapabilities() instead of instanceof — Next.js
@@ -412,6 +469,11 @@ export class SandboxManager {
     clear() {
         this.providerReactionDisposer?.();
         this.providerReactionDisposer = undefined;
+        if (this.attachRetryTimer !== null) {
+            clearTimeout(this.attachRetryTimer);
+            this.attachRetryTimer = null;
+        }
+        this.attachRetryCount = 0;
         this.sync?.release();
         this.sync = null;
         this.preloadScriptState = PreloadScriptState.NOT_INJECTED
