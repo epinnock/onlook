@@ -9,8 +9,8 @@
 
 export interface Env {
     ESM_BUILDER: DurableObjectNamespace;
-    BUILD_SESSION?: DurableObjectNamespace;
-    BUNDLES?: R2Bucket;
+    BUILD_SESSION: DurableObjectNamespace;
+    BUNDLES: R2Bucket; // expo-bundles bucket per TH0.3 (R2 layout)
     /**
      * Cloudflare Container binding. Set when `wrangler.jsonc` declares a
      * `containers` block (TH1.4). Typed as `unknown` because the binding

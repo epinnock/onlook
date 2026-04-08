@@ -16,6 +16,8 @@ const EXPECTED_VERSION = '0.1.0';
 function makeEnv(overrides: Partial<Env> = {}): Env {
     return {
         ESM_BUILDER: {} as DurableObjectNamespace,
+        BUILD_SESSION: {} as DurableObjectNamespace,
+        BUNDLES: {} as R2Bucket,
         ...overrides,
     };
 }
