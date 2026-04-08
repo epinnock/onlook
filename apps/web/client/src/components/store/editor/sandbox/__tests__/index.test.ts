@@ -182,6 +182,81 @@ describe('SandboxManager.attachBrowserMetro (TR1.5)', () => {
         expect(typeof capturedHooks!.onStop).toBe('function');
     });
 
+    it('TR4.2: simulating an editor write + onRebundle hook fires bundler.invalidate within 1s', async () => {
+        // Production wiring path under test (see sandbox/index.ts):
+        //   1. attachBrowserMetro() constructs a BrowserMetro and calls
+        //      provider.attachBundler({ onRebundle: () => bundler.invalidate(), ... })
+        //   2. When the editor pushes a file (writeFile -> BrowserTask.restart
+        //      via SessionManager.restartDevServer), BrowserTask invokes its
+        //      onRebundle host hook which calls bundler.invalidate() ->
+        //      bundler.bundle() which re-walks the Vfs and republishes.
+        //
+        // This test mimics that path without booting BrowserTask: we
+        // capture onRebundle via the attachBundler stub, write a new file
+        // to the fake fs, then invoke onRebundle() and assert that the
+        // bundler republished within 1 second. We detect republish via
+        // a BroadcastChannel postMessage spy because attachBrowserMetro
+        // subscribes a BroadcastChannel publisher to bundler.onUpdate.
+        const { fs, files } = createFakeFs();
+        files.set('App.tsx', 'export default function App() { return <div>v1</div>; }');
+        files.set('package.json', '{"name":"expo-test"}');
+
+        const sandbox = buildSandbox(fs);
+
+        // Spy on BroadcastChannel.postMessage so we can count bundle
+        // publishes after attach (the initial bundle publishes once, the
+        // post-rebundle publish should add a second).
+        let postCount = 0;
+        class FakeBC {
+            constructor(_name: string) { /* no-op */ }
+            postMessage(_msg: unknown): void { postCount++; }
+            close(): void { /* no-op */ }
+        }
+        // BroadcastChannel global must satisfy the structural type.
+        globalThis.BroadcastChannel = FakeBC as unknown as typeof BroadcastChannel;
+
+        type BundlerHooks = {
+            onRebundle: () => Promise<void>;
+            onStop: () => Promise<void>;
+            banner?: string;
+        };
+        let capturedHooks: BundlerHooks | null = null;
+        const caps: ProviderCapabilities = {
+            supportsTerminal: false,
+            supportsShell: false,
+        } as ProviderCapabilities;
+        const provider = {
+            getCapabilities: () => caps,
+            attachBundler: (hooks: BundlerHooks) => {
+                capturedHooks = hooks;
+            },
+        } as unknown as Provider;
+
+        await asAttach(sandbox).attachBrowserMetro(provider);
+
+        // attachBrowserMetro runs the initial bundle and publishes once.
+        const postsAfterInitialBundle = postCount;
+        expect(capturedHooks).not.toBeNull();
+
+        // Simulate the editor pushing a code edit into the local Vfs —
+        // in production this is what writes a new file before the
+        // SessionManager triggers BrowserTask.restart -> onRebundle.
+        await fs.writeFile('App.tsx', 'export default function App() { return <div>v2</div>; }');
+
+        // Invoke the captured onRebundle hook (the same callback the
+        // ExpoBrowserProvider's BrowserTask calls on restart). This is
+        // exactly the production path: BrowserTask.restart() ->
+        // host.onRebundle() -> bundler.invalidate() -> bundler.bundle().
+        const startedAt = Date.now();
+        await capturedHooks!.onRebundle();
+        const elapsed = Date.now() - startedAt;
+
+        // The rebundle must publish a fresh bundle (postCount increments)
+        // and complete within the 1-second budget the plan specifies.
+        expect(postCount).toBeGreaterThan(postsAfterInitialBundle);
+        expect(elapsed).toBeLessThan(1000);
+    });
+
     it('does not run the initial bundle when the Vfs is empty at attach time (Option A regression)', async () => {
         // With Option A, `initializeSyncEngine` awaits `firstPullComplete`
         // before calling `attachBrowserMetro` — so by the time this
