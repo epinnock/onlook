@@ -9,19 +9,31 @@
  * Sprint 0 ships only a stub. Sprint 1 (Wave A) wires real Supabase Storage
  * + browser-metro + the narrow command interceptor.
  */
+import type { SupabaseClient } from '@supabase/supabase-js';
+
 export interface ExpoBrowserProviderOptions {
     /** Project UUID — used as the top-level Supabase Storage prefix. */
     projectId: string;
     /** Branch UUID — used as the second-level Supabase Storage prefix. */
     branchId: string;
     /**
+     * Pre-built, authenticated Supabase client. Strongly preferred over
+     * supabaseUrl + supabaseAnonKey because the editor's existing client
+     * already has the user's session — passing it in fixes FOUND-R1.7
+     * (the "Multiple GoTrueClient instances detected" warning that caused
+     * Storage requests to go anonymously and trip RLS denials).
+     */
+    supabaseClient?: SupabaseClient;
+    /**
      * Public-anon Supabase URL for browser-side reads.
      * Defaults to `process.env.NEXT_PUBLIC_SUPABASE_URL` when undefined.
+     * Ignored when `supabaseClient` is provided.
      */
     supabaseUrl?: string;
     /**
      * Public anon key for the Supabase project.
      * Defaults to `process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY` when undefined.
+     * Ignored when `supabaseClient` is provided.
      */
     supabaseAnonKey?: string;
     /**

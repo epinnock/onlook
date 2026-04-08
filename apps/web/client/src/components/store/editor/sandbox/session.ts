@@ -1,4 +1,5 @@
 import { api } from '@/trpc/client';
+import { createClient as createSupabaseBrowserClient } from '@/utils/supabase/client';
 import { CodeProvider, createCodeProviderClient, type Provider } from '@onlook/code-provider';
 import type { Branch } from '@onlook/models';
 import { makeAutoObservable } from 'mobx';
@@ -67,15 +68,25 @@ export class SessionManager {
                 // the supabase URL/anon key from env. The branch retains
                 // its CSB sandboxId (Position B) — that ID is used as the
                 // storage prefix discriminator.
+                //
+                // FOUND-R1.7 fix (2026-04-08): pass the editor's existing
+                // authenticated browser-side Supabase client into the
+                // provider so Storage requests inherit the user's session
+                // (the sb-127-auth-token cookie). Without this, the
+                // provider's storage adapter creates its own client with
+                // a fresh GoTrueClient that has no session, and Storage
+                // RLS denies all reads even though the user owns the
+                // project. The "Multiple GoTrueClient instances detected"
+                // warning is the symptom of the broken path.
                 const projectId = (this.branch as { projectId?: string } | undefined)?.projectId ?? '';
                 const branchId = (this.branch as { id?: string } | undefined)?.id ?? sandboxId;
+                const supabaseClient = createSupabaseBrowserClient();
                 provider = await createCodeProviderClient(CodeProvider.ExpoBrowser, {
                     providerOptions: {
                         expoBrowser: {
                             projectId,
                             branchId,
-                            supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
-                            supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+                            supabaseClient,
                         },
                     },
                 });

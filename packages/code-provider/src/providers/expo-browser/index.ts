@@ -103,11 +103,33 @@ export class ExpoBrowserProvider extends Provider {
     // -- lifecycle ----------------------------------------------------------
 
     async initialize(_input: InitializeInput): Promise<InitializeOutput> {
+        // FOUND-R1.7 fix (2026-04-08): prefer the externally-supplied authed
+        // Supabase client over creating our own. The editor passes its
+        // browser-side singleton (which already has the user's session via
+        // the sb-127-auth-token cookie). Without this, the storage adapter
+        // creates a fresh GoTrueClient that has no session — Storage RLS
+        // then denies all reads even though the user owns the project.
+        if (this.options.supabaseClient) {
+            this.storage = new SupabaseStorageAdapter({
+                projectId: this.options.projectId,
+                branchId: this.options.branchId,
+                bucket: this.options.storageBucket,
+                // supabaseUrl/supabaseKey are unused when client is provided,
+                // but the StorageAdapterOptions interface requires them.
+                supabaseUrl: this.options.supabaseUrl ?? DEFAULT_SUPABASE_URL,
+                supabaseKey: this.options.supabaseAnonKey ?? '',
+                client: this.options.supabaseClient,
+            });
+            return {};
+        }
+        // Fallback path — caller did not inject a client. Construct one from
+        // url + anon key. This path runs anonymously and will hit RLS unless
+        // the bucket is explicitly public.
         const supabaseUrl = this.options.supabaseUrl ?? DEFAULT_SUPABASE_URL;
         const supabaseKey = this.options.supabaseAnonKey;
         if (!supabaseKey) {
             throw new Error(
-                'ExpoBrowserProvider: supabaseAnonKey is required (or set NEXT_PUBLIC_SUPABASE_ANON_KEY in the calling layer).',
+                'ExpoBrowserProvider: either supabaseClient or supabaseAnonKey is required (set NEXT_PUBLIC_SUPABASE_ANON_KEY or pass an authed client from the editor).',
             );
         }
         this.storage = new SupabaseStorageAdapter({
