@@ -11,6 +11,13 @@ export interface Env {
     ESM_BUILDER: DurableObjectNamespace;
     BUILD_SESSION?: DurableObjectNamespace;
     BUNDLES?: R2Bucket;
+    /**
+     * Cloudflare Container binding. Set when `wrangler.jsonc` declares a
+     * `containers` block (TH1.4). Typed as `unknown` because the binding
+     * shape is environment-specific and the health probe only needs to
+     * detect presence.
+     */
+    CONTAINER?: unknown;
 }
 
 export interface BuildRequestHeaders {
