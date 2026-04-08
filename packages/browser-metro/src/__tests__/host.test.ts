@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { BrowserMetro } from '../host';
-import type { Vfs } from '../host/types';
+import type { BundleResult, Vfs } from '../host/types';
 
 function makeFakeVfs(files: Record<string, string>): Vfs {
     return {
@@ -101,6 +101,62 @@ describe('BrowserMetro', () => {
             esmUrl: 'https://esm.sh',
         });
         await expect(metro.bundle()).rejects.toThrow(/App\.tsx/);
+        metro.dispose();
+    });
+
+    it('invalidate() re-reads the Vfs and republishes a fresh bundle (TR4.1)', async () => {
+        // Mutable in-memory file map so we can change content between bundles.
+        const files: Record<string, string> = {
+            'App.tsx': 'module.exports = "v1";',
+        };
+        const vfs: Vfs = {
+            async listAll() {
+                return Object.keys(files).map((path) => ({
+                    path: path.startsWith('/') ? path : `/${path}`,
+                    type: 'file' as const,
+                }));
+            },
+            async readFile(path: string) {
+                const key = path.startsWith('/') ? path.slice(1) : path;
+                const content = files[key];
+                if (content === undefined) {
+                    throw new Error(`fake vfs: missing ${path}`);
+                }
+                return content;
+            },
+        };
+
+        const metro = new BrowserMetro({ vfs, esmUrl: 'https://esm.sh' });
+        const received: BundleResult[] = [];
+        metro.onUpdate((result) => {
+            received.push(result);
+        });
+
+        // First bundle — should see "v1".
+        await metro.bundle();
+        expect(received).toHaveLength(1);
+        const first = received[0]!;
+        expect(first.modules['App.tsx']).toBeDefined();
+        expect(first.modules['App.tsx']?.code).toContain('"v1"');
+
+        // Mutate the in-memory Vfs.
+        files['App.tsx'] = 'module.exports = "v2";';
+
+        // invalidate() should re-walk the Vfs (NOT use a cached read) and
+        // publish a second bundle with the new content.
+        await metro.invalidate();
+        expect(received).toHaveLength(2);
+        const second = received[1]!;
+        expect(second.modules['App.tsx']?.code).toContain('"v2"');
+        expect(second.modules['App.tsx']?.code).not.toContain('"v1"');
+
+        // The second result must carry the TR2.5 fields.
+        expect(typeof second.iife).toBe('string');
+        expect(second.iife.length).toBeGreaterThan(0);
+        expect(typeof second.importmap).toBe('string');
+        expect(() => JSON.parse(second.importmap)).not.toThrow();
+        expect(Array.isArray(second.bareImports)).toBe(true);
+
         metro.dispose();
     });
 
