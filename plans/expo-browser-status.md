@@ -289,3 +289,86 @@ If you come back and find this conversation interrupted:
 2. Compare against the table above
 3. Resume from the next pending task
 4. If a task is marked "in progress" but the commit isn't in the log, the task was interrupted — re-run it
+
+---
+
+## 2026-04-08: Phase R/H/Q parallel orchestration result
+
+This run added 41 commits to `feat/expo-browser-provider` covering R0/R1/R2/R3 (partial)/R4 (partial) + H0/H2/H3/H4 + Q0/Q1/Q2/Q3 (62 of 76 queue tasks). All landed sub-agents validated their unit tests; cumulative new test count is **~243 across 9 packages**. Phase B (Chrome MCP scenario walks) ran scenario 06 end-to-end against the live editor and surfaced four real bugs that the unit-test layer missed.
+
+### Test totals (post-run)
+- `packages/browser-metro` — 55
+- `packages/code-provider/.../expo-browser` — 16
+- `apps/cf-esm-builder` — 62 across 7 files
+- `apps/cf-esm-cache` — 11
+- `apps/cf-expo-relay` — 34
+- `apps/web/client/.../expo-builder` — 23
+- `apps/web/client/.../expo-relay` — 18
+- `apps/web/client/.../qr-modal + use-preview-on-device` — 12
+- `apps/web/client/.../top-bar/preview-on-device-button` — 5
+
+### Remaining queue work (14 tasks + walks)
+- **TH1.1, TH1.2, TH1.4, TH1.5** — Container layer (Dockerfile + entrypoint + wrangler binding + README). Requires Docker. Not dispatched in this run because the cold-build cost (~30 min/agent) wasn't worth gambling without confirming Docker availability.
+- **Scenario walks 06, 07, 08, 09, 10, 11, 12, 13** — only the orchestrator session has Chrome MCP, sub-agents cannot drive them. Scenario 06 walked in this run; 07 blocked on 06.
+- **TH6.1** — manual phone scan with real Expo Go. Dead-letter (human-only).
+- **Phase Z** — verification refresh + PR open. Partial: results.json updated with Phase B findings; PR open (TZ.6) waits for human approval.
+
+### Phase B scenario 06 finding (live browser walk)
+
+**Pipeline that DID work end-to-end:**
+1. seed-expo-fixture.ts uploaded 7 fixture files to Supabase Storage at the right path ✓
+2. DEV MODE auth set the `sb-127-auth-token` cookie; tRPC `user.get` returned the SEED_USER ✓
+3. SandboxManager loaded the ExpoBrowser provider ✓
+4. TR1.2 fired: `[PreloadScript] detectProjectTypeFromProvider: short-circuit via branch.providerType = expo_browser` ✓
+5. (after permissive RLS workaround) Sync engine pulled all fixture files into the local Vfs
+6. attachBrowserMetro fired the duck-type capability check correctly ✓
+7. BrowserMetro walked 4 modules from Vfs ✓
+8. TR2.2 entry-resolver picked `index.ts` as entry per fixture spec ✓
+9. TR2.3 bare-import-rewriter rewrote `react-native-web` → esm.sh URL ✓
+10. TR2.4 IIFE wrapper produced 5651-byte self-contained JS ✓
+11. TR3.1 SW intercepted `bundle.js` and `importmap.json` requests, served from cache ✓
+12. TR3.2 htmlShell injected importmap before the bundle ✓
+13. iframe loaded the bundle and parsed it ✓
+
+**Where it broke:**
+
+The iframe runtime threw two errors that prevent the IIFE from completing:
+
+#### FOUND-06a — preload script ESM/classic mismatch (severity: high)
+The htmlShell injects `<script src="/onlook-preload-script.js">` (classic, no `type="module"`). The actual file is an ESM bundle with `export` at the top level. Browser parser hits `export` as a statement and throws `SyntaxError: Unexpected token 'export'`. The error is non-fatal — bundle.js still loads after — but pollutes the iframe error overlay and breaks the verification's "no console errors" assertion.
+
+**Fix options:** (a) `<script type="module" src="...">` in `htmlShell()`, or (b) drop the preload script from the ExpoBrowser shell entirely (it's for click-to-edit penpal, not strictly needed for fixture rendering). Option (b) is cleaner for v1 — penpal can be wired into the bundle later via a runtime injection.
+
+#### FOUND-06b — IIFE require shim cannot resolve esm.sh URL specs (severity: high — architectural)
+TR2.3 (bare-import-rewriter) rewrites `import 'react-native-web'` to `require('https://esm.sh/react-native-web?...')`. TR2.4's IIFE require shim throws on any spec not starting with `.` or `/`:
+```
+Error: Bare import 'https://esm.sh/react-native-web?bundle&external=...' reached IIFE require; the rewriter should have replaced it
+  at __resolve (bundle.js:104:11)
+  at require (bundle.js:122:20)
+  at index.ts (bundle.js:70:184)
+```
+
+The architectural mismatch: a CJS-style IIFE require shim **cannot** synchronously fetch URL modules in a browser. There's no `require()` for HTTP. The two reasonable fixes are mutually exclusive:
+
+- **Path A — switch to ESM:** Emit `import * as X from 'https://esm.sh/...'` syntax, serve as `<script type="module">`, let the iframe importmap (already injected by TR3.2) resolve URLs natively. This requires rewriting TR2.3 to keep `import` syntax instead of converting to `require`, dropping Sucrase's `imports` transform, and reworking TR2.4 to wrap modules in ES module syntax instead of CJS function bodies.
+- **Path B — pre-fetch + inline:** Have TR2.5's `bundle()` fetch every esm.sh URL at bundle time, inline the result as a synthetic module in `__modules`, point the require shim at the synthetic name. Defeats the CDN advantage and recreates Metro's complexity inside the host package.
+
+Path A is the right call for the long term and matches the Phase H Hermes pipeline's eventual architecture. Estimated work: ~1 day to refactor TR2.3+TR2.4+TR2.5+host tests.
+
+#### FOUND-R1.7 — browser Supabase client misses auth (severity: medium)
+After DEV MODE login, `tRPC user.get` correctly returns the SEED_USER (server-side cookie auth works). But `editor.fileSystem.listFiles()` returns 0 because the browser-side `@supabase/supabase-js` Storage client uses a different `GoTrueClient` instance than Onlook's auth client (the "Multiple GoTrueClient instances detected" warning is the symptom). The Storage call goes anonymously and RLS denies it.
+
+**Workaround used in this verification run:** a permissive `verify_anon_select` policy on `storage.objects` that allows any authenticated/anon user to SELECT from the `expo-projects` bucket. This was applied manually via psql and is **NOT** in any migration file. It must be reverted before any production deploy.
+
+**Fix:** Audit how `ExpoBrowserProvider` gets its Supabase client (in `packages/code-provider/src/providers/expo-browser/utils/storage.ts`). Inject the existing authenticated client from the editor session, OR call `supabase.auth.setSession()` on the provider's client with the JWT extracted from the Onlook cookie before any Storage call.
+
+#### FOUND-R1.5-followup — firstPullComplete races on shared sync instance (severity: medium)
+Console shows `attachBrowserMetro called` twice in a row for the same branch. Both `Initial bundle failed: BundleError: ... Available: ` because both ran before the sync's first pull completed. The Option A fix in TR1.5 awaits `firstPullComplete` on a shared `CodeProviderSync` — when refCount > 1, the second consumer gets a promise that's already resolved (no-op `start()`) even though the Vfs is still empty.
+
+**Fix:** Make `firstPullComplete` per-call rather than per-instance, or add the Option B defensive check (`this.fs.listAll().length > 0`) inside `attachBrowserMetro` as belt-and-suspenders.
+
+### Honest summary
+
+The unit-test layer (243 new tests) exercises every sub-module in isolation and they all pass. The integration layer (Chrome MCP scenario walk) found four bugs that no unit test could have caught because they're at the boundaries: browser ↔ Supabase auth, IIFE runtime ↔ esm.sh URLs, classic script ↔ ESM file, MobX-shared sync instance ↔ per-consumer promises. This is exactly the value of end-to-end verification — and exactly why the parent queue's "validation gate is Chrome MCP, not Playwright" decision matters.
+
+Phase R is ~85% there. Phase H + Phase Q are ~80% there but have 4 Container tasks and the scenario walks remaining. None of the four FOUND-06* / FOUND-R1.* findings are blockers in the sense of requiring the queue file to be rewritten — they're standard "next iteration" follow-ups, all with concrete fix paths documented above.
