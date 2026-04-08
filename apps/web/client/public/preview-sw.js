@@ -276,21 +276,74 @@ function htmlShell(branchId, frameId) {
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Onlook Browser Preview</title>
     <style>
         html, body { margin: 0; padding: 0; background: #fafafa; font-family: -apple-system, system-ui, sans-serif; }
         #root { min-height: 100vh; }
         #__loading { padding: 1rem; color: #6b7280; font-size: 0.875rem; }
+        #__error { padding: 1rem; color: #b91c1c; font-family: monospace; white-space: pre-wrap; }
     </style>
+    <script>
+        // Surface uncaught errors from the bundle into the iframe and console
+        // so the editor harness can see them without devtools.
+        window.addEventListener('error', function (e) {
+            console.error('[preview]', e.message, e.error);
+            try {
+                var root = document.getElementById('root');
+                if (root) {
+                    var pre = document.createElement('pre');
+                    pre.id = '__error';
+                    pre.textContent = '[preview error] ' + (e.error && e.error.stack ? e.error.stack : e.message);
+                    root.appendChild(pre);
+                }
+            } catch (_) {}
+        });
+        window.addEventListener('unhandledrejection', function (e) {
+            console.error('[preview] unhandledrejection', e.reason);
+        });
+    </script>
 </head>
 <body data-branch-id="${branchId}" data-frame-id="${frameId}">
     <div id="root">
         <div id="__loading">Loading browser preview…</div>
     </div>
     <script src="/onlook-preload-script.js"></script>
-    <script src="bundle.js"></script>
+    <script>
+        // <script type="importmap"> cannot be loaded externally — it must be
+        // inline and must appear BEFORE any script that references a bare
+        // import, otherwise the browser silently ignores it. So we fetch the
+        // SW-served importmap.json, inline it into a new <script type="importmap">,
+        // THEN append bundle.js. TR3.1 serves importmap.json; TR3.2 wires it up here.
+        (function () {
+            fetch('importmap.json')
+                .then(function (r) {
+                    if (!r.ok) throw new Error('importmap.json HTTP ' + r.status);
+                    return r.json();
+                })
+                .then(function (im) {
+                    var s = document.createElement('script');
+                    s.type = 'importmap';
+                    s.textContent = JSON.stringify(im || { imports: {} });
+                    document.head.appendChild(s);
+                    var b = document.createElement('script');
+                    b.src = 'bundle.js';
+                    b.onerror = function () {
+                        console.error('[preview] failed to load bundle.js');
+                    };
+                    document.body.appendChild(b);
+                })
+                .catch(function (err) {
+                    console.error('[preview] failed to fetch importmap.json:', err);
+                    // Fall back to loading bundle.js without an importmap so a
+                    // bundle with zero bare imports can still run.
+                    var b = document.createElement('script');
+                    b.src = 'bundle.js';
+                    document.body.appendChild(b);
+                });
+        })();
+    </script>
 </body>
 </html>`;
 }
