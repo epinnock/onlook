@@ -1,0 +1,20 @@
+{
+  "expo": {
+    "name": "minimal-expo-th1-3",
+    "slug": "minimal-expo-th1-3",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.onlook.fixture.th13"
+    },
+    "android": {
+      "package": "com.onlook.fixture.th13"
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}
