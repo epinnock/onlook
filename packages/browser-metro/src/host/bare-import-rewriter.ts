@@ -18,12 +18,19 @@
  * iframe uses to build its import map).
  */
 
-const DEFAULT_EXTERNAL: readonly string[] = [
-    'react',
-    'react-dom',
-    'react-native',
-    'react-native-web',
-];
+// FOUND-06b follow-up #2 (2026-04-08): the default external list used to
+// include react/react-dom/react-native/react-native-web. esm.sh interprets
+// `&external=...` as "do not bundle these — emit `import 'react'` etc. and
+// expect the host to provide them via importmap." That works in a real
+// importmap-aware page, BUT the dynamic `import()` we use to pre-fetch in
+// the IIFE wrapper does NOT consult the iframe's <script type="importmap">
+// (only top-level <script type="module"> tags do). So the externals come
+// back as bare `import 'react'` statements that the browser cannot resolve
+// inside the dynamic import context. Empty default — let esm.sh inline
+// peers. Bigger bundle, simpler runtime; the alternative would be to
+// rewrite the entire iframe shell to use top-level <script type="module">
+// instead of the inline-bootstrap pattern.
+const DEFAULT_EXTERNAL: readonly string[] = [];
 
 const DEFAULT_ALIASES: Readonly<Record<string, string>> = {
     'react-native': 'react-native-web',

@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { rewriteBareImports } from '../bare-import-rewriter';
 
 const ESM = 'https://esm.sh';
-const DEFAULT_QUERY = '?bundle&external=react,react-dom,react-native,react-native-web';
+const DEFAULT_QUERY = '?bundle';
 
 describe('rewriteBareImports', () => {
     test('1. rewrites default import of react', () => {
