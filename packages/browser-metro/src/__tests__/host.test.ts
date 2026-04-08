@@ -94,11 +94,66 @@ describe('BrowserMetro', () => {
     it('reports BundleError with file context on transpile failure', async () => {
         const metro = new BrowserMetro({
             vfs: makeFakeVfs({
-                'broken.tsx': 'export default function broken() { return <div',
+                // Must be a recognized entry filename so the strict resolver
+                // (TR2.2) doesn't short-circuit before we hit the transpiler.
+                'App.tsx': 'export default function broken() { return <div',
             }),
             esmUrl: 'https://esm.sh',
         });
-        await expect(metro.bundle()).rejects.toThrow(/broken.tsx/);
+        await expect(metro.bundle()).rejects.toThrow(/App\.tsx/);
+        metro.dispose();
+    });
+
+    it('wires file-walker + entry-resolver + bare-import-rewriter + iife-wrapper (R2 roundtrip)', async () => {
+        const metro = new BrowserMetro({
+            vfs: makeFakeVfs({
+                'App.tsx': `
+                    import { useState } from 'react';
+                    import { Hello } from './components/Hello';
+                    export default function App() {
+                        const [n] = useState(0);
+                        return <Hello count={n} />;
+                    }
+                `,
+                'components/Hello.tsx': `
+                    export function Hello(props: { count: number }) {
+                        return <span>{props.count}</span>;
+                    }
+                `,
+                'index.tsx': `
+                    import App from './App';
+                    export default App;
+                `,
+            }),
+            esmUrl: 'https://esm.sh',
+        });
+        const result = await metro.bundle();
+
+        // All three files landed in the module map.
+        expect(Object.keys(result.modules).sort()).toEqual([
+            'App.tsx',
+            'components/Hello.tsx',
+            'index.tsx',
+        ]);
+
+        // Entry resolver prefers index.tsx over App.tsx (TR2.2 default order).
+        expect(result.entry).toBe('index.tsx');
+
+        // IIFE wrapper produced a self-contained script.
+        expect(result.iife.startsWith(';(function(')).toBe(true);
+        expect(result.iife).toContain('__modules');
+        expect(result.iife).toContain('index.tsx');
+
+        // The single bare import ('react') is collected and deduped.
+        expect(result.bareImports).toContain('react');
+
+        // Importmap is valid JSON and routes 'react' to the ESM CDN.
+        const importmap = JSON.parse(result.importmap) as {
+            imports: Record<string, string>;
+        };
+        expect(importmap.imports.react).toBeDefined();
+        expect(importmap.imports.react).toContain('react');
+
         metro.dispose();
     });
 });

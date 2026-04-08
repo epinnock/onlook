@@ -1,22 +1,24 @@
 /**
  * BrowserMetro — main-thread host for the in-browser bundler.
  *
- * Wave C scaffold. The full Metro-compatible bundler (with proper
- * dependency graph traversal, .web.js extension resolution, React
- * Refresh boundaries, and chunked output) is vendored from
- * github.com/RapidNative/reactnative-run in a follow-up sprint. For
- * Sprint 0 / Wave A we ship a minimal working pipeline:
+ * Wave R2 (TR2.5) composes the four sub-modules that were extracted from the
+ * original monolithic host:
  *
- *   - Walks the supplied Vfs for .ts/.tsx/.js/.jsx files
- *   - Transpiles each with Sucrase (jsx, ts, imports)
- *   - Returns a flat module map
- *   - Broadcasts the result on a BroadcastChannel
+ *   - file-walker (TR2.1)         — recursive Vfs walk → normalized file list
+ *   - entry-resolver (TR2.2)      — picks the bundle entry from candidates
+ *   - bare-import-rewriter (TR2.3) — rewrites bare imports to ESM CDN URLs
+ *   - iife-wrapper (TR2.4)        — wraps the module map in a self-contained IIFE
  *
- * The preview iframe (Wave H §1.3) is responsible for stitching the
- * modules together via an import map and a small runtime loader.
+ * The pipeline now yields, in addition to the legacy flat module map, a
+ * self-contained `iife` string + `importmap` JSON + deduped `bareImports`
+ * list that the preview iframe and service worker consume directly.
  */
 
 import { transform } from 'sucrase';
+import { rewriteBareImports } from './bare-import-rewriter';
+import { walkVfs } from './file-walker';
+import { resolveEntry } from './entry-resolver';
+import { wrapAsIIFE, type IIFEModule } from './iife-wrapper';
 import {
     BundleError,
     type BrowserMetroOptions,
@@ -24,18 +26,6 @@ import {
     type BundleResult,
     type Vfs,
 } from './types';
-
-const SUPPORTED_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'];
-const ENTRY_CANDIDATES = [
-    'App.tsx',
-    'App.jsx',
-    'App.js',
-    'src/App.tsx',
-    'src/App.jsx',
-    'index.tsx',
-    'index.js',
-];
-const BARE_IMPORT_RE = /(?:^|\n)\s*(?:import\s+(?:[^'"]+from\s+)?|export\s+(?:[^'"]+from\s+))['"]([^'"./][^'"]*)['"]/g;
 
 export class BrowserMetro {
     private readonly vfs: Vfs;
@@ -80,51 +70,70 @@ export class BrowserMetro {
     }
 
     /**
-     * Walk the Vfs, transpile every supported file, return the bundle.
+     * Walk the Vfs, rewrite bare imports, transpile each file, resolve the
+     * entry, and wrap everything in a self-contained IIFE.
      * Throws BundleError on transpile failure.
      */
     async bundle(): Promise<BundleResult> {
         const start = performance.now();
         try {
-            const entries = await this.vfs.listAll();
-            const fileEntries = entries
-                .filter((e) => e.type === 'file' && this.isSourceFile(e.path))
-                .map((e) => normalizeRelative(e.path));
+            // 1. Walk the Vfs.
+            const walked = await walkVfs(this.vfs);
 
+            // 2. Resolve the entry from the walked paths.
+            const entry = resolveEntry({ paths: walked.map((f) => f.path) });
+
+            // 3 + 4. Rewrite bare imports, transpile, collect deduped bares.
             const modules: Record<string, BundleModule> = {};
-            for (const path of fileEntries) {
+            const iifeModules: IIFEModule[] = [];
+            const allBares = new Set<string>();
+
+            for (const file of walked) {
                 try {
-                    const raw = await this.vfs.readFile(path);
-                    const source = typeof raw === 'string' ? raw : new TextDecoder().decode(raw);
-                    const result = transform(source, {
+                    const rewritten = rewriteBareImports(file.content, {
+                        esmUrl: this.esmUrl,
+                    });
+                    for (const spec of rewritten.bareImports) {
+                        allBares.add(spec);
+                    }
+                    const transformed = transform(rewritten.code, {
                         transforms: ['jsx', 'typescript', 'imports'],
                         production: false,
                         jsxRuntime: 'automatic',
-                        filePath: path,
+                        filePath: file.path,
                     });
-                    modules[path] = {
-                        path,
-                        code: result.code,
-                        deps: extractBareImports(source),
+                    modules[file.path] = {
+                        path: file.path,
+                        code: transformed.code,
+                        deps: rewritten.bareImports,
                     };
+                    iifeModules.push({ path: file.path, code: transformed.code });
                 } catch (err) {
                     throw new BundleError(
-                        `Transpile failed for ${path}: ${err instanceof Error ? err.message : String(err)}`,
-                        path,
+                        `Transpile failed for ${file.path}: ${err instanceof Error ? err.message : String(err)}`,
+                        file.path,
                         err,
                     );
                 }
             }
 
-            const entry =
-                ENTRY_CANDIDATES.find((candidate) => modules[candidate]) ??
-                Object.keys(modules)[0] ??
-                'App.tsx';
+            // 5. Wrap the module map in a self-contained IIFE.
+            const bareImports = Array.from(allBares);
+            const wrap = wrapAsIIFE({
+                entry,
+                modules: iifeModules,
+                bareImports,
+                esmUrl: this.esmUrl,
+            });
 
+            // 6. Return the bundle with legacy fields + the new iife/importmap/bareImports.
             const result: BundleResult = {
                 modules,
                 entry,
                 durationMs: performance.now() - start,
+                iife: wrap.code,
+                importmap: wrap.importmap,
+                bareImports,
             };
 
             this.latestBundle = result;
@@ -164,11 +173,6 @@ export class BrowserMetro {
         return this.esmUrl;
     }
 
-    private isSourceFile(filePath: string): boolean {
-        const lower = filePath.toLowerCase();
-        return SUPPORTED_EXTENSIONS.some((ext) => lower.endsWith(ext));
-    }
-
     private publish(result: BundleResult): void {
         for (const cb of this.updateListeners) {
             try {
@@ -185,21 +189,4 @@ export class BrowserMetro {
             }
         }
     }
-}
-
-function normalizeRelative(filePath: string): string {
-    return filePath.startsWith('/') ? filePath.slice(1) : filePath;
-}
-
-function extractBareImports(source: string): string[] {
-    const out = new Set<string>();
-    let m: RegExpExecArray | null;
-    BARE_IMPORT_RE.lastIndex = 0;
-    while ((m = BARE_IMPORT_RE.exec(source)) !== null) {
-        const spec = m[1];
-        if (spec && !spec.startsWith('.') && !spec.startsWith('/')) {
-            out.add(spec);
-        }
-    }
-    return Array.from(out);
 }

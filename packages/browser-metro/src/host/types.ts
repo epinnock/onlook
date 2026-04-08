@@ -51,6 +51,12 @@ export interface BundleResult {
     entry: string;
     /** Total transpile time in milliseconds. */
     durationMs: number;
+    /** Self-contained IIFE that the iframe can <script>-tag (TR2.4). */
+    iife: string;
+    /** Importmap JSON for the iframe HTML shell. */
+    importmap: string;
+    /** All unique bare imports from across the bundle (used by SW). */
+    bareImports: string[];
 }
 
 export class BundleError extends Error {
