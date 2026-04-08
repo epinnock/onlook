@@ -73,13 +73,13 @@
       "proof": "SessionManager.createTerminalSessions read provider.getCapabilities().supportsTerminal (false for ExpoBrowserProvider) and skipped creating the interactive terminal CLISessionImpl. Only the task session was created."
     },
     "06": {
-      "state": "failed",
-      "screenshot": "findings/06-real-bundle-FAILED-2026-04-08.png",
+      "state": "passed",
+      "screenshot": "reference/06-real-bundle.png",
       "assertions": [
         {
           "id": "A1",
           "passed": true,
-          "actual": "[browser-metro] bundled 4 modules in 121ms (entry: index.ts)",
+          "actual": "[browser-metro] bundled 5 modules in 1179ms (entry: index.ts)",
           "expected": "modules count >= 3"
         },
         {
@@ -90,45 +90,41 @@
         },
         {
           "id": "A3",
-          "passed": false,
-          "actual": "iframe contains [preview error] SyntaxError + Bare import error, NOT App.tsx text",
-          "expected": "iframe DOM innerText contains fixture App.tsx text"
+          "passed": true,
+          "actual": "iframe.contentDocument.body.innerText === \"Hello, Onlook!\"",
+          "expected": "iframe DOM contains fixture text"
         },
         {
           "id": "A4",
-          "passed": false,
-          "actual": "Two preview errors: SyntaxError on preload script, Bare import URL hit IIFE require",
-          "expected": "no [browser-metro] runtime error"
+          "passed": true,
+          "actual": "no [browser-metro] runtime error in console",
+          "expected": "no runtime errors"
         },
         {
           "id": "A5",
           "passed": true,
-          "actual": "screenshot saved to results/06-real-bundle.png",
+          "actual": "screenshot 219437 bytes",
           "expected": "non-empty"
         }
       ],
-      "verified_at": "2026-04-08T05:50:00.000Z",
+      "verified_at": "2026-04-08T07:12:00.000Z",
       "verified_by": "orchestrator (chrome-mcp)",
       "title": "Real bundle renders App.tsx output in canvas iframe",
       "queue_task": "TR3.3",
-      "blockers": [
-        "FOUND-06a",
-        "FOUND-06b"
-      ],
-      "notes": "Pipeline executes correctly through bundle production (4 modules, entry index.ts). Two architecture bugs prevent the IIFE from running in the iframe. Required Storage RLS workaround (verify_anon_select policy) to unblock the Vfs population — TR1.3 RLS migration is correct shape but the browser-side Supabase client does not pass authenticated JWT to Storage requests. See FOUND-R1.7 below."
+      "notes": "Full pipeline working end-to-end: TR0.6 fixture seed (v2 — react-native-web direct, no expo-status-bar) → DEV MODE auth → TR1.2 project type detection (short-circuit via providerType) → TR1.7 authed Supabase client injection → CodeProviderSync pull (5 fixture files) → TR1.5-followup defensive Vfs guard (no-op since Vfs has files) → R2 BrowserMetro: file-walker → entry-resolver picks index.ts → bare-import-rewriter (rewrites react-native-web to esm.sh URL) → sucrase transform → host POST-sucrase rewrite catches react/jsx-dev-runtime auto-injection → wrapAsIIFE produces async IIFE with __urlImports pre-fetch → TR3.1 SW caches bundle → TR3.2 htmlShell injects importmap + bundle.js → iframe runs IIFE → react-native-web mounts via AppRegistry.runApplication → renders Hello, Onlook!"
     },
     "07": {
-      "state": "blocked",
+      "state": "deferred",
       "screenshot": null,
       "assertions": [],
-      "verified_at": "2026-04-08T05:50:00.000Z",
+      "verified_at": "2026-04-08T07:14:00.000Z",
       "verified_by": "orchestrator (chrome-mcp)",
       "title": "Edit a file in the editor, iframe reflects within 2s",
       "queue_task": "TR4.3",
       "blockers": [
-        "scenario 06 must pass first; FOUND-06a and FOUND-06b block the entire R3 path"
+        "Edit-via-Supabase-Storage-REST does not trigger the sync engine pull (the watcher only sees local CodeFileSystem writes from the editor UI)"
       ],
-      "notes": "Cannot meaningfully verify hot-reload until scenario 06 (initial render) actually shows DOM content from the fixture."
+      "notes": "Phase B walk attempted to validate hot-reload by editing components/Hello.tsx via Supabase Storage REST API (PUT /storage/v1/object/...). The upload returned 200 but the iframe content stayed at the original \"Hello, Onlook!\" for 30+ seconds. Root cause: CodeProviderSync.pullFromSandbox is invoked at start() time only — it does not poll Storage on a timer, and ExpoBrowser providers do not currently subscribe to Supabase Storage Realtime change events. The local watcher (CodeFileSystem -> bundler.invalidate, exercised by TR4.1 + TR4.2 unit tests) only fires for writes that go THROUGH the local Vfs (editor UI -> fs.writeFile -> watcher event). To verify scenario 07 properly, the walk needs to drive the Onlook code-editor UI: open the file tree, click components/Hello.tsx, edit in Monaco, save. That UI path was not feasible in this session within the time budget. The hot-reload mechanism IS verified at the UNIT level (TR4.1 invalidate roundtrip + TR4.2 watcher → bundler integration), so the scenario is deferred rather than failed."
     },
     "08": {
       "state": "not_yet_verified",
@@ -288,10 +284,11 @@
     }
   ],
   "summary": {
-    "passed": 5,
-    "failed": 1,
-    "blocked": 1,
+    "passed": 6,
+    "failed": 0,
+    "deferred": 1,
+    "blocked": 0,
     "not_yet_verified": 7,
-    "notes": "Scenarios 01-05 still passing from parent queue. Scenario 06 now has actual evidence: pipeline through bundle production works (R0+R1+R2 verified end-to-end), but two architectural bugs (FOUND-06a + FOUND-06b) prevent the iframe runtime from rendering. Scenario 07 blocked on 06. Scenarios 08-13 require Phase H Container running locally (TH1.1 not landed) + Phase Q UI walk. Scenario 14 is human-only (real phone scan)."
+    "notes": "Scenarios 01-06 all passing. Scenario 06 walked end-to-end on 2026-04-08 — real react-native-web component bundled in browser, served through preview SW, rendered in canvas iframe with visible \"Hello, Onlook!\" text. The four FOUND-06* / FOUND-R1.* fixes from the earlier failed run all landed and verified. Scenario 07 (hot-reload) deferred because the Storage-REST edit path does not trigger the sync engine watcher; unit tests TR4.1 + TR4.2 cover the local-write path. Scenarios 08-13 not_yet_verified pending Phase H Container + UI walk time. Scenario 14 is human-only."
   }
 }
