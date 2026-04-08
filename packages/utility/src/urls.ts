@@ -69,9 +69,19 @@ export const getPublishUrls = (url: string) => {
     return [url, `www.${url}`];
 };
 
-export const inferPageFromUrl = (url: string): { name: string; path: string } => {
+export const inferPageFromUrl = (
+    url: string | null | undefined,
+): { name: string; path: string } => {
+    if (typeof url !== 'string' || url.length === 0) {
+        return { name: 'Unknown Page', path: '/' };
+    }
+
     try {
-        const urlObj = new URL(url);
+        // Relative URLs (e.g. service-worker preview URLs like `/preview/<branchId>/<frameId>/`)
+        // need a base so `new URL` doesn't throw. Absolute URLs ignore the base argument.
+        const urlObj = url.startsWith('/')
+            ? new URL(url, 'http://localhost')
+            : new URL(url);
         const pathname = urlObj.pathname;
 
         if (pathname === '/' || pathname === '') {
