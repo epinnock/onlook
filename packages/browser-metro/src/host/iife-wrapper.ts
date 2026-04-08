@@ -39,13 +39,22 @@ export interface WrapOptions {
     /** All transpiled modules. */
     modules: readonly IIFEModule[];
     /**
-     * Bare imports the rewriter produced. Accepts either the original bare
-     * specifiers (e.g. 'react', 'react-native-web') or the fully-rewritten
-     * URLs (e.g. 'https://esm.sh/react?bundle&external=...'). URL entries
-     * are pre-fetched via dynamic `import()` at IIFE startup; bare-name
-     * entries are still used to build the legacy `<script type="importmap">`.
+     * Bare specifier names the source referenced (e.g. 'react',
+     * 'react-native-web'). Used to build the legacy
+     * `<script type="importmap">` block. Accepts URL entries too for
+     * backwards compatibility, but they will be filtered out before going
+     * into the importmap.
      */
     bareImports?: readonly string[];
+    /**
+     * Fully-rewritten URLs the produced module bodies reference (e.g.
+     * `https://esm.sh/react-native-web?bundle&external=...`). The wrapper
+     * pre-fetches each URL via dynamic `import()` at IIFE startup so the
+     * synchronous `require()` shim can resolve them. If omitted, the
+     * wrapper falls back to extracting URL specs from `bareImports`
+     * (backwards-compat with the original TR2.4 contract).
+     */
+    bareImportUrls?: readonly string[];
     /** ESM CDN base URL (used to build the importmap entries). */
     esmUrl?: string;
 }
@@ -69,7 +78,13 @@ const EXTENSION_FALLBACKS = ['.js', '.tsx', '.ts', '.jsx', '.mjs', '.cjs'] as co
  *   4. Kicks off execution with `require(entry)`.
  */
 export function wrapAsIIFE(opts: WrapOptions): WrapResult {
-    const { entry, modules, bareImports = [], esmUrl = DEFAULT_ESM_URL } = opts;
+    const {
+        entry,
+        modules,
+        bareImports = [],
+        bareImportUrls,
+        esmUrl = DEFAULT_ESM_URL,
+    } = opts;
 
     if (!modules.some((m) => m.path === entry)) {
         throw new Error(`wrapAsIIFE: entry '${entry}' is not present in modules`);
@@ -79,10 +94,19 @@ export function wrapAsIIFE(opts: WrapOptions): WrapResult {
         .map((m) => `  ${JSON.stringify(m.path)}: function(module, exports, require) {\n${m.code}\n}`)
         .join(',\n');
 
-    // Collect unique URL specs from bareImports. The rewriter may supply a
-    // mix of bare names ('react') and full URLs; only URLs need pre-fetch.
+    // Collect unique URL specs to pre-fetch. Prefer the explicit
+    // `bareImportUrls` list (the URL forms produced by TR2.3's rewriter).
+    // Fall back to filtering URL entries out of `bareImports` for the
+    // backwards-compat path used by older callers + tests that pass URLs
+    // directly via the legacy `bareImports` field.
     const urlSpecs = Array.from(
-        new Set(bareImports.filter((s) => s.startsWith('http://') || s.startsWith('https://'))),
+        new Set(
+            bareImportUrls && bareImportUrls.length > 0
+                ? bareImportUrls
+                : bareImports.filter(
+                      (s) => s.startsWith('http://') || s.startsWith('https://'),
+                  ),
+        ),
     );
     const urlImportsLiteral = JSON.stringify(urlSpecs);
     const entryLiteral = JSON.stringify('./' + entry);

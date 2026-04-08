@@ -76,6 +76,14 @@ export interface RewriteResult {
     code: string;
     /** Set of unique bare specifiers that were rewritten (de-aliased — original names). */
     bareImports: string[];
+    /**
+     * Set of fully-rewritten URLs the produced `code` references. These are
+     * the strings the IIFE wrapper needs to dynamic-`import()` at startup so
+     * the runtime require shim can resolve them synchronously. Distinct from
+     * `bareImports` (which are the original names) — this list contains the
+     * actual URLs after alias substitution + esmUrl prefixing + query suffix.
+     */
+    bareImportUrls: string[];
 }
 
 /**
@@ -89,6 +97,7 @@ export function rewriteBareImports(source: string, opts: RewriteOptions): Rewrit
     const query = buildQuery(external);
 
     const seen = new Set<string>();
+    const seenUrls = new Set<string>();
     // Reset lastIndex defensively — IMPORT_RE is module-scoped so a previous
     // call could have left it in a partial-match state.
     IMPORT_RE.lastIndex = 0;
@@ -100,6 +109,7 @@ export function rewriteBareImports(source: string, opts: RewriteOptions): Rewrit
         seen.add(spec);
         const aliased = aliases[spec] ?? spec;
         const rewritten = `${baseUrl}/${aliased}${query}`;
+        seenUrls.add(rewritten);
         // Replace just the specifier; preserve everything before/after the
         // opening quote to keep `import X from`, `import(`, etc. intact.
         const quoteIdx = match.lastIndexOf(openQuote + spec + openQuote);
@@ -119,6 +129,7 @@ export function rewriteBareImports(source: string, opts: RewriteOptions): Rewrit
     return {
         code,
         bareImports: Array.from(seen),
+        bareImportUrls: Array.from(seenUrls),
     };
 }
 

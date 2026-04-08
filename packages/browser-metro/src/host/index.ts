@@ -83,10 +83,11 @@ export class BrowserMetro {
             // 2. Resolve the entry from the walked paths.
             const entry = resolveEntry({ paths: walked.map((f) => f.path) });
 
-            // 3 + 4. Rewrite bare imports, transpile, collect deduped bares.
+            // 3 + 4. Rewrite bare imports, transpile, collect deduped bares + URLs.
             const modules: Record<string, BundleModule> = {};
             const iifeModules: IIFEModule[] = [];
             const allBares = new Set<string>();
+            const allBareUrls = new Set<string>();
 
             for (const file of walked) {
                 try {
@@ -95,6 +96,9 @@ export class BrowserMetro {
                     });
                     for (const spec of rewritten.bareImports) {
                         allBares.add(spec);
+                    }
+                    for (const url of rewritten.bareImportUrls) {
+                        allBareUrls.add(url);
                     }
                     const transformed = transform(rewritten.code, {
                         transforms: ['jsx', 'typescript', 'imports'],
@@ -118,11 +122,15 @@ export class BrowserMetro {
             }
 
             // 5. Wrap the module map in a self-contained IIFE.
+            // Pass bare names + URL forms separately so the wrapper builds
+            // the importmap from names and the pre-fetch list from URLs.
             const bareImports = Array.from(allBares);
+            const bareImportUrls = Array.from(allBareUrls);
             const wrap = wrapAsIIFE({
                 entry,
                 modules: iifeModules,
                 bareImports,
+                bareImportUrls,
                 esmUrl: this.esmUrl,
             });
 
