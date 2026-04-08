@@ -26,18 +26,29 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# npm config — survive flaky network during cold image builds
+RUN npm config set fetch-retries 5 \
+    && npm config set fetch-retry-mintimeout 60000 \
+    && npm config set fetch-retry-maxtimeout 300000 \
+    && npm config set fetch-timeout 600000
+
 # Pre-install Expo + @expo/cli globally so per-build cost is just Metro.
 # Pinned exact versions — no `latest`, no `~`.
-RUN npm install -g expo@${EXPO_VERSION} \
-    && npm install -g @expo/cli@${EXPO_CLI_VERSION} \
+# Single combined install so npm dedupes the dependency tree on one resolve.
+RUN npm install -g \
+        expo@${EXPO_VERSION} \
+        @expo/cli@${EXPO_CLI_VERSION} \
     && npm cache clean --force
 
 # Pre-install hermesc (the Hermes compiler) — ships with react-native@0.81+
 # under node_modules/react-native/sdks/hermesc/linux64-bin/hermesc.
 # Mirror it to /usr/local/bin so build.sh can call `hermes` directly.
+# react-native install: ~150 MB; the only reason it's here is the Hermes
+# binary, so we delete the rest after copying.
 RUN mkdir -p /tmp/hermes-stage && cd /tmp/hermes-stage \
     && npm init -y \
-    && npm install react-native@${REACT_NATIVE_VERSION} --no-save \
+    && npm install --no-audit --no-fund --no-progress \
+        react-native@${REACT_NATIVE_VERSION} \
     && cp node_modules/react-native/sdks/hermesc/linux64-bin/hermesc /usr/local/bin/hermes \
     && chmod +x /usr/local/bin/hermes \
     && cd / && rm -rf /tmp/hermes-stage \
