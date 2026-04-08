@@ -35,6 +35,11 @@ class TestableSupabaseStorageAdapter extends SupabaseStorageAdapter {
         // widening the production surface area.
         return (this as unknown as { toKey(p: string): string }).toKey(logicalPath);
     }
+
+    publicFromKey(key: string): string {
+        // fromKey is private — same trick as publicToKey.
+        return (this as unknown as { fromKey(k: string): string }).fromKey(key);
+    }
 }
 
 function makeAdapter(): TestableSupabaseStorageAdapter {
@@ -78,5 +83,47 @@ describe('SupabaseStorageAdapter.toKey', () => {
 
     it("maps './foo/bar' to ${prefix}/foo/bar", () => {
         expect(adapter.publicToKey('./foo/bar')).toBe(`${PREFIX}/foo/bar`);
+    });
+});
+
+describe('SupabaseStorageAdapter.fromKey', () => {
+    const adapter = makeAdapter();
+
+    it("maps the bare prefix to '' (symmetric inverse of toKey('.'))", () => {
+        // Branch root: toKey('.') returns ${PREFIX}, so fromKey(${PREFIX})
+        // must return '' to close the loop.
+        expect(adapter.publicFromKey(PREFIX)).toBe('');
+    });
+
+    it("maps '${prefix}/' (trailing slash from directory listings) to ''", () => {
+        expect(adapter.publicFromKey(`${PREFIX}/`)).toBe('');
+    });
+
+    it("maps '${prefix}/foo' to 'foo' (regression — normal single segment)", () => {
+        expect(adapter.publicFromKey(`${PREFIX}/foo`)).toBe('foo');
+    });
+
+    it("maps '${prefix}/foo/bar' to 'foo/bar' (regression — nested path)", () => {
+        expect(adapter.publicFromKey(`${PREFIX}/foo/bar`)).toBe('foo/bar');
+    });
+
+    it("maps '${prefix}//foo' to 'foo' (duplicate slash after prefix)", () => {
+        expect(adapter.publicFromKey(`${PREFIX}//foo`)).toBe('foo');
+    });
+
+    it("maps '${prefix}/foo/' to 'foo' (trailing slash on nested key)", () => {
+        expect(adapter.publicFromKey(`${PREFIX}/foo/`)).toBe('foo');
+    });
+
+    it("passes through keys that don't match the prefix", () => {
+        expect(adapter.publicFromKey('unrelated/key')).toBe('unrelated/key');
+    });
+
+    it("round-trips fromKey(toKey('.')) to ''", () => {
+        expect(adapter.publicFromKey(adapter.publicToKey('.'))).toBe('');
+    });
+
+    it("round-trips fromKey(toKey('foo/bar')) to 'foo/bar'", () => {
+        expect(adapter.publicFromKey(adapter.publicToKey('foo/bar'))).toBe('foo/bar');
     });
 });

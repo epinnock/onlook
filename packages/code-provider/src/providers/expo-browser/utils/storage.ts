@@ -126,10 +126,27 @@ export class SupabaseStorageAdapter implements StorageAdapter {
         return trimmed.length === 0 ? this.prefix : `${this.prefix}/${trimmed}`;
     }
 
-    /** Strip the per-branch prefix from a bucket key. */
+    /**
+     * Strip the per-branch prefix from a bucket key to recover the logical
+     * path. Symmetric inverse of toKey, with a few defensive cases:
+     *   - `${prefix}`           -> ''   (bare prefix, branch root — mirrors toKey('.'))
+     *   - `${prefix}/`          -> ''   (trailing slash from directory listings)
+     *   - `${prefix}//foo`      -> 'foo' (duplicate slash after prefix)
+     *   - `${prefix}/foo/bar/`  -> 'foo/bar' (trailing slash on nested key)
+     *   - 'unrelated/key'       -> 'unrelated/key' (no match — passthrough)
+     */
     private fromKey(key: string): string {
+        if (key === this.prefix) {
+            return '';
+        }
         if (key.startsWith(`${this.prefix}/`)) {
-            return key.slice(this.prefix.length + 1);
+            // Drop the prefix + separator, then collapse any leading slashes
+            // (handles `${prefix}//foo`) and any trailing slash (handles
+            // directory-listing keys like `${prefix}/foo/`).
+            return key
+                .slice(this.prefix.length + 1)
+                .replace(/^\/+/, '')
+                .replace(/\/+$/, '');
         }
         return key;
     }
