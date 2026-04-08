@@ -130,6 +130,14 @@ JOIN branches b ON b.project_id = p.id
 WHERE p.id = '${PROJECT_ID}';
 SQL
 
+echo "[setup] seeding fixture files into Supabase Storage..."
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../../.." && pwd)"
+bun run "${REPO_ROOT}/scripts/seed-expo-fixture.ts" || {
+    echo "[setup] WARN: fixture seed failed (script error or Storage unreachable)"
+    exit 1
+}
+
 echo
 echo "[setup] done. Test data ready."
 echo "        Project URL: http://127.0.0.1:3001/project/${PROJECT_ID}"
