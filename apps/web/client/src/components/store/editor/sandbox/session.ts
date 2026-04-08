@@ -1,10 +1,16 @@
 import { api } from '@/trpc/client';
-import { createClient as createSupabaseBrowserClient } from '@/utils/supabase/client';
 import { CodeProvider, createCodeProviderClient, type Provider } from '@onlook/code-provider';
 import type { Branch } from '@onlook/models';
 import { makeAutoObservable } from 'mobx';
 import type { ErrorManager } from '../error';
 import { CLISessionImpl, CLISessionType, type CLISession, type TerminalSession } from './terminal';
+
+// Lazy-loaded to keep test imports clean — `@/utils/supabase/client` pulls
+// in `@/env` which validates env vars at import time and breaks bun:test
+// runs that don't have the full env. The actual import happens inside
+// the ExpoBrowser branch of the start() method, only at runtime in the
+// browser.
+type SupabaseClientFactory = () => unknown;
 
 export class SessionManager {
     provider: Provider | null = null;
@@ -80,7 +86,9 @@ export class SessionManager {
                 // warning is the symptom of the broken path.
                 const projectId = (this.branch as { projectId?: string } | undefined)?.projectId ?? '';
                 const branchId = (this.branch as { id?: string } | undefined)?.id ?? sandboxId;
-                const supabaseClient = createSupabaseBrowserClient();
+                // Lazy-import to dodge env validation at test time (see top of file)
+                const { createClient: createSupabaseBrowserClient } = await import('@/utils/supabase/client');
+                const supabaseClient = createSupabaseBrowserClient() as unknown as SupabaseClientFactory;
                 provider = await createCodeProviderClient(CodeProvider.ExpoBrowser, {
                     providerOptions: {
                         expoBrowser: {

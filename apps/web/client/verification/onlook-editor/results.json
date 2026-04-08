@@ -129,65 +129,104 @@
     "08": {
       "state": "not_yet_verified",
       "screenshot": null,
-      "assertions": [],
-      "verified_at": null,
-      "verified_by": null,
       "title": "Editor source-tar reaches cf-esm-builder, builder responds with hash",
-      "queue_task": "TH5.1"
+      "queue_task": "TH5.1",
+      "blockers": [
+        "TH1.1 Docker image build is in progress (~15 min cold-build); cf-esm-builder Worker cannot start without it"
+      ],
+      "verification_path": "After dev-builder.sh boots: walk via Chrome MCP → click Preview on device → check usePreviewOnDevice hook status flips through preparing → building → ready, AND tail /tmp/cf-esm-builder-default.log for the POST /build receipt"
     },
     "09": {
       "state": "not_yet_verified",
       "screenshot": null,
-      "assertions": [],
-      "verified_at": null,
-      "verified_by": null,
       "title": "GET /bundle/:hash from cf-esm-cache returns Hermes-magic-header bundle",
-      "queue_task": "TH5.2"
+      "queue_task": "TH5.2",
+      "blockers": [
+        "Depends on scenario 08 producing a real bundleHash"
+      ],
+      "verification_path": "curl -s http://127.0.0.1:8789/bundle/<hash> | xxd | head -1 → assert first 4 bytes are c6 1f bc 03"
     },
     "10": {
       "state": "not_yet_verified",
       "screenshot": null,
-      "assertions": [],
-      "verified_at": null,
-      "verified_by": null,
       "title": "Manifest URL from local relay returns valid Expo manifest",
-      "queue_task": "TQ4.1"
+      "queue_task": "TQ4.1",
+      "blockers": [
+        "Depends on scenarios 08 + 09; needs both dev-builder.sh and dev-relay.sh running"
+      ],
+      "verification_path": "curl -s http://127.0.0.1:8787/manifest/<hash> | jq → assert id === bundleHash, launchAsset.url present, all 4 Expo headers"
     },
     "11": {
-      "state": "not_yet_verified",
-      "screenshot": null,
-      "assertions": [],
-      "verified_at": null,
-      "verified_by": null,
+      "state": "passed_partial",
+      "screenshot": "results/11-qr-modal.png",
+      "assertions": [
+        {
+          "id": "A1",
+          "passed": true,
+          "actual": "Preview on device button rendered in top toolbar (uid=15_23)",
+          "expected": "button visible for ExpoBrowser branches"
+        },
+        {
+          "id": "A2",
+          "passed": true,
+          "actual": "Click opened Radix Dialog with title \"Preview on device\"",
+          "expected": "QrModal opens"
+        },
+        {
+          "id": "A3",
+          "passed": true,
+          "actual": "Modal renders with status.kind === error (correct fallback path)",
+          "expected": "modal handles missing builderBaseUrl gracefully"
+        },
+        {
+          "id": "A4",
+          "passed": true,
+          "actual": "Retry button rendered in error state",
+          "expected": "user can recover"
+        },
+        {
+          "id": "A5",
+          "passed": false,
+          "actual": "QR SVG not rendered (needs Container running to produce a real bundleHash)",
+          "expected": "QR SVG with manifest URL",
+          "note": "Deferred to scenario 11 follow-up after Wave H1 Container build completes"
+        }
+      ],
+      "verified_at": "2026-04-08T08:05:00.000Z",
+      "verified_by": "orchestrator (chrome-mcp)",
       "title": "Preview-on-device button opens QR modal with valid URL",
-      "queue_task": "TQ3.4"
+      "queue_task": "TQ3.4",
+      "notes": "Modal-open path fully verified end-to-end: TQ3.4 button → TQ3.2 hook → TQ3.1 QrModal component. The hook correctly falls into error state because builderBaseUrl env is unset (cf-esm-builder Worker not running at walk time — TH1 Container Docker image is being built in background). The QR-with-real-URL part of this scenario is gated on TH1.1 docker build completing + scripts/dev-builder.sh starting cf-esm-builder + NEXT_PUBLIC_CF_ESM_BUILDER_URL being set in apps/web/client/.env.local."
     },
     "12": {
       "state": "not_yet_verified",
       "screenshot": null,
-      "assertions": [],
-      "verified_at": null,
-      "verified_by": null,
-      "title": "Hermes magic header (0xc6 0x1f 0xbc 0x03) on bundle URL",
-      "queue_task": "TH5.3"
+      "title": "Hermes magic header check on bundle URL",
+      "queue_task": "TH5.3",
+      "blockers": [
+        "Same as scenario 09 — needs Container running to produce a real Hermes bundle"
+      ],
+      "verification_path": "Same xxd check as scenario 09; can be folded into 09 in the next walk"
     },
     "13": {
       "state": "not_yet_verified",
       "screenshot": null,
-      "assertions": [],
-      "verified_at": null,
-      "verified_by": null,
       "title": "Edit a file, new bundleHash within 5s, QR refreshes",
-      "queue_task": "TQ4.2"
+      "queue_task": "TQ4.2",
+      "blockers": [
+        "Depends on Container + UI Monaco edit path"
+      ],
+      "verification_path": "Walk scenario 11 via Chrome MCP → wait for QR → edit App.tsx via the editor textarea (uid 15_47 from latest snapshot) → wait → assert new bundleHash in URL within 5s of edit"
     },
     "14": {
-      "state": "not_yet_verified",
+      "state": "dead_lettered",
       "screenshot": null,
-      "assertions": [],
-      "verified_at": null,
-      "verified_by": null,
       "title": "Manual QR scan with real Expo Go on phone (human-only)",
-      "queue_task": "TH6.1"
+      "queue_task": "TH6.1",
+      "blockers": [
+        "Human only — must be marked passed by a human, not an agent"
+      ],
+      "verification_path": "After scenarios 10+11 pass: scan the QR with real Expo Go on a phone, observe Hello, Onlook! rendered native"
     }
   },
   "not_yet_verified_in_this_run": [
@@ -285,10 +324,11 @@
   ],
   "summary": {
     "passed": 6,
+    "passed_partial": 1,
     "failed": 0,
     "deferred": 1,
-    "blocked": 0,
-    "not_yet_verified": 7,
-    "notes": "Scenarios 01-06 all passing. Scenario 06 walked end-to-end on 2026-04-08 — real react-native-web component bundled in browser, served through preview SW, rendered in canvas iframe with visible \"Hello, Onlook!\" text. The four FOUND-06* / FOUND-R1.* fixes from the earlier failed run all landed and verified. Scenario 07 (hot-reload) deferred because the Storage-REST edit path does not trigger the sync engine watcher; unit tests TR4.1 + TR4.2 cover the local-write path. Scenarios 08-13 not_yet_verified pending Phase H Container + UI walk time. Scenario 14 is human-only."
+    "not_yet_verified": 5,
+    "dead_lettered": 1,
+    "notes": "Scenarios 01-06 passing fully (Phase R verified end-to-end with screenshot evidence). Scenario 11 passes the modal-open path; the QR-render-with-real-URL part is gated on Container build completing. Scenarios 08-10 + 12-13 are not_yet_verified — they all chain off the Container being up. The Container Docker image build (Wave H1: TH1.1 + TH1.2 + TH1.4 + TH1.5 all landed in this push) is in progress at session end. Scenario 07 deferred (Storage REST does not trigger sync watcher; needs UI Monaco edit). Scenario 14 dead-lettered (human-only)."
   }
 }
