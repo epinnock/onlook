@@ -13,6 +13,12 @@
  * owns the Container instance.
  */
 import { DurableObject } from 'cloudflare:workers';
+import { handleBuild } from './routes/build';
+import { handleBundle } from './routes/bundle';
+import { handleHealth } from './routes/health';
+import { sha256OfTar } from './lib/hash';
+import { r2GetBundle, r2PutBundle } from './lib/r2';
+import { BuildSession } from './do/build-session';
 
 export interface Env {
     ESM_BUILDER: DurableObjectNamespace<EsmBuilder>;
