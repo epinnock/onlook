@@ -69,6 +69,87 @@
                 "Visible bottom-panel tabs are: 'Preview' and 'New Chat' only"
             ],
             "proof": "SessionManager.createTerminalSessions read provider.getCapabilities().supportsTerminal (false for ExpoBrowserProvider) and skipped creating the interactive terminal CLISessionImpl. Only the task session was created."
+        },
+        "06": {
+            "state": "not_yet_verified",
+            "screenshot": null,
+            "assertions": [],
+            "verified_at": null,
+            "verified_by": null,
+            "title": "Real bundle renders App.tsx output in canvas iframe",
+            "queue_task": "TR3.3"
+        },
+        "07": {
+            "state": "not_yet_verified",
+            "screenshot": null,
+            "assertions": [],
+            "verified_at": null,
+            "verified_by": null,
+            "title": "Edit a file in the editor, iframe reflects within 2s",
+            "queue_task": "TR4.3"
+        },
+        "08": {
+            "state": "not_yet_verified",
+            "screenshot": null,
+            "assertions": [],
+            "verified_at": null,
+            "verified_by": null,
+            "title": "Editor source-tar reaches cf-esm-builder, builder responds with hash",
+            "queue_task": "TH5.1"
+        },
+        "09": {
+            "state": "not_yet_verified",
+            "screenshot": null,
+            "assertions": [],
+            "verified_at": null,
+            "verified_by": null,
+            "title": "GET /bundle/:hash from cf-esm-cache returns Hermes-magic-header bundle",
+            "queue_task": "TH5.2"
+        },
+        "10": {
+            "state": "not_yet_verified",
+            "screenshot": null,
+            "assertions": [],
+            "verified_at": null,
+            "verified_by": null,
+            "title": "Manifest URL from local relay returns valid Expo manifest",
+            "queue_task": "TQ4.1"
+        },
+        "11": {
+            "state": "not_yet_verified",
+            "screenshot": null,
+            "assertions": [],
+            "verified_at": null,
+            "verified_by": null,
+            "title": "Preview-on-device button opens QR modal with valid URL",
+            "queue_task": "TQ3.4"
+        },
+        "12": {
+            "state": "not_yet_verified",
+            "screenshot": null,
+            "assertions": [],
+            "verified_at": null,
+            "verified_by": null,
+            "title": "Hermes magic header (0xc6 0x1f 0xbc 0x03) on bundle URL",
+            "queue_task": "TH5.3"
+        },
+        "13": {
+            "state": "not_yet_verified",
+            "screenshot": null,
+            "assertions": [],
+            "verified_at": null,
+            "verified_by": null,
+            "title": "Edit a file, new bundleHash within 5s, QR refreshes",
+            "queue_task": "TQ4.2"
+        },
+        "14": {
+            "state": "not_yet_verified",
+            "screenshot": null,
+            "assertions": [],
+            "verified_at": null,
+            "verified_by": null,
+            "title": "Manual QR scan with real Expo Go on phone (human-only)",
+            "queue_task": "TH6.1"
         }
     },
     "not_yet_verified_in_this_run": [
@@ -131,6 +212,7 @@
         "total_scenarios_attempted": 8,
         "passed": 5,
         "deferred_to_follow_up": 3,
+        "not_yet_verified": 9,
         "issues_found": 5,
         "issues_fixed_during_run": 4
     }
