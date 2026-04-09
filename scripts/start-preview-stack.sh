@@ -170,10 +170,20 @@ LAN_IP="${LAN_IP}" PORT="${builder_port}" STORE_DIR="${store_dir}" IMAGE="${imag
 builder_pid=$!
 disown "${builder_pid}" 2>/dev/null || true
 
-echo "[start-preview-stack] starting local-relay-shim on :${relay_port}..."
+echo "[start-preview-stack] starting local-relay-shim.py on :${relay_port}..."
+# IMPORTANT: We launch the PYTHON shim, not the Bun shim. Bun.serve
+# normalizes well-known HTTP/1.1 headers to PascalCase (Cache-Control,
+# Content-Type) which crashes iOS Expo Go SDK 54's NSURLSession response
+# handler with EXC_BREAKPOINT (SIGTRAP). Real `expo start` and Python's
+# http.server both preserve lowercase header names verbatim, which is
+# what Expo Go's parser expects. The Bun shim (local-relay-shim.ts) is
+# kept in the tree for reference but should NOT be used for phone tests.
+# Production runs through cf-expo-relay on Cloudflare Workers, which
+# serves over HTTP/2 — that protocol mandates lowercase header names per
+# RFC 7540 §8.1.2, so the case bug is auto-fixed in production.
 LAN_IP="${LAN_IP}" PORT="${relay_port}" STORE_DIR="${store_dir}" \
     CF_ESM_CACHE_URL="http://${LAN_IP}:${builder_port}" \
-    nohup bun "${repo_root}/scripts/local-relay-shim.ts" \
+    nohup python3 "${repo_root}/scripts/local-relay-shim.py" \
         >/tmp/local-relay-shim.log 2>&1 &
 relay_pid=$!
 disown "${relay_pid}" 2>/dev/null || true

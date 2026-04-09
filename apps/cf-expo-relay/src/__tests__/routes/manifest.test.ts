@@ -1,7 +1,7 @@
 /// <reference types="bun" />
 import { describe, expect, test } from 'bun:test';
 
-import type { ExpoManifest, ManifestFields } from '../../manifest-builder';
+import { bundleHashToUuidV4, type ExpoManifest, type ManifestFields } from '../../manifest-builder';
 import {
     handleManifest,
     resolvePlatform,
@@ -98,6 +98,23 @@ function envFor(binding: ServiceBinding): ManifestRouteEnv {
     return { ESM_CACHE: binding, ESM_CACHE_URL: CACHE_URL };
 }
 
+/**
+ * Extract the JSON-serialized manifest from a multipart/mixed response.
+ * The relay wraps the manifest in a `--<boundary>...form-data;
+ * name="manifest"...{json}...--<boundary>--` envelope; this helper grabs
+ * the manifest part and parses it.
+ */
+async function extractManifestFromMultipart(response: Response): Promise<ExpoManifest> {
+    const text = await response.text();
+    const m = text.match(/name="manifest"[\r\n]+Content-Type:[^\r\n]+\r?\n\r?\n([\s\S]*?)\r?\n--/);
+    if (!m) {
+        throw new Error(
+            `multipart parse failed; first 200 bytes:\n${text.slice(0, 200)}`,
+        );
+    }
+    return JSON.parse(m[1]!) as ExpoManifest;
+}
+
 describe('handleManifest (TQ1.2)', () => {
     test('rejects malformed bundleHash with 400', async () => {
         const { binding, calls } = makeStubBinding({});
@@ -162,18 +179,18 @@ describe('handleManifest (TQ1.2)', () => {
         expect(response.status).toBe(200);
 
         // All four required Expo headers from TQ0.2.
-        expect(response.headers.get('Content-Type')).toBe('application/json');
-        expect(response.headers.get('Cache-Control')).toBe('no-cache, no-store');
-        expect(response.headers.get('expo-protocol-version')).toBe('1');
+        expect(response.headers.get('Content-Type')).toContain('multipart/mixed');
+        expect(response.headers.get('Cache-Control')).toBe('private, max-age=0');
+        expect(response.headers.get('expo-protocol-version')).toBe('0');
         expect(response.headers.get('expo-sfv-version')).toBe('0');
 
-        const manifest = (await response.json()) as ExpoManifest;
-        expect(manifest.id).toBe(VALID_HASH);
+        const manifest = await extractManifestFromMultipart(response);
+        expect(manifest.id).toBe(bundleHashToUuidV4(VALID_HASH));
         expect(manifest.createdAt).toBe(FIXED_BUILT_AT);
         expect(manifest.runtimeVersion).toBe('1.0.0');
-        expect(manifest.launchAsset.url).toBe(
-            `${CACHE_URL}/bundle/${VALID_HASH}/index.android.bundle`,
-        );
+        // launchAsset.url uses Metro convention with hash in path
+        expect(manifest.launchAsset.url).toContain(`${VALID_HASH}.android.bundle`);
+        expect(manifest.launchAsset.url).toContain('platform=android');
         expect(manifest.assets).toHaveLength(1);
         expect(manifest.assets[0]?.url).toBe(
             `${CACHE_URL}/bundle/${VALID_HASH}/asset-key-1.png`,
@@ -194,11 +211,11 @@ describe('handleManifest (TQ1.2)', () => {
             envFor(binding),
             VALID_HASH,
         );
-        const manifest = (await response.json()) as ExpoManifest;
-        expect(manifest.id).toBe(VALID_HASH);
+        const manifest = await extractManifestFromMultipart(response);
+        expect(manifest.id).toBe(bundleHashToUuidV4(VALID_HASH));
     });
 
-    test("launchAsset.url includes cfEsmCacheUrl + bundleHash", async () => {
+    test("launchAsset.url includes the bundleHash and platform query", async () => {
         const { binding } = makeStubBinding({
             fields: jsonResponse(baseFields()),
             meta: jsonResponse({ builtAt: FIXED_BUILT_AT }),
@@ -208,12 +225,10 @@ describe('handleManifest (TQ1.2)', () => {
             envFor(binding),
             VALID_HASH,
         );
-        const manifest = (await response.json()) as ExpoManifest;
-        expect(manifest.launchAsset.url).toContain(CACHE_URL);
+        const manifest = await extractManifestFromMultipart(response);
         expect(manifest.launchAsset.url).toContain(VALID_HASH);
-        expect(manifest.launchAsset.url).toBe(
-            `${CACHE_URL}/bundle/${VALID_HASH}/index.android.bundle`,
-        );
+        expect(manifest.launchAsset.url).toContain('platform=android');
+        expect(manifest.launchAsset.url).toContain(`${VALID_HASH}.android.bundle`);
     });
 
     test('all four required Expo headers are present', async () => {
@@ -226,9 +241,9 @@ describe('handleManifest (TQ1.2)', () => {
             envFor(binding),
             VALID_HASH,
         );
-        expect(response.headers.get('Content-Type')).toBe('application/json');
-        expect(response.headers.get('Cache-Control')).toBe('no-cache, no-store');
-        expect(response.headers.get('expo-protocol-version')).toBe('1');
+        expect(response.headers.get('Content-Type')).toContain('multipart/mixed');
+        expect(response.headers.get('Cache-Control')).toBe('private, max-age=0');
+        expect(response.headers.get('expo-protocol-version')).toBe('0');
         expect(response.headers.get('expo-sfv-version')).toBe('0');
     });
 
@@ -245,7 +260,7 @@ describe('handleManifest (TQ1.2)', () => {
         );
         const after = Date.now();
         expect(response.status).toBe(200);
-        const manifest = (await response.json()) as ExpoManifest;
+        const manifest = await extractManifestFromMultipart(response);
         const parsed = Date.parse(manifest.createdAt);
         expect(Number.isNaN(parsed)).toBe(false);
         expect(parsed).toBeGreaterThanOrEqual(before);
@@ -265,7 +280,7 @@ describe('handleManifest (TQ1.2)', () => {
         );
         const after = Date.now();
         expect(response.status).toBe(200);
-        const manifest = (await response.json()) as ExpoManifest;
+        const manifest = await extractManifestFromMultipart(response);
         const parsed = Date.parse(manifest.createdAt);
         expect(Number.isNaN(parsed)).toBe(false);
         expect(parsed).toBeGreaterThanOrEqual(before);
@@ -324,7 +339,7 @@ describe('handleManifest (TQ1.2)', () => {
         }
     });
 
-    test('routes launchAsset.url to index.android.bundle when no platform header is present', async () => {
+    test('routes launchAsset.url to android bundle when no platform header is present', async () => {
         const { binding } = makeStubBinding({
             fields: jsonResponse(baseFields()),
             meta: jsonResponse({ builtAt: FIXED_BUILT_AT }),
@@ -334,13 +349,12 @@ describe('handleManifest (TQ1.2)', () => {
             envFor(binding),
             VALID_HASH,
         );
-        const manifest = (await response.json()) as ExpoManifest;
-        expect(manifest.launchAsset.url).toBe(
-            `${CACHE_URL}/bundle/${VALID_HASH}/index.android.bundle`,
-        );
+        const manifest = await extractManifestFromMultipart(response);
+        expect(manifest.launchAsset.url).toContain(`${VALID_HASH}.android.bundle`);
+        expect(manifest.launchAsset.url).toContain('platform=android');
     });
 
-    test('routes launchAsset.url to index.ios.bundle when Expo-Platform header is ios', async () => {
+    test('routes launchAsset.url to ios bundle when Expo-Platform header is ios', async () => {
         const { binding } = makeStubBinding({
             fields: jsonResponse(baseFields()),
             meta: jsonResponse({ builtAt: FIXED_BUILT_AT }),
@@ -350,13 +364,12 @@ describe('handleManifest (TQ1.2)', () => {
             envFor(binding),
             VALID_HASH,
         );
-        const manifest = (await response.json()) as ExpoManifest;
-        expect(manifest.launchAsset.url).toBe(
-            `${CACHE_URL}/bundle/${VALID_HASH}/index.ios.bundle`,
-        );
+        const manifest = await extractManifestFromMultipart(response);
+        expect(manifest.launchAsset.url).toContain(`${VALID_HASH}.ios.bundle`);
+        expect(manifest.launchAsset.url).toContain('platform=ios');
     });
 
-    test('routes launchAsset.url to index.android.bundle when Expo-Platform header is android', async () => {
+    test('routes launchAsset.url to android bundle when Expo-Platform header is android', async () => {
         const { binding } = makeStubBinding({
             fields: jsonResponse(baseFields()),
             meta: jsonResponse({ builtAt: FIXED_BUILT_AT }),
@@ -366,10 +379,9 @@ describe('handleManifest (TQ1.2)', () => {
             envFor(binding),
             VALID_HASH,
         );
-        const manifest = (await response.json()) as ExpoManifest;
-        expect(manifest.launchAsset.url).toBe(
-            `${CACHE_URL}/bundle/${VALID_HASH}/index.android.bundle`,
-        );
+        const manifest = await extractManifestFromMultipart(response);
+        expect(manifest.launchAsset.url).toContain(`${VALID_HASH}.android.bundle`);
+        expect(manifest.launchAsset.url).toContain('platform=android');
     });
 
     test('falls back to ?platform= query string when Expo-Platform header is missing', async () => {
@@ -385,10 +397,8 @@ describe('handleManifest (TQ1.2)', () => {
             envFor(binding),
             VALID_HASH,
         );
-        const manifest = (await response.json()) as ExpoManifest;
-        expect(manifest.launchAsset.url).toBe(
-            `${CACHE_URL}/bundle/${VALID_HASH}/index.ios.bundle`,
-        );
+        const manifest = await extractManifestFromMultipart(response);
+        expect(manifest.launchAsset.url).toContain(`${VALID_HASH}.ios.bundle`);
     });
 
     test('Expo-Platform header takes precedence over ?platform= query string', async () => {
@@ -406,10 +416,8 @@ describe('handleManifest (TQ1.2)', () => {
             envFor(binding),
             VALID_HASH,
         );
-        const manifest = (await response.json()) as ExpoManifest;
-        expect(manifest.launchAsset.url).toBe(
-            `${CACHE_URL}/bundle/${VALID_HASH}/index.android.bundle`,
-        );
+        const manifest = await extractManifestFromMultipart(response);
+        expect(manifest.launchAsset.url).toContain(`${VALID_HASH}.android.bundle`);
     });
 
     test('unknown platform header values fall back to android (cheaper than 400ing)', async () => {
@@ -417,9 +425,6 @@ describe('handleManifest (TQ1.2)', () => {
             fields: jsonResponse(baseFields()),
             meta: jsonResponse({ builtAt: FIXED_BUILT_AT }),
         });
-        // Web is a real Expo platform but we don't ship a web Hermes bundle —
-        // serving the android URL is harmless because Expo Go won't try to
-        // load it on a web target.
         const webRequest = new Request(
             `https://expo-relay.dev.workers.dev/manifest/${VALID_HASH}`,
             { headers: { 'expo-platform': 'web' } },
@@ -430,10 +435,56 @@ describe('handleManifest (TQ1.2)', () => {
             VALID_HASH,
         );
         expect(response.status).toBe(200);
-        const manifest = (await response.json()) as ExpoManifest;
-        expect(manifest.launchAsset.url).toBe(
-            `${CACHE_URL}/bundle/${VALID_HASH}/index.android.bundle`,
+        const manifest = await extractManifestFromMultipart(response);
+        expect(manifest.launchAsset.url).toContain(`${VALID_HASH}.android.bundle`);
+    });
+
+    test('relay sets extra.expoClient.hostUri from the request URL host', async () => {
+        const { binding } = makeStubBinding({
+            fields: jsonResponse(baseFields()),
+            meta: jsonResponse({ builtAt: FIXED_BUILT_AT }),
+        });
+        const response = await handleManifest(
+            makeRequest(VALID_HASH),
+            envFor(binding),
+            VALID_HASH,
         );
+        const manifest = await extractManifestFromMultipart(response);
+        expect(manifest.extra.expoClient.hostUri).toBe('expo-relay.dev.workers.dev');
+        expect(manifest.extra.expoGo.debuggerHost).toBe('expo-relay.dev.workers.dev');
+    });
+
+    test('manifest body has the dev-server expoGo block', async () => {
+        const { binding } = makeStubBinding({
+            fields: jsonResponse(baseFields()),
+            meta: jsonResponse({ builtAt: FIXED_BUILT_AT }),
+        });
+        const response = await handleManifest(
+            makeRequest(VALID_HASH),
+            envFor(binding),
+            VALID_HASH,
+        );
+        const manifest = await extractManifestFromMultipart(response);
+        expect(manifest.extra.expoGo.developer.tool).toBe('expo-cli');
+        expect(manifest.extra.expoGo.mainModuleName).toBe('index.ts');
+        expect(manifest.extra.expoGo.packagerOpts.dev).toBe(false);
+    });
+
+    test('manifest body strips icon, splash, and inner runtimeVersion from expoClient', async () => {
+        const { binding } = makeStubBinding({
+            fields: jsonResponse(baseFields()),
+            meta: jsonResponse({ builtAt: FIXED_BUILT_AT }),
+        });
+        const response = await handleManifest(
+            makeRequest(VALID_HASH),
+            envFor(binding),
+            VALID_HASH,
+        );
+        const manifest = await extractManifestFromMultipart(response);
+        const ec = manifest.extra.expoClient as Record<string, unknown>;
+        expect(ec.icon).toBeUndefined();
+        expect(ec.splash).toBeUndefined();
+        expect(ec.runtimeVersion).toBeUndefined();
     });
 });
 

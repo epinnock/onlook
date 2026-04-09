@@ -177,8 +177,8 @@ describe('worker fetch route table (TQ1.4)', () => {
         );
 
         expect(response.status).toBe(200);
-        expect(response.headers.get('Content-Type')).toBe('application/json');
-        expect(response.headers.get('expo-protocol-version')).toBe('1');
+        expect(response.headers.get('Content-Type')).toContain('multipart/mixed');
+        expect(response.headers.get('expo-protocol-version')).toBe('0');
         expect(response.headers.get('expo-sfv-version')).toBe('0');
         expect(calls).toContain(
             `${CACHE_URL}/bundle/${VALID_HASH}/manifest-fields.json`,

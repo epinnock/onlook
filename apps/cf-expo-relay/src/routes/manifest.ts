@@ -1,22 +1,37 @@
 /**
- * cf-expo-relay `GET /manifest/:bundleHash` route (TQ1.2).
+ * cf-expo-relay `GET /manifest/:bundleHash` route.
  *
  * Reads the per-build artifacts written by `cf-esm-builder` (TH0.3 / TH1.2)
  * from `cf-esm-cache` and folds them into a complete Expo Updates v2 manifest
- * via `buildManifest` (TQ1.1).
+ * via `buildManifest`.
  *
  * The cache origin is reached via a Worker service binding (`ESM_CACHE`) when
  * available so cross-Worker calls stay on Cloudflare's internal RPC fabric;
  * otherwise the route falls back to a plain `fetch()` against `ESM_CACHE_URL`,
  * which is what local `wrangler dev` and the unit tests rely on.
  *
- * Headers are fixed to the TQ0.2 wire contract:
- *   - `Content-Type: application/json`
- *   - `Cache-Control: no-cache, no-store`
- *   - `expo-protocol-version: 1`
+ * Response shape (verified byte-for-byte against real `expo start` on
+ * 2026-04-09 — see plans/expo-browser-status.md for the bisection notes):
+ *   - Status: 200
+ *   - `content-type: multipart/mixed; boundary=formdata-<16hex>`
+ *   - `cache-control: private, max-age=0`
+ *   - `expo-protocol-version: 0`
  *   - `expo-sfv-version: 0`
+ *   - Body: a multipart/mixed envelope with one `manifest` part containing
+ *     the JSON-serialized ExpoManifest (Content-Disposition: form-data;
+ *     name="manifest", Content-Type: application/json).
  *
- * This route deliberately does NOT touch `worker.ts` — TQ1.4 wires it in.
+ * Why multipart instead of plain JSON: Expo Go SDK 50+ from the App Store
+ * sends `Accept: multipart/mixed,application/expo+json,application/json`
+ * and uses the multipart code path for the dev-server signature bypass.
+ * Plain JSON routes through the production validation path which requires
+ * a real signature. Multipart bypasses the signature requirement when
+ * the manifest body has the dev-server fields (extra.expoGo.developer).
+ *
+ * Cloudflare Workers serve responses over HTTP/2 to clients, which
+ * mandates lowercase header names per RFC 7540 §8.1.2. Even though our
+ * Headers object uses canonical PascalCase names, the wire format will
+ * be lowercase by the time it reaches Expo Go.
  */
 import {
     buildManifest,
@@ -43,13 +58,6 @@ interface MetaJson {
 }
 
 const HEX64 = /^[0-9a-f]{64}$/;
-
-const EXPO_HEADERS: Record<string, string> = {
-    'Content-Type': 'application/json',
-    'Cache-Control': 'no-cache, no-store',
-    'expo-protocol-version': '1',
-    'expo-sfv-version': '0',
-};
 
 /**
  * Resolve the target platform for the manifest's `launchAsset.url` from
@@ -137,17 +145,50 @@ export async function handleManifest(
         }
     }
 
+    // Compute the relay's public host:port from the incoming request URL
+    // so the manifest's `extra.expoClient.hostUri` and
+    // `extra.expoGo.debuggerHost` reflect the host the phone is talking
+    // to. The phone uses these for HMR socket / log streaming endpoints.
+    let relayHostUri: string | undefined;
+    try {
+        relayHostUri = new URL(request.url).host;
+    } catch {
+        // request.url should always parse, but be defensive.
+        relayHostUri = undefined;
+    }
+
     const manifest: ExpoManifest = buildManifest({
         bundleHash,
         cfEsmCacheUrl: env.ESM_CACHE_URL,
         fields,
         builtAt: builtAt ?? new Date().toISOString(),
         platform,
+        relayHostUri,
     });
 
-    return new Response(JSON.stringify(manifest), {
+    // Wrap the manifest in a multipart/mixed envelope. The boundary is
+    // derived from the bundle hash so it's deterministic per response.
+    // Per-part headers MUST include both Content-Disposition and
+    // Content-Type — expo-cli sets both, and Expo Go's parser may
+    // assert if either is missing.
+    const boundary = `formdata-${bundleHash.slice(0, 16)}`;
+    const manifestJson = JSON.stringify(manifest);
+    const body =
+        `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="manifest"\r\n` +
+        `Content-Type: application/json\r\n` +
+        `\r\n` +
+        `${manifestJson}\r\n` +
+        `--${boundary}--\r\n`;
+
+    return new Response(body, {
         status: 200,
-        headers: EXPO_HEADERS,
+        headers: {
+            'Content-Type': `multipart/mixed; boundary=${boundary}`,
+            'Cache-Control': 'private, max-age=0',
+            'expo-protocol-version': '0',
+            'expo-sfv-version': '0',
+        },
     });
 }
 
