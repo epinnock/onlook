@@ -292,6 +292,40 @@ export class SandboxManager {
         } catch (err) {
             console.error('[SandboxManager] Initial bundle failed:', err);
         }
+
+        // Watch the local Vfs for file changes and re-bundle on every
+        // write. Without this, browser-metro only runs the initial
+        // bundle and never updates — the canvas iframe stays stuck on
+        // whatever was rendered at mount time even after the user
+        // edits a file in the editor (chat AI, inline editor, etc.).
+        //
+        // The watcher fires for ANY file change in the Vfs, including
+        // sync engine pulls and writes from .onlook/* internal files,
+        // so we filter to source extensions only and skip noise dirs.
+        // The bundler.invalidate() call is debounced inside the
+        // BrowserMetro class, so even rapid bursts of writes only
+        // produce one re-bundle per debounce window.
+        try {
+            const stopWatching = this.fs.watchDirectory('/', (event) => {
+                const eventPath = event.path || '';
+                // Source files only — node_modules, .onlook internals, and
+                // lock files generate noise that doesn't affect the bundle.
+                if (!/\.(tsx?|jsx?|mjs|cjs|json|css|scss|sass|less)$/i.test(eventPath)) return;
+                if (eventPath.includes('node_modules')) return;
+                if (eventPath.includes('/.onlook/') || eventPath.startsWith('.onlook/')) return;
+                if (eventPath.endsWith('package-lock.json') || eventPath.endsWith('bun.lockb')) return;
+                console.info(
+                    '[SandboxManager] file change detected, invalidating bundler:',
+                    event.type,
+                    eventPath,
+                );
+                void bundler.invalidate();
+            });
+            this.bundlerSubscriptions.push(stopWatching);
+            console.info('[SandboxManager] Vfs watcher attached for live re-bundling');
+        } catch (err) {
+            console.error('[SandboxManager] Failed to attach Vfs watcher (live re-bundling disabled):', err);
+        }
     }
 
     private async ensurePreloadScriptExists(): Promise<void> {

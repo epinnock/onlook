@@ -55,15 +55,13 @@ const PACKAGE_JSON = `{
   "scripts": {
     "start": "expo start",
     "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web"
+    "ios": "expo start --ios"
   },
   "dependencies": {
     "expo": "~54.0.0",
     "expo-status-bar": "~2.0.0",
     "react": "19.1.0",
-    "react-native": "0.81.0",
-    "react-native-web": "~0.21.0"
+    "react-native": "0.81.0"
   },
   "devDependencies": {
     "@babel/core": "^7.25.0",
@@ -73,6 +71,17 @@ const PACKAGE_JSON = `{
   "private": true
 }
 `;
+// Note: react-native-web is intentionally NOT a runtime dep here. The
+// browser-metro canvas-iframe path doesn't need it installed in the
+// project — its bare-import rewriter aliases react-native → esm.sh's
+// react-native-web bundle at compile time, so the package never has to
+// exist locally. Adding it to dependencies caused the Container's Metro
+// build to pull in react-native-web's source which transitively includes
+// `crypto.randomUUID?.bind(crypto)` in its MessageQueue init code.
+// Hermes (which Expo Go SDK 54 uses) does NOT expose a global \`crypto\`,
+// so the bundle crashed at evaluation with "Property 'crypto' doesn't
+// exist". Dropping the dep eliminates the crypto reference and shrinks
+// the bundle from 1.4 MB to ~953 KB.
 
 const APP_JSON = `{
   "expo": {

@@ -105,7 +105,47 @@ function handleBundleMessage(data) {
     const branchId = data.branchId;
     if (!result || !branchId) return;
     bundleCache.set(branchId, result);
-    return persistBundle(branchId, result);
+    // Tell every controlled iframe under /preview/<branchId>/* to reload
+    // so the new bundle takes effect. Without this, browser-metro
+    // re-bundles on every edit but the canvas stays stuck on whatever
+    // bundle was served when the iframe first mounted.
+    return Promise.all([
+        persistBundle(branchId, result),
+        notifyClientsOfBundleUpdate(branchId),
+    ]);
+}
+
+/**
+ * Find every controlled client (iframe) whose URL is under
+ * `/preview/<branchId>/...` and post a `bundle-updated` message. The
+ * preview iframe's bootstrap script listens for this and calls
+ * `location.reload()` to fetch the new bundle.
+ */
+async function notifyClientsOfBundleUpdate(branchId) {
+    try {
+        const allClients = await self.clients.matchAll({
+            type: 'window',
+            includeUncontrolled: true,
+        });
+        const targetPrefix = `${PREVIEW_PREFIX}${branchId}/`;
+        let notified = 0;
+        for (const client of allClients) {
+            try {
+                const clientUrl = new URL(client.url);
+                if (clientUrl.pathname.startsWith(targetPrefix)) {
+                    client.postMessage({ type: 'bundle-updated', branchId });
+                    notified++;
+                }
+            } catch {
+                // Ignore clients with unparseable URLs.
+            }
+        }
+        if (notified > 0) {
+            console.log(`[preview-sw] notified ${notified} client(s) of bundle update for ${branchId}`);
+        }
+    } catch (err) {
+        console.warn('[preview-sw] notifyClientsOfBundleUpdate failed:', err);
+    }
 }
 
 self.addEventListener('message', (event) => {
@@ -303,6 +343,20 @@ function htmlShell(branchId, frameId) {
         window.addEventListener('unhandledrejection', function (e) {
             console.error('[preview] unhandledrejection', e.reason);
         });
+        // Live re-bundle support: the preview SW posts a "bundle-updated"
+        // message whenever browser-metro publishes a new bundle for this
+        // branch. The iframe reloads to pick up the new bundle.js content.
+        // Without this, edits in the editor's chat / inline editor would
+        // re-bundle but the canvas would stay stuck on the initial bundle.
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.addEventListener('message', function (event) {
+                var data = event.data;
+                if (data && data.type === 'bundle-updated') {
+                    console.log('[preview] bundle-updated received, reloading');
+                    location.reload();
+                }
+            });
+        }
     </script>
 </head>
 <body data-branch-id="${branchId}" data-frame-id="${frameId}">
