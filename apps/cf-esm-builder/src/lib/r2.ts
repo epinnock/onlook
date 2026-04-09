@@ -5,11 +5,17 @@
  *
  *   expo-bundles/
  *   └── bundle/${bundleHash}/
- *       ├── index.android.bundle    ← Hermes bytecode
+ *       ├── index.android.bundle    ← Hermes bytecode (android target)
+ *       ├── index.ios.bundle        ← Hermes bytecode (ios target)
  *       ├── assetmap.json
  *       ├── sourcemap.json
  *       ├── manifest-fields.json
  *       └── meta.json               ← written LAST (sentinel for readers)
+ *
+ * Both platform bundles are produced by every Container build (see
+ * `apps/cf-esm-builder/container/build.sh`) so the relay can route a
+ * single manifest URL to the right launchAsset based on the
+ * `Expo-Platform` header from Expo Go.
  *
  * Keep this module thin: it owns key construction and JSON
  * serialisation, nothing else. Routes (TH2.3) and the BuildSession DO
@@ -17,12 +23,16 @@
  */
 import type { Env } from '../types';
 
+export type BundlePlatform = 'android' | 'ios';
+
 export interface BundleMeta {
     sourceHash: string;
     bundleHash: string;
     builtAt: string;
     sizeBytes: number;
     hermesVersion?: string;
+    /** Per-platform Hermes bundle byte sizes. */
+    platformSizes?: { android?: number; ios?: number };
 }
 
 export interface BundleArtifact {
@@ -30,11 +40,14 @@ export interface BundleArtifact {
     meta: BundleMeta | null;
 }
 
-const BUNDLE_FILENAME = 'index.android.bundle';
 const META_FILENAME = 'meta.json';
 
-function bundleKey(hash: string): string {
-    return `bundle/${hash}/${BUNDLE_FILENAME}`;
+function bundleFilename(platform: BundlePlatform): string {
+    return `index.${platform}.bundle`;
+}
+
+function bundleKey(hash: string, platform: BundlePlatform = 'android'): string {
+    return `bundle/${hash}/${bundleFilename(platform)}`;
 }
 
 function metaKey(hash: string): string {
@@ -45,9 +58,17 @@ function fileKey(hash: string, path: string): string {
     return `bundle/${hash}/${path}`;
 }
 
-/** Read the Hermes bundle bytes from R2 for a given hash. Returns null on miss. */
-export async function r2GetBundle(env: Env, hash: string): Promise<R2ObjectBody | null> {
-    return await env.BUNDLES.get(bundleKey(hash));
+/**
+ * Read the Hermes bundle bytes from R2 for a given hash + platform.
+ * Returns null on miss. Defaults to `'android'` so existing single-platform
+ * call sites keep their behavior.
+ */
+export async function r2GetBundle(
+    env: Env,
+    hash: string,
+    platform: BundlePlatform = 'android',
+): Promise<R2ObjectBody | null> {
+    return await env.BUNDLES.get(bundleKey(hash, platform));
 }
 
 /** Read the meta.json for a build. Returns null on miss. */
@@ -58,13 +79,18 @@ export async function r2GetMeta(env: Env, hash: string): Promise<BundleMeta | nu
     return JSON.parse(text) as BundleMeta;
 }
 
-/** Write index.android.bundle from a stream or buffer. */
+/**
+ * Write the per-platform Hermes bundle from a stream or buffer.
+ * Defaults to `'android'` so existing single-platform call sites keep
+ * their behavior; iOS uploads pass `'ios'` explicitly.
+ */
 export async function r2PutBundle(
     env: Env,
     hash: string,
     body: ReadableStream<Uint8Array> | ArrayBuffer,
+    platform: BundlePlatform = 'android',
 ): Promise<void> {
-    await env.BUNDLES.put(bundleKey(hash), body, {
+    await env.BUNDLES.put(bundleKey(hash, platform), body, {
         httpMetadata: { contentType: 'application/javascript' },
     });
 }

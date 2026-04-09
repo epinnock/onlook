@@ -104,34 +104,62 @@ const BABEL_CONFIG = `module.exports = function (api) {
 };
 `;
 
-// FOUND-06b follow-up #3 (2026-04-08): import directly from
-// 'react-native-web' instead of 'react-native'. esm.sh's CDN cannot
-// bundle 'react-native' as ESM (returns 500 because RN ships native
-// modules), and the rewriter's react-native -> react-native-web alias
-// doesn't fix the case where the FETCHED bundle's internal imports
-// reference 'react-native' through esm.sh's relative-path resolver.
-// The fixture is web-only for v1 verification — Phase H Container
-// builds will use the real react-native at Hermes-bundle time.
+// Fixture v3 — dual-runtime (2026-04-08).
 //
-// expo-status-bar is also dropped from the v1 fixture for the same
-// reason: its internal imports pull 'react-native' which esm.sh
-// cannot fulfill. A future fixture revision may restore it after
-// Path A (true ESM bundle output + native importmap) lands.
+// Source files import from 'react-native' (NOT 'react-native-web'). Both
+// Phase R (browser canvas via @onlook/browser-metro) and Phase H/Q (Expo
+// Go via Container Metro+Hermes) consume the SAME source tree:
+//
+//   * Browser-metro's bare-import-rewriter has a default alias
+//     'react-native' → 'react-native-web' that points the browser canvas
+//     at https://esm.sh/react-native-web?bundle. The resolved bundle is
+//     self-contained (zero internal `import 'react-native'` statements,
+//     verified by curl + grep on 2026-04-08), so the alias path works
+//     end-to-end. The FOUND-06b follow-up #3 concern was based on the
+//     pre-empty-externals esm.sh shape; with externals=[] today, peers
+//     are inlined and the resolved bundle is clean.
+//
+//   * Container Metro+Hermes uses the real react-native package from
+//     node_modules. Platform.OS resolves to 'android' (or 'ios' on the
+//     iOS Metro pass), and the dual-runtime entry's `if (Platform.OS ===
+//     'web')` branch is dead-code-eliminated by Metro before Hermes ever
+//     sees it.
+//
+// The dual-runtime entry is the SAME index.ts the Container's smoke
+// fixture (apps/cf-esm-builder/container/__tests__/fixtures/minimal-expo/
+// index.ts) uses, kept in lock-step. When this changes, update both.
+//
+// Effect on the local-builder-shim: the DEMO_FIXTURE_TAR override
+// (scripts/local-builder-shim.ts:96-100) is no longer needed because the
+// editor's source tar IS now Hermes-compatible. Set DEMO_FIXTURE_TAR=''
+// or unset it entirely.
 
-const INDEX_TS = `// Phase R fixture (v1): direct react-native-web mount, no AppRegistry.
-// AppRegistry / Hermes bootstrap is Phase H (TH1.x) territory; until then
-// the in-browser canvas iframe just renders App via react-native-web's
-// AppRegistry shim or by direct ReactDOM.createRoot.
+const INDEX_TS = `// Dual-runtime entry (Phase R + Phase H/Q).
+//
+// Native (Expo Go via Hermes): AppRegistry.registerComponent is all that
+// is needed — Expo Go's RN runtime calls runApplication itself once it
+// sees the 'main' component registered.
+//
+// Web (browser canvas via react-native-web): registerComponent alone
+// doesn't mount anything; we also need an explicit runApplication call
+// with a rootTag. Wrapping in 'Platform.OS === \"web\"' lets the native
+// Hermes runtime dead-code-eliminate the DOM lookup, so it never trips
+// over the missing 'document' global.
+import { AppRegistry, Platform } from 'react-native';
 import App from './App';
-import { AppRegistry } from 'react-native-web';
 
 AppRegistry.registerComponent('main', () => App);
-AppRegistry.runApplication('main', {
-  rootTag: document.getElementById('root'),
-});
+
+if (Platform.OS === 'web' && typeof document !== 'undefined') {
+  const rootTag =
+    document.getElementById('root') ?? document.getElementById('main');
+  if (rootTag) {
+    AppRegistry.runApplication('main', { rootTag });
+  }
+}
 `;
 
-const APP_TSX = `import { StyleSheet, View } from 'react-native-web';
+const APP_TSX = `import { StyleSheet, View } from 'react-native';
 import { Hello } from './components/Hello';
 
 export default function App() {
@@ -152,7 +180,7 @@ const styles = StyleSheet.create({
 });
 `;
 
-const HELLO_TSX = `import { StyleSheet, Text, View } from 'react-native-web';
+const HELLO_TSX = `import { StyleSheet, Text, View } from 'react-native';
 
 export interface HelloProps {
   name: string;

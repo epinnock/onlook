@@ -18,7 +18,12 @@
  *
  * This route deliberately does NOT touch `worker.ts` — TQ1.4 wires it in.
  */
-import { buildManifest, type ExpoManifest, type ManifestFields } from '../manifest-builder';
+import {
+    buildManifest,
+    type ExpoManifest,
+    type ExpoPlatform,
+    type ManifestFields,
+} from '../manifest-builder';
 
 /** Minimal shape of a Worker service binding (ESM_CACHE) for typing only. */
 export interface ServiceBinding {
@@ -47,11 +52,43 @@ const EXPO_HEADERS: Record<string, string> = {
 };
 
 /**
+ * Resolve the target platform for the manifest's `launchAsset.url` from
+ * the request. Order of precedence:
+ *   1. `Expo-Platform` request header (canonical — Expo Go SDK 50+ sends it)
+ *   2. `?platform=` query string (curl-friendly fallback for testing)
+ *   3. Default `'android'` (preserves the pre-iOS behavior of every existing
+ *      caller, including scenario 10 and the local-relay-shim happy path)
+ *
+ * Anything other than `'ios'` or `'android'` is normalized to `'android'`
+ * rather than 400'd, because Expo's protocol allows non-target platforms
+ * (e.g. `'web'`) to receive a manifest the runtime then ignores. Returning
+ * the android URL in those cases is harmless and cheaper than failing.
+ */
+export function resolvePlatform(request: Request): ExpoPlatform {
+    const header = request.headers.get('expo-platform');
+    if (header === 'ios') return 'ios';
+    if (header === 'android') return 'android';
+
+    try {
+        const url = new URL(request.url);
+        const query = url.searchParams.get('platform');
+        if (query === 'ios') return 'ios';
+        if (query === 'android') return 'android';
+    } catch {
+        // Bad URL — fall through to the default.
+    }
+
+    return 'android';
+}
+
+/**
  * Handle `GET /manifest/:bundleHash`.
  *
  * Validates the hash, fetches `manifest-fields.json` and `meta.json` from
  * `cf-esm-cache` (preferring the service binding when present), then returns
- * the Expo manifest with the required headers.
+ * the Expo manifest with the required headers. The `launchAsset.url` is
+ * routed to the platform-specific Hermes bundle based on the request's
+ * `Expo-Platform` header.
  */
 export async function handleManifest(
     request: Request,
@@ -62,6 +99,7 @@ export async function handleManifest(
         return new Response('expo-relay: invalid bundleHash', { status: 400 });
     }
 
+    const platform = resolvePlatform(request);
     const baseUrl = stripTrailingSlash(env.ESM_CACHE_URL);
     const fieldsUrl = `${baseUrl}/bundle/${bundleHash}/manifest-fields.json`;
     const metaUrl = `${baseUrl}/bundle/${bundleHash}/meta.json`;
@@ -104,6 +142,7 @@ export async function handleManifest(
         cfEsmCacheUrl: env.ESM_CACHE_URL,
         fields,
         builtAt: builtAt ?? new Date().toISOString(),
+        platform,
     });
 
     return new Response(JSON.stringify(manifest), {

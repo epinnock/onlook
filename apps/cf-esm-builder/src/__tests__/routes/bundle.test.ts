@@ -68,9 +68,14 @@ function jsonBytes(value: unknown): Uint8Array {
     return new TextEncoder().encode(JSON.stringify(value));
 }
 
+// Distinct iOS payload so a test can prove the route is reading the right
+// per-platform key (not falling back to the android bundle).
+const IOS_HERMES_MAGIC = new Uint8Array([0xc6, 0x1f, 0xbc, 0x03, 0x10, 0x11, 0x12, 0x13]);
+
 function fullBundleStore(): Record<string, StoredObject> {
     return {
         [`bundle/${HASH}/index.android.bundle`]: { body: HERMES_MAGIC },
+        [`bundle/${HASH}/index.ios.bundle`]: { body: IOS_HERMES_MAGIC },
         [`bundle/${HASH}/assetmap.json`]: { body: jsonBytes({ assets: [] }) },
         [`bundle/${HASH}/sourcemap.json`]: {
             body: jsonBytes({ version: 3, sources: [], mappings: '' }),
@@ -82,8 +87,8 @@ function fullBundleStore(): Record<string, StoredObject> {
                 builtAt: '2026-04-07T12:34:56.000Z',
                 expoSdkVersion: '54.0.0',
                 hermesVersion: '0.12.0',
-                sizeBytes: HERMES_MAGIC.byteLength,
-                fileCount: 5,
+                sizeBytes: HERMES_MAGIC.byteLength + IOS_HERMES_MAGIC.byteLength,
+                fileCount: 6,
             }),
         },
     };
@@ -164,6 +169,53 @@ describe('handleBundle (TH2.3)', () => {
         const env = envWith(fullBundleStore());
         const res = await handleBundle(
             get(`/bundle/${HASH}/secrets.tar.gz`),
+            env,
+        );
+        expect(res.status).toBe(404);
+    });
+
+    test('serves /bundle/<hash>/index.ios.bundle as javascript with the iOS payload', async () => {
+        const env = envWith(fullBundleStore());
+        const res = await handleBundle(
+            get(`/bundle/${HASH}/index.ios.bundle`),
+            env,
+        );
+        expect(res.status).toBe(200);
+        expect(res.headers.get('Content-Type')).toBe('application/javascript');
+        const body = new Uint8Array(await res.arrayBuffer());
+        // Proves we read index.ios.bundle (not index.android.bundle): byte 4
+        // is 0x10 in the iOS fixture and 0x00 in the android fixture.
+        expect(body.length).toBe(IOS_HERMES_MAGIC.byteLength);
+        expect(body[4]).toBe(0x10);
+    });
+
+    test('serves /bundle/<hash>/index.android.bundle explicitly with the android payload', async () => {
+        const env = envWith(fullBundleStore());
+        const res = await handleBundle(
+            get(`/bundle/${HASH}/index.android.bundle`),
+            env,
+        );
+        expect(res.status).toBe(200);
+        const body = new Uint8Array(await res.arrayBuffer());
+        // android fixture has byte 4 == 0x00 (per HERMES_MAGIC above).
+        expect(body.length).toBe(HERMES_MAGIC.byteLength);
+        expect(body[4]).toBe(0x00);
+    });
+
+    test('returns 404 for /bundle/<hash>/index.ios.bundle when only the android bundle is in R2', async () => {
+        const env = envWith({
+            [`bundle/${HASH}/index.android.bundle`]: { body: HERMES_MAGIC },
+            [`bundle/${HASH}/meta.json`]: {
+                body: jsonBytes({
+                    sourceHash: HASH,
+                    bundleHash: HASH,
+                    builtAt: '2026-04-07T12:34:56.000Z',
+                    sizeBytes: HERMES_MAGIC.byteLength,
+                }),
+            },
+        });
+        const res = await handleBundle(
+            get(`/bundle/${HASH}/index.ios.bundle`),
             env,
         );
         expect(res.status).toBe(404);

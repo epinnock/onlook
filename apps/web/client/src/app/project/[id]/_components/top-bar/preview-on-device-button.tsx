@@ -22,6 +22,7 @@
 import type { CodeFileSystem } from '@onlook/file-system';
 import { useEditorEngine } from '@/components/store/editor';
 import { QrModal } from '@/components/ui/qr-modal';
+import { env } from '@/env';
 import { usePreviewOnDevice } from '@/hooks/use-preview-on-device';
 import { Button } from '@onlook/ui/button';
 import { observer } from 'mobx-react-lite';
@@ -55,7 +56,17 @@ function PreviewOnDeviceInner({
     projectId,
     branchId,
 }: PreviewOnDeviceInnerProps) {
-    const preview = usePreviewOnDevice({ fs, projectId, branchId });
+    // Pass the Phase H/Q endpoints from @/env. In dev these point at the
+    // local-builder-shim + local-relay-shim (port 8788/8787) over LAN IP;
+    // in production they point at the deployed cf-esm-builder + cf-expo-relay
+    // Worker URLs. When unset, the hook surfaces a clear error in the modal.
+    const preview = usePreviewOnDevice({
+        fs,
+        projectId,
+        branchId,
+        builderBaseUrl: env.NEXT_PUBLIC_CF_ESM_BUILDER_URL,
+        relayBaseUrl: env.NEXT_PUBLIC_CF_EXPO_RELAY_URL,
+    });
 
     const handleClick = () => {
         void preview.open();

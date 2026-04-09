@@ -199,4 +199,61 @@ describe("buildManifest", () => {
         );
         expect(manifest.createdAt).toBe("2025-12-31T23:59:59.999Z");
     });
+
+    test("launchAsset.url defaults to the android bundle when no platform is specified", () => {
+        const manifest = buildManifest(baseInput());
+        expect(manifest.launchAsset.url).toBe(
+            `${FIXED_CACHE_URL}/bundle/${FIXED_BUNDLE_HASH}/index.android.bundle`,
+        );
+    });
+
+    test("launchAsset.url uses index.android.bundle when platform='android'", () => {
+        const manifest = buildManifest(baseInput({ platform: "android" }));
+        expect(manifest.launchAsset.url).toBe(
+            `${FIXED_CACHE_URL}/bundle/${FIXED_BUNDLE_HASH}/index.android.bundle`,
+        );
+    });
+
+    test("launchAsset.url uses index.ios.bundle when platform='ios'", () => {
+        const manifest = buildManifest(baseInput({ platform: "ios" }));
+        expect(manifest.launchAsset.url).toBe(
+            `${FIXED_CACHE_URL}/bundle/${FIXED_BUNDLE_HASH}/index.ios.bundle`,
+        );
+    });
+
+    test("platform only affects launchAsset.url; assets[].url is unchanged", () => {
+        const fields = baseFields({
+            assets: [
+                {
+                    key: "asset-key-1",
+                    contentType: "image/png",
+                    fileExtension: ".png",
+                },
+            ],
+        });
+        const androidManifest = buildManifest(
+            baseInput({ fields, platform: "android" }),
+        );
+        const iosManifest = buildManifest(
+            baseInput({ fields, platform: "ios" }),
+        );
+
+        expect(androidManifest.launchAsset.url).not.toBe(
+            iosManifest.launchAsset.url,
+        );
+        expect(androidManifest.assets[0]?.url).toBe(iosManifest.assets[0]?.url);
+        expect(androidManifest.assets[0]?.url).toBe(
+            `${FIXED_CACHE_URL}/bundle/${FIXED_BUNDLE_HASH}/asset-key-1.png`,
+        );
+    });
+
+    test("ios + android manifests share the same id, runtimeVersion, metadata, and extra", () => {
+        const androidManifest = buildManifest(baseInput({ platform: "android" }));
+        const iosManifest = buildManifest(baseInput({ platform: "ios" }));
+
+        expect(iosManifest.id).toBe(androidManifest.id);
+        expect(iosManifest.runtimeVersion).toBe(androidManifest.runtimeVersion);
+        expect(iosManifest.metadata).toEqual(androidManifest.metadata);
+        expect(iosManifest.extra).toEqual(androidManifest.extra);
+    });
 });

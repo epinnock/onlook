@@ -10,7 +10,8 @@
  *     bytecode (first four bytes `0xc6 0x1f 0xbc 0x03`).
  *   - `GET /bundle/<hash>/<filename>` serves any sibling artifact written by
  *     the Container build script (`assetmap.json`, `sourcemap.json`,
- *     `manifest-fields.json`, `meta.json`).
+ *     `manifest-fields.json`, `meta.json`, plus the per-platform Hermes
+ *     bundles `index.android.bundle` / `index.ios.bundle`).
  *   - All responses use a content-addressed `ETag: "${hash}"` and an
  *     immutable `Cache-Control` because the URL itself changes when the
  *     content changes.
@@ -22,10 +23,16 @@
  */
 import type { Env } from '../types';
 
+// Default to the android bundle so existing single-platform call sites
+// (the original scenario 12 cache check, the local-builder-shim's bare
+// `/bundle/<hash>/` URL, etc.) keep working. iOS callers must specify
+// `index.ios.bundle` explicitly — Expo Go does this via the manifest's
+// launchAsset.url.
 const DEFAULT_FILE = 'index.android.bundle';
 
 const ALLOWED_FILES = new Set<string>([
     'index.android.bundle',
+    'index.ios.bundle',
     'assetmap.json',
     'sourcemap.json',
     'manifest-fields.json',

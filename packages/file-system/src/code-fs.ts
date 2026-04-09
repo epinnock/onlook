@@ -280,7 +280,21 @@ export class CodeFileSystem extends FileSystem {
     async cleanup(): Promise<void> {
         const cacheKey = this.getCacheKey();
         if (getIndexFromCache(cacheKey)) {
-            await this.undobounceSaveIndexToFile();
+            try {
+                // The underlying CodeFileSystem may already have been disposed
+                // by the time cleanup runs (HMR remount, route unmount race,
+                // tab close mid-flush). The persistent index is best-effort —
+                // losing one flush is fine because the in-memory cache will
+                // be rebuilt on the next mount. Swallow the "fs not
+                // initialized" error so it doesn't crash the React tree's
+                // unmount path.
+                await this.undobounceSaveIndexToFile();
+            } catch (err) {
+                console.debug(
+                    '[CodeFileSystem.cleanup] best-effort index flush failed (likely already disposed):',
+                    err instanceof Error ? err.message : err,
+                );
+            }
         }
 
         clearIndexCache(cacheKey);

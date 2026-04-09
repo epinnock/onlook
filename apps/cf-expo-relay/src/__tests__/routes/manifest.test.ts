@@ -4,6 +4,7 @@ import { describe, expect, test } from 'bun:test';
 import type { ExpoManifest, ManifestFields } from '../../manifest-builder';
 import {
     handleManifest,
+    resolvePlatform,
     type ManifestRouteEnv,
     type ServiceBinding,
 } from '../../routes/manifest';
@@ -80,8 +81,17 @@ function jsonResponse(body: unknown, status = 200): Response {
     });
 }
 
-function makeRequest(bundleHash: string): Request {
-    return new Request(`https://expo-relay.dev.workers.dev/manifest/${bundleHash}`);
+function makeRequest(
+    bundleHash: string,
+    opts?: { platform?: 'ios' | 'android' },
+): Request {
+    const headers: Record<string, string> = {};
+    if (opts?.platform) {
+        headers['expo-platform'] = opts.platform;
+    }
+    return new Request(`https://expo-relay.dev.workers.dev/manifest/${bundleHash}`, {
+        headers,
+    });
 }
 
 function envFor(binding: ServiceBinding): ManifestRouteEnv {
@@ -312,5 +322,163 @@ describe('handleManifest (TQ1.2)', () => {
         for (const call of calls) {
             expect(call).not.toContain('//bundle');
         }
+    });
+
+    test('routes launchAsset.url to index.android.bundle when no platform header is present', async () => {
+        const { binding } = makeStubBinding({
+            fields: jsonResponse(baseFields()),
+            meta: jsonResponse({ builtAt: FIXED_BUILT_AT }),
+        });
+        const response = await handleManifest(
+            makeRequest(VALID_HASH),
+            envFor(binding),
+            VALID_HASH,
+        );
+        const manifest = (await response.json()) as ExpoManifest;
+        expect(manifest.launchAsset.url).toBe(
+            `${CACHE_URL}/bundle/${VALID_HASH}/index.android.bundle`,
+        );
+    });
+
+    test('routes launchAsset.url to index.ios.bundle when Expo-Platform header is ios', async () => {
+        const { binding } = makeStubBinding({
+            fields: jsonResponse(baseFields()),
+            meta: jsonResponse({ builtAt: FIXED_BUILT_AT }),
+        });
+        const response = await handleManifest(
+            makeRequest(VALID_HASH, { platform: 'ios' }),
+            envFor(binding),
+            VALID_HASH,
+        );
+        const manifest = (await response.json()) as ExpoManifest;
+        expect(manifest.launchAsset.url).toBe(
+            `${CACHE_URL}/bundle/${VALID_HASH}/index.ios.bundle`,
+        );
+    });
+
+    test('routes launchAsset.url to index.android.bundle when Expo-Platform header is android', async () => {
+        const { binding } = makeStubBinding({
+            fields: jsonResponse(baseFields()),
+            meta: jsonResponse({ builtAt: FIXED_BUILT_AT }),
+        });
+        const response = await handleManifest(
+            makeRequest(VALID_HASH, { platform: 'android' }),
+            envFor(binding),
+            VALID_HASH,
+        );
+        const manifest = (await response.json()) as ExpoManifest;
+        expect(manifest.launchAsset.url).toBe(
+            `${CACHE_URL}/bundle/${VALID_HASH}/index.android.bundle`,
+        );
+    });
+
+    test('falls back to ?platform= query string when Expo-Platform header is missing', async () => {
+        const { binding } = makeStubBinding({
+            fields: jsonResponse(baseFields()),
+            meta: jsonResponse({ builtAt: FIXED_BUILT_AT }),
+        });
+        const queryRequest = new Request(
+            `https://expo-relay.dev.workers.dev/manifest/${VALID_HASH}?platform=ios`,
+        );
+        const response = await handleManifest(
+            queryRequest,
+            envFor(binding),
+            VALID_HASH,
+        );
+        const manifest = (await response.json()) as ExpoManifest;
+        expect(manifest.launchAsset.url).toBe(
+            `${CACHE_URL}/bundle/${VALID_HASH}/index.ios.bundle`,
+        );
+    });
+
+    test('Expo-Platform header takes precedence over ?platform= query string', async () => {
+        const { binding } = makeStubBinding({
+            fields: jsonResponse(baseFields()),
+            meta: jsonResponse({ builtAt: FIXED_BUILT_AT }),
+        });
+        // Header says android, query says ios — header wins.
+        const conflictingRequest = new Request(
+            `https://expo-relay.dev.workers.dev/manifest/${VALID_HASH}?platform=ios`,
+            { headers: { 'expo-platform': 'android' } },
+        );
+        const response = await handleManifest(
+            conflictingRequest,
+            envFor(binding),
+            VALID_HASH,
+        );
+        const manifest = (await response.json()) as ExpoManifest;
+        expect(manifest.launchAsset.url).toBe(
+            `${CACHE_URL}/bundle/${VALID_HASH}/index.android.bundle`,
+        );
+    });
+
+    test('unknown platform header values fall back to android (cheaper than 400ing)', async () => {
+        const { binding } = makeStubBinding({
+            fields: jsonResponse(baseFields()),
+            meta: jsonResponse({ builtAt: FIXED_BUILT_AT }),
+        });
+        // Web is a real Expo platform but we don't ship a web Hermes bundle —
+        // serving the android URL is harmless because Expo Go won't try to
+        // load it on a web target.
+        const webRequest = new Request(
+            `https://expo-relay.dev.workers.dev/manifest/${VALID_HASH}`,
+            { headers: { 'expo-platform': 'web' } },
+        );
+        const response = await handleManifest(
+            webRequest,
+            envFor(binding),
+            VALID_HASH,
+        );
+        expect(response.status).toBe(200);
+        const manifest = (await response.json()) as ExpoManifest;
+        expect(manifest.launchAsset.url).toBe(
+            `${CACHE_URL}/bundle/${VALID_HASH}/index.android.bundle`,
+        );
+    });
+});
+
+describe('resolvePlatform (TQ1.2 iOS support)', () => {
+    function reqWith(headers: HeadersInit, urlSuffix = ''): Request {
+        return new Request(
+            `https://expo-relay.dev.workers.dev/manifest/abc${urlSuffix}`,
+            { headers },
+        );
+    }
+
+    test("returns 'ios' for Expo-Platform: ios", () => {
+        expect(resolvePlatform(reqWith({ 'expo-platform': 'ios' }))).toBe('ios');
+    });
+
+    test("returns 'android' for Expo-Platform: android", () => {
+        expect(resolvePlatform(reqWith({ 'expo-platform': 'android' }))).toBe(
+            'android',
+        );
+    });
+
+    test("returns 'android' when no header is present", () => {
+        expect(resolvePlatform(reqWith({}))).toBe('android');
+    });
+
+    test("returns 'ios' for ?platform=ios when no header is present", () => {
+        expect(resolvePlatform(reqWith({}, '?platform=ios'))).toBe('ios');
+    });
+
+    test("returns 'android' for ?platform=android when no header is present", () => {
+        expect(resolvePlatform(reqWith({}, '?platform=android'))).toBe('android');
+    });
+
+    test("returns 'android' for unrecognized header values", () => {
+        expect(resolvePlatform(reqWith({ 'expo-platform': 'web' }))).toBe(
+            'android',
+        );
+        expect(resolvePlatform(reqWith({ 'expo-platform': '' }))).toBe('android');
+    });
+
+    test("header takes precedence over ?platform= query", () => {
+        expect(
+            resolvePlatform(
+                reqWith({ 'expo-platform': 'android' }, '?platform=ios'),
+            ),
+        ).toBe('android');
     });
 });

@@ -130,6 +130,59 @@ describe('lib/r2 — r2PutBundle', () => {
             contentType: 'application/javascript',
         });
     });
+
+    test("writes to index.ios.bundle when platform='ios'", async () => {
+        const bundles = makeFakeBundles();
+        const env = makeEnv(bundles);
+        const body = new ArrayBuffer(8);
+
+        await r2PutBundle(env, HASH, body, 'ios');
+
+        expect(bundles.putCalls).toHaveLength(1);
+        expect(bundles.putCalls[0]?.key).toBe(`bundle/${HASH}/index.ios.bundle`);
+    });
+
+    test("writes to index.android.bundle when platform='android'", async () => {
+        const bundles = makeFakeBundles();
+        const env = makeEnv(bundles);
+        const body = new ArrayBuffer(8);
+
+        await r2PutBundle(env, HASH, body, 'android');
+
+        expect(bundles.putCalls).toHaveLength(1);
+        expect(bundles.putCalls[0]?.key).toBe(`bundle/${HASH}/index.android.bundle`);
+    });
+});
+
+describe('lib/r2 — r2GetBundle (per-platform)', () => {
+    test("returns the ios bundle when platform='ios'", async () => {
+        const bundles = makeFakeBundles();
+        bundles.store.set(`bundle/${HASH}/index.ios.bundle`, { body: 'ios-bytes' });
+        const env = makeEnv(bundles);
+
+        const obj = await r2GetBundle(env, HASH, 'ios');
+        expect(obj).not.toBeNull();
+        expect(bundles.getCalls[0]?.key).toBe(`bundle/${HASH}/index.ios.bundle`);
+    });
+
+    test("returns the android bundle when platform='android'", async () => {
+        const bundles = makeFakeBundles();
+        bundles.store.set(`bundle/${HASH}/index.android.bundle`, { body: 'android-bytes' });
+        const env = makeEnv(bundles);
+
+        const obj = await r2GetBundle(env, HASH, 'android');
+        expect(obj).not.toBeNull();
+        expect(bundles.getCalls[0]?.key).toBe(`bundle/${HASH}/index.android.bundle`);
+    });
+
+    test("ios miss does not return the android object stored under a different key", async () => {
+        const bundles = makeFakeBundles();
+        bundles.store.set(`bundle/${HASH}/index.android.bundle`, { body: 'android-bytes' });
+        const env = makeEnv(bundles);
+
+        const obj = await r2GetBundle(env, HASH, 'ios');
+        expect(obj).toBeNull();
+    });
 });
 
 describe('lib/r2 — r2GetMeta', () => {

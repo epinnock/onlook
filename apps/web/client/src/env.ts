@@ -80,6 +80,14 @@ export const env = createEnv({
         NEXT_PUBLIC_HOSTING_DOMAIN: z.string().optional(),
         NEXT_PUBLIC_RB2B_ID: z.string().optional(),
         NEXT_PUBLIC_ENABLED_PROVIDERS: z.string().optional(),
+        // Phase H/Q ExpoBrowser preview-on-device endpoints. Optional in
+        // dev — when unset, usePreviewOnDevice falls into an error state
+        // with a clear message ("Missing builder base URL"). Wired in
+        // local dev via apps/web/client/.env.local pointing at the
+        // local-builder-shim + local-relay-shim, and in production at the
+        // deployed cf-esm-builder + cf-expo-relay Worker URLs.
+        NEXT_PUBLIC_CF_ESM_BUILDER_URL: z.string().optional(),
+        NEXT_PUBLIC_CF_EXPO_RELAY_URL: z.string().optional(),
     },
 
     /**
@@ -112,6 +120,10 @@ export const env = createEnv({
 
         // Feature flags
         NEXT_PUBLIC_ENABLED_PROVIDERS: process.env.NEXT_PUBLIC_ENABLED_PROVIDERS,
+
+        // Phase H/Q ExpoBrowser preview-on-device endpoints
+        NEXT_PUBLIC_CF_ESM_BUILDER_URL: process.env.NEXT_PUBLIC_CF_ESM_BUILDER_URL,
+        NEXT_PUBLIC_CF_EXPO_RELAY_URL: process.env.NEXT_PUBLIC_CF_EXPO_RELAY_URL,
 
         // Hosting
         FREESTYLE_API_KEY: process.env.FREESTYLE_API_KEY,

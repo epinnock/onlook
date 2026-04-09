@@ -8,11 +8,18 @@
  * Cache layout (R2 `expo-bundles` bucket — shared with cf-esm-builder, see
  * `plans/expo-browser-bundle-artifact.md` §R2 layout):
  *
- *     bundle/<hash>/index.android.bundle    ← Hermes bytecode
+ *     bundle/<hash>/index.android.bundle    ← Hermes bytecode (android target)
+ *     bundle/<hash>/index.ios.bundle        ← Hermes bytecode (ios target)
  *     bundle/<hash>/assetmap.json
  *     bundle/<hash>/sourcemap.json
  *     bundle/<hash>/manifest-fields.json
  *     bundle/<hash>/meta.json
+ *
+ * The proxy is platform-agnostic: the filename in `/bundle/<hash>/<file>`
+ * is forwarded to the builder verbatim, so `index.android.bundle` and
+ * `index.ios.bundle` are cached and served independently. The default
+ * (`/bundle/<hash>` with no filename) is `index.android.bundle` for
+ * backward compatibility.
  *
  * Routes:
  *
