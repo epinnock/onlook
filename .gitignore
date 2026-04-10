@@ -48,3 +48,6 @@ mise.toml
 # Temporary files
 .tmp/
 apps/sandbox-worker/.wrangler/
+
+# Local worktrees for parallel agent work
+.trees/
