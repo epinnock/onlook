@@ -40,7 +40,9 @@
         "docker:up": "docker compose up -d",
         "docker:down": "docker compose down",
         "docker:logs": "docker compose logs -f",
-        "docker:restart": "docker compose down && docker compose up -d --build"
+        "docker:restart": "docker compose down && docker compose up -d --build",
+        "dev:mobile-preview": "cd packages/mobile-preview && bun run dev",
+        "build:mobile-runtime": "cd packages/mobile-preview && bun run build:runtime"
     },
     "repository": {
         "type": "git",

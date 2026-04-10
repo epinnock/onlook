@@ -1,0 +1,15 @@
+{
+  "name": "@onlook/mobile-preview",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Native mobile preview server for Onlook — serves React runtime bundles to Expo Go via manifest protocol + WebSocket hot reload",
+  "scripts": {
+    "dev": "bun run server/index.ts",
+    "build:runtime": "bun run server/build-runtime.ts"
+  },
+  "dependencies": {
+    "react": "19.1.0",
+    "react-reconciler": "0.32.0",
+    "scheduler": "0.26.0"
+  }
+}

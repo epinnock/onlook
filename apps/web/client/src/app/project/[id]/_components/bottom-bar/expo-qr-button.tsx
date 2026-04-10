@@ -6,7 +6,7 @@ import { ProjectType, getSandboxPreviewUrl, SandboxTemplates, Templates } from '
 import { Icons } from '@onlook/ui/icons';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@onlook/ui/tooltip';
 import { observer } from 'mobx-react-lite';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 
@@ -15,6 +15,32 @@ export const ExpoQrButton = observer(() => {
     const editorEngine = useEditorEngine();
     const [showQr, setShowQr] = useState(false);
     const buttonRef = useRef<HTMLButtonElement>(null);
+    const [mobilePreviewUrl, setMobilePreviewUrl] = useState<string | null>(null);
+    const [mobilePreviewClients, setMobilePreviewClients] = useState(0);
+
+    // Poll the mobile preview server for status
+    useEffect(() => {
+        let cancelled = false;
+        const check = async () => {
+            try {
+                const res = await fetch('http://localhost:8787/status');
+                if (res.ok) {
+                    const data = await res.json();
+                    if (!cancelled && data.runtimeHash) {
+                        setMobilePreviewUrl(data.manifestUrl);
+                        setMobilePreviewClients(data.clients || 0);
+                    }
+                } else {
+                    if (!cancelled) setMobilePreviewUrl(null);
+                }
+            } catch {
+                if (!cancelled) setMobilePreviewUrl(null);
+            }
+        };
+        check();
+        const interval = setInterval(check, 5000);
+        return () => { cancelled = true; clearInterval(interval); };
+    }, []);
 
     if (projectType !== ProjectType.EXPO) {
         return null;
@@ -31,8 +57,10 @@ export const ExpoQrButton = observer(() => {
 
     const sandbox = editorEngine.branches.getSandboxById(activeBranch.id);
     const tunnelUrl = sandbox?.expoTunnelUrl;
-    const qrUrl = tunnelUrl || webUrl;
-    const hasExpoGoUrl = !!tunnelUrl;
+    // Prefer mobile preview relay URL > Expo tunnel > web URL
+    const qrUrl = mobilePreviewUrl || tunnelUrl || webUrl;
+    const hasExpoGoUrl = !!mobilePreviewUrl || !!tunnelUrl;
+    const hasMobilePreview = !!mobilePreviewUrl;
 
     if (!qrUrl) {
         return null;
@@ -104,15 +132,29 @@ export const ExpoQrButton = observer(() => {
                                 />
                             </div>
                             <p className="text-xs text-foreground-tertiary text-center">
-                                {hasExpoGoUrl
+                                {hasMobilePreview
+                                    ? 'Scan with Expo Go — live preview with hot reload'
+                                    : hasExpoGoUrl
                                     ? 'Scan with Expo Go to preview natively'
                                     : 'Scan to open web preview on your phone'
                                 }
                             </p>
 
-                            {tunnelUrl && (
+                            {hasMobilePreview && (
+                                <div className="flex items-center justify-center gap-2 text-xs">
+                                    <span className={`w-2 h-2 rounded-full ${mobilePreviewClients > 0 ? 'bg-green-500' : 'bg-yellow-500'}`} />
+                                    <span className="text-foreground-tertiary">
+                                        {mobilePreviewClients > 0
+                                            ? `${mobilePreviewClients} device${mobilePreviewClients > 1 ? 's' : ''} connected`
+                                            : 'Waiting for device...'
+                                        }
+                                    </span>
+                                </div>
+                            )}
+
+                            {(tunnelUrl || mobilePreviewUrl) && (
                                 <button
-                                    onClick={() => handleCopy(tunnelUrl, 'Expo Go URL')}
+                                    onClick={() => handleCopy(mobilePreviewUrl || tunnelUrl || '', 'Expo Go URL')}
                                     className="flex items-center justify-center gap-2 px-3 py-1.5 text-xs bg-violet-500/10 hover:bg-violet-500/20 text-violet-400 rounded-md transition-colors"
                                 >
                                     <Icons.ClipboardCopy className="w-3 h-3" />
