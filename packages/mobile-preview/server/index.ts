@@ -193,26 +193,38 @@ const wsServer = Bun.serve({
 
 // --- HTTP relay server (manifest + bundle serving) ---
 
+function withCors(res: Response): Response {
+  res.headers.set('Access-Control-Allow-Origin', '*');
+  res.headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.headers.set('Access-Control-Allow-Headers', '*');
+  return res;
+}
+
 const httpServer = Bun.serve({
   port: HTTP_PORT,
   fetch(req) {
     const url = new URL(req.url);
     const path = url.pathname;
 
-    // Health check
-    if (path === '/health') {
-      return Response.json({ ok: true, version: '0.1.0' });
+    // CORS preflight
+    if (req.method === 'OPTIONS') {
+      return withCors(new Response(null, { status: 204 }));
     }
 
-    // Status
+    // Health check
+    if (path === '/health') {
+      return withCors(Response.json({ ok: true, version: '0.1.0' }));
+    }
+
+    // Status (polled by ExpoQrButton in the Onlook editor)
     if (path === '/status') {
-      return Response.json({
+      return withCors(Response.json({
         runtimeHash: currentRuntimeHash,
         clients: wsClients.size,
         manifestUrl: currentRuntimeHash
           ? `exp://${LAN_IP}:${HTTP_PORT}/manifest/${currentRuntimeHash}`
           : null,
-      });
+      }));
     }
 
     // Manifest
