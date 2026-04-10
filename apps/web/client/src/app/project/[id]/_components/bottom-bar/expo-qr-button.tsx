@@ -42,25 +42,35 @@ export const ExpoQrButton = observer(() => {
         return () => { cancelled = true; clearInterval(interval); };
     }, []);
 
-    if (projectType !== ProjectType.EXPO) {
-        return null;
+    // Mobile preview server works independently — no sandbox needed
+    const hasMobilePreview = !!mobilePreviewUrl;
+
+    // For sandbox-based Expo projects, also support tunnel URLs
+    const isExpo = projectType === ProjectType.EXPO;
+    let tunnelUrl: string | undefined;
+    let webUrl = '';
+
+    if (isExpo) {
+        const frames = editorEngine.frames.getAll();
+        const frameUrl = frames[0]?.frame?.url;
+        const activeBranch = editorEngine.branches.activeBranch;
+        const sandboxId = activeBranch?.sandbox?.id;
+        const constructedUrl = sandboxId
+            ? getSandboxPreviewUrl('code_sandbox', sandboxId, SandboxTemplates[Templates.EXPO_WEB].port)
+            : '';
+        webUrl = frameUrl || constructedUrl;
+
+        const sandbox = editorEngine.branches.getSandboxById(activeBranch.id);
+        tunnelUrl = sandbox?.expoTunnelUrl;
     }
 
-    const frames = editorEngine.frames.getAll();
-    const frameUrl = frames[0]?.frame?.url;
-    const activeBranch = editorEngine.branches.activeBranch;
-    const sandboxId = activeBranch?.sandbox?.id;
-    const constructedUrl = sandboxId
-        ? getSandboxPreviewUrl('code_sandbox', sandboxId, SandboxTemplates[Templates.EXPO_WEB].port)
-        : '';
-    const webUrl = frameUrl || constructedUrl;
-
-    const sandbox = editorEngine.branches.getSandboxById(activeBranch.id);
-    const tunnelUrl = sandbox?.expoTunnelUrl;
-    // Prefer mobile preview relay URL > Expo tunnel > web URL
+    // Show if mobile preview server is running OR it's an Expo project with a URL
     const qrUrl = mobilePreviewUrl || tunnelUrl || webUrl;
     const hasExpoGoUrl = !!mobilePreviewUrl || !!tunnelUrl;
-    const hasMobilePreview = !!mobilePreviewUrl;
+
+    if (!hasMobilePreview && !isExpo) {
+        return null;
+    }
 
     if (!qrUrl) {
         return null;
