@@ -6,6 +6,13 @@
       "validate_command": "cd apps/mobile-client && maestro test e2e/flows/00-smoke.yaml",
       "exit_code": 0,
       "stderr_tail": ""
+    },
+    "MC1.9": {
+      "state": "passed",
+      "validated_at": "2026-04-11T23:38:43.164Z",
+      "validate_command": "test -f apps/mobile-client/SUPPORTED_MODULES.md && grep -q 'expo-camera' apps/mobile-client/SUPPORTED_MODULES.md",
+      "exit_code": 0,
+      "stderr_tail": ""
     }
   }
 }
