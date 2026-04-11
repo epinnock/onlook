@@ -1,0 +1,14 @@
+{
+    "extends": "@onlook/typescript/base.json",
+    "compilerOptions": {
+        "moduleResolution": "Bundler",
+        "module": "ESNext",
+        "target": "ES2022",
+        "lib": ["ES2022", "DOM", "DOM.Iterable"],
+        "jsx": "react-jsx",
+        "types": ["react-native", "@types/react"],
+        "resolveJsonModule": true
+    },
+    "include": ["src/**/*", "app.config.ts", "index.js"],
+    "exclude": ["node_modules", "ios", "android", "e2e", "scripts/bundle-runtime.ts"]
+}
