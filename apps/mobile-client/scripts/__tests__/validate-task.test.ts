@@ -1,15 +1,37 @@
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const REPO_ROOT = resolve(import.meta.dir, '..', '..', '..', '..');
 const SCRIPT = join(REPO_ROOT, 'apps', 'mobile-client', 'scripts', 'validate-task.ts');
 
-function runValidateTask(args: string[]): ReturnType<typeof spawnSync> {
-    return spawnSync('bun', ['run', SCRIPT, ...args], {
-        cwd: REPO_ROOT,
-        encoding: 'utf8',
-    });
+interface RunResult {
+    status: number | null;
+    stdout: string;
+    stderr: string;
+}
+
+// bun:test on macOS arm64 (Bun 1.3.9+) returns empty strings for child stdio
+// pipes when spawnSync is called from a workspace-package test file. The
+// child runs correctly (exit code is real), only the captured strings are
+// blank. File-descriptor redirects are unaffected, so we capture via
+// `sh -c` with `> file` redirection. When bun:test fixes the pipe bug this
+// helper can collapse back to a plain spawnSync('bun', ['run', SCRIPT, ...]).
+function runValidateTask(args: string[]): RunResult {
+    const tmp = mkdtempSync(join(tmpdir(), 'validate-task-test-'));
+    const outPath = join(tmp, 'stdout');
+    const errPath = join(tmp, 'stderr');
+    const quoted = args
+        .map((a) => `'${a.replace(/'/g, `'\\''`)}'`)
+        .join(' ');
+    const cmd = `bun run "${SCRIPT}" ${quoted} >"${outPath}" 2>"${errPath}"`;
+    const result = spawnSync('sh', ['-c', cmd], { cwd: REPO_ROOT });
+    const stdout = readFileSync(outPath, 'utf8');
+    const stderr = readFileSync(errPath, 'utf8');
+    rmSync(tmp, { recursive: true, force: true });
+    return { status: result.status, stdout, stderr };
 }
 
 describe('validate-task.ts', () => {
