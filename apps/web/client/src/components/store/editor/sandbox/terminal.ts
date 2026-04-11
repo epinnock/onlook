@@ -142,7 +142,29 @@ export class CLISessionImpl implements CLISession {
                 return;
             }
             this.task = task;
-            const output = await task.open();
+
+            // Retry task.open() — the dev task may not be running yet while
+            // npm install / setup tasks are still executing in CSB.
+            // Retry for up to 6 minutes (72 x 5s).
+            let output = '';
+            for (let attempt = 0; attempt < 72; attempt++) {
+                try {
+                    output = await task.open();
+                    this.xterm?.write('\r\n✅ Dev server started!\r\n');
+                    break;
+                } catch {
+                    if (attempt < 71) {
+                        console.log(`[Terminal] Task not ready, retrying in 5s (attempt ${attempt + 1}/72)...`);
+                        const elapsed = (attempt + 1) * 5;
+                        const mins = Math.floor(elapsed / 60);
+                        const secs = elapsed % 60;
+                        const timeStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+                        this.xterm?.write(`\r⏳ Setting up sandbox... ${timeStr} elapsed (npm install + expo start)   `);
+                        await new Promise(r => setTimeout(r, 5000));
+                    }
+                }
+            }
+
             this.xterm.write(output);
             this.checkForExpoUrl(output);
             this.errorManager.processMessage(output);
