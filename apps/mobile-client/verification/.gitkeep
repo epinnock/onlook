@@ -1,0 +1,3 @@
+# Phase F task MCF9. Orchestrator appends pass/fail state for each task's
+# `Validate:` command to verification/results.json in this directory.
+# Maestro debug artifacts land under verification/maestro-debug/.

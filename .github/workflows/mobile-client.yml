@@ -1,0 +1,181 @@
+name: mobile-client
+
+# CI for the @onlook/mobile-client workspace and @onlook/mobile-client-protocol
+# shared package. Phase F task MCF10 of plans/onlook-mobile-client-task-queue.md.
+#
+# The job slots below are pre-declared so Wave tasks can fill them via
+# append-only edits to THIS file — no other task touches this workflow.
+# A slot is "empty" until the wave it belongs to has a runnable validate.
+# Slots gated on native tooling (iOS simulator, Android emulator, TestFlight)
+# use `if:` guards that check for the presence of the generated project trees
+# (apps/mobile-client/ios/, apps/mobile-client/android/) so MCF10 can land
+# BEFORE MCF8 without the workflow erroring on missing directories.
+
+on:
+  push:
+    branches:
+      - feat/mobile-client
+      - main
+    paths:
+      - 'apps/mobile-client/**'
+      - 'packages/mobile-client-protocol/**'
+      - 'packages/mobile-preview/runtime/**'
+      - 'plans/onlook-mobile-client-task-queue.md'
+      - '.github/workflows/mobile-client.yml'
+  pull_request:
+    branches:
+      - feat/mobile-client
+      - main
+    paths:
+      - 'apps/mobile-client/**'
+      - 'packages/mobile-client-protocol/**'
+      - 'packages/mobile-preview/runtime/**'
+
+concurrency:
+  group: mobile-client-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ─── always-on: type + unit tests for the tool-free Phase F work ────────
+
+  typecheck-and-unit:
+    name: Typecheck + unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.6
+      - name: Install workspace deps
+        run: bun install --frozen-lockfile
+      - name: Typecheck mobile-client-protocol
+        run: bun --filter @onlook/mobile-client-protocol typecheck
+      - name: Typecheck mobile-client
+        run: bun --filter @onlook/mobile-client typecheck
+      - name: Unit tests — mobile-client-protocol
+        run: bun test packages/mobile-client-protocol/src
+      - name: Unit tests — mobile-client scripts
+        run: bun test apps/mobile-client/scripts/__tests__
+      - name: Smoke — validate-task harness parses real queue entries
+        run: bun run apps/mobile-client/scripts/validate-task.ts MCF0 --dry-run
+
+  # ─── Wave 1: iOS simulator build + boot flow ────────────────────────────
+
+  wave1-ios:
+    name: Wave 1 — iOS simulator build
+    runs-on: macos-14
+    needs: [typecheck-and-unit]
+    # Only run once MCF8 has committed the ios/ project tree.
+    if: ${{ hashFiles('apps/mobile-client/ios/**/OnlookMobile.xcworkspace/**') != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.6
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      - name: Install native tooling
+        run: |
+          brew install cocoapods
+          brew install mobile-dev-inc/tap/maestro
+      - name: Install workspace deps
+        run: bun install --frozen-lockfile
+      - name: Bake runtime asset
+        run: cd apps/mobile-client && bun run bundle-runtime
+      - name: CocoaPods install
+        run: cd apps/mobile-client/ios && pod install
+      - name: Build for iPhone Simulator
+        run: |
+          cd apps/mobile-client/ios
+          xcodebuild \
+            -workspace OnlookMobile.xcworkspace \
+            -scheme OnlookMobile \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'platform=iOS Simulator,name=iPhone 15' \
+            build | tail -40
+      - name: Run Maestro boot flow
+        run: |
+          cd apps/mobile-client
+          maestro test e2e/flows/01-boot.yaml || \
+            maestro test e2e/flows/00-smoke.yaml
+      - name: Upload Maestro results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wave1-ios-maestro
+          path: |
+            apps/mobile-client/verification/results.json
+            apps/mobile-client/e2e/flows/*.png
+
+  # ─── Wave 1: Android emulator build ─────────────────────────────────────
+
+  wave1-android:
+    name: Wave 1 — Android emulator build
+    runs-on: macos-14
+    needs: [typecheck-and-unit]
+    if: ${{ hashFiles('apps/mobile-client/android/**/build.gradle') != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.6
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install workspace deps
+        run: bun install --frozen-lockfile
+      - name: Bake runtime asset
+        run: cd apps/mobile-client && bun run bundle-runtime
+      - name: Assemble debug APK
+        run: cd apps/mobile-client/android && ./gradlew assembleDebug
+
+  # ─── Wave 3: relay client + QR onboarding e2e ───────────────────────────
+
+  wave3:
+    name: Wave 3 — relay + QR e2e
+    runs-on: macos-14
+    needs: [wave1-ios]
+    if: ${{ hashFiles('apps/mobile-client/ios/**/OnlookMobile.xcworkspace/**') != '' }}
+    steps:
+      - run: echo "Wave 3 job slot — filled by MC3.22 append"
+
+  # ─── Wave 4: OnlookInspector tap-to-cursor flow ─────────────────────────
+
+  wave4:
+    name: Wave 4 — inspector tap-to-cursor
+    runs-on: macos-14
+    needs: [wave1-ios]
+    if: ${{ hashFiles('apps/mobile-client/ios/**/OnlookInspector.swift') != '' }}
+    steps:
+      - run: echo "Wave 4 job slot — filled by MC4.19 append"
+
+  # ─── Wave 5: debug surface flows ────────────────────────────────────────
+
+  wave5:
+    name: Wave 5 — debug surface
+    runs-on: macos-14
+    needs: [wave1-ios]
+    if: ${{ hashFiles('apps/mobile-client/ios/**/OnlookInspector.swift') != '' }}
+    steps:
+      - run: echo "Wave 5 job slot — filled by MC5.18 append"
+
+  # ─── Wave 6: TestFlight / Play dry-run uploads ─────────────────────────
+
+  testflight-dryrun:
+    name: Wave 6 — TestFlight dry-run
+    runs-on: macos-14
+    needs: [wave1-ios]
+    if: ${{ hashFiles('apps/mobile-client/eas.json') != '' && github.event_name == 'push' && github.ref == 'refs/heads/feat/mobile-client' }}
+    steps:
+      - run: echo "TestFlight dry-run slot — filled by MC6.7 append"
+
+  play-dryrun:
+    name: Wave 6 — Play internal dry-run
+    runs-on: macos-14
+    needs: [wave1-android]
+    if: ${{ hashFiles('apps/mobile-client/scripts/build-play-internal.sh') != '' && github.event_name == 'push' && github.ref == 'refs/heads/feat/mobile-client' }}
+    steps:
+      - run: echo "Play dry-run slot — filled by MC6.8 append"
