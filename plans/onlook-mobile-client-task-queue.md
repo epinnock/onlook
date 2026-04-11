@@ -194,11 +194,24 @@ Phase F is explicitly serial. Every task in here either creates a hotspot file o
   - Deps: MCF2
   - Validate: `bun test packages/mobile-client-protocol/src/runtime-version.test.ts` (compatibility matrix: `0.1.0` client accepts `0.1.x` bundles, rejects `0.2.0`)
 
-- **MCF8** — `expo prebuild` + commit vanilla iOS/Android projects + Info.plist/AndroidManifest pre-population
-  - Files: ENTIRE `apps/mobile-client/ios/**`, ENTIRE `apps/mobile-client/android/**`, + targeted edits to `ios/OnlookMobile/Info.plist` and `android/app/src/main/AndroidManifest.xml`
+- **MCF8a** — Expo entry + app config + root component (prerequisites for `expo prebuild`)
+  - Files: `apps/mobile-client/app.config.ts`, `apps/mobile-client/index.js`, `apps/mobile-client/src/App.tsx`
   - Deps: MCF1
-  - Validate: `cd apps/mobile-client && cd ios && pod install && xcodebuild -workspace OnlookMobile.xcworkspace -scheme OnlookMobile -configuration Debug -sdk iphonesimulator build | tail -20` exits 0 AND `cd ../android && ./gradlew assembleDebug` exits 0
-  - Note: **Scope narrowed 2026-04-11** — no longer pre-registers downstream stub files in `project.pbxproj` or `build.gradle`. Rationale: reliable pbxproj surgery requires the `xcodeproj` Ruby gem and is too fragile to do by hand across ~40 wave tasks. Instead each wave that needs new native files adds one serialized "xcode scribe" sub-task (e.g., `MC1.X`, `MC2.X`) that batches all pbxproj additions for that wave via the gem. Scribe runs between the wave's content tasks and its build validation. Info.plist and AndroidManifest.xml ARE pre-populated in MCF8 because they're hand-editable XML. See "Hotspot file registry" table for the full scribe pattern.
+  - Validate: `bun --filter @onlook/mobile-client typecheck` exits 0
+  - Status: **✅ Done** — committed as `e5c9f227` on `feat/mobile-client`. Pinned to Expo SDK 54, bundle id `com.onlook.mobile`, URL scheme `onlook` for deep links, `newArchEnabled: true`, `jsEngine: hermes`. `expo-camera` + `expo-secure-store` registered as config plugins; `expo-haptics` stays as a runtime-only dep (no `app.plugin.js`).
+  - Note: Split from the original MCF8 on 2026-04-11 when the `Xcode ≥ 16.1` blocker on an Intel Mac forced a handoff. The "prep" files are independently valid and land early so the new machine has everything ready for `expo prebuild`.
+
+- **MCF8b** — `expo prebuild --platform ios`, pre-populate Info.plist, `pod install`, `xcodebuild` smoke build
+  - Files: ENTIRE `apps/mobile-client/ios/**` (generated), optional touch-ups to `ios/OnlookMobileClient/Info.plist` if Expo's output misses anything
+  - Deps: MCF8a, Xcode ≥ 16.1, CocoaPods ≥ 1.16
+  - Validate: `cd apps/mobile-client && bun x expo prebuild --platform ios --no-install --clean && cd ios && pod install && xcodebuild -workspace OnlookMobileClient.xcworkspace -scheme OnlookMobileClient -configuration Debug -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 15' build | tail -20` exits 0
+  - Status: **⛔ Blocked on tooling** (2026-04-11) — RN 0.81.6 pod check requires `Xcode >= 16.1`; machine has 15.4 on macOS 14.3.1. `expo prebuild --no-install` itself succeeds locally on Xcode 15.4 and generates `Info.plist` with all the right keys (camera permission, `onlook://` URL scheme, `NSAllowsLocalNetworking`, `RCTNewArchEnabled`) automatically from `app.config.ts`. The block is specifically at `pod install`. A new machine with Xcode 16.1+ finishes this task in ~10 min of `pod install` + `xcodebuild`. See `plans/onlook-mobile-client-handoff.md`.
+  - Note: **Scope narrowed 2026-04-11** — no longer pre-registers downstream stub files in `project.pbxproj` or `build.gradle`. Rationale: reliable pbxproj surgery requires the `xcodeproj` Ruby gem and is too fragile to do by hand across ~40 wave tasks. Instead each wave that needs new native files adds one serialized "xcode scribe" sub-task (e.g., `MC1.X`, `MC2.X`) that batches all pbxproj additions for that wave via the gem. Scribe runs between the wave's content tasks and its build validation. Info.plist and AndroidManifest.xml are pre-populated via `app.config.ts` because Expo expands them during prebuild.
+
+- **MCF8c** *(deferred)* — Android prebuild + Gradle assembleDebug
+  - Files: ENTIRE `apps/mobile-client/android/**` (generated)
+  - Deps: MCF8a, JDK 17, Android SDK with `platform-tools` + `platforms;android-34`
+  - Status: **⏸ Deferred per source plan cut line** — "iOS first because Phase B's verification rig is iPhone-only." Android lands after Wave 1 iOS is green. Android-side JNI work (MC1.7, MC2.4, MC2.6, MC4.7–4.11) and the `wave1-android` CI job all block on this.
 
 - **MCF9** — Maestro e2e harness scaffold
   - Files: `apps/mobile-client/e2e/maestro.config.yaml`, `apps/mobile-client/e2e/flows/00-smoke.yaml`, `apps/mobile-client/verification/results.json` (with empty `flows: {}`)
