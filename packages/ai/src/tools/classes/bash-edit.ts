@@ -55,6 +55,18 @@ export class BashEditTool extends ClientTool {
                 };
             }
 
+            // Per-branch capability gate (Wave B / §1.7.7).
+            // ExpoBrowser branches have no shell — return PROVIDER_NO_SHELL so
+            // the model adapts and uses write_file / search_replace instead.
+            const caps = sandbox.session.provider?.getCapabilities?.();
+            if (caps && !caps.supportsShell) {
+                return {
+                    output: '',
+                    success: false,
+                    error: 'PROVIDER_NO_SHELL: shell unavailable in browser-preview mode for this branch. Use write_file / search_replace_edit / search_replace_multi_edit_file instead.',
+                };
+            }
+
             // Use allowed commands from parameter or default to all enum values
             const editCommands = args.allowed_commands || BashEditTool.ALLOWED_BASH_EDIT_COMMANDS.options;
             const commandParts = args.command.trim().split(/\s+/);

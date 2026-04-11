@@ -16,6 +16,7 @@
 import {
     Provider,
     ProviderFileWatcher,
+    type ProviderCapabilities,
     type CopyFileOutput,
     type CopyFilesInput,
     type CreateDirectoryInput,
@@ -125,6 +126,17 @@ export class CloudflareSandboxProvider extends Provider {
             const r = await this.exec('echo "ping"');
             return r.success;
         } catch { return false; }
+    }
+
+    getCapabilities(): ProviderCapabilities {
+        return {
+            supportsTerminal: true,
+            supportsShell: true,
+            supportsBackgroundCommands: true,
+            // CF Sandbox does not have hibernate/resume semantics like CSB.
+            supportsHibernate: false,
+            supportsRemoteScreenshot: true,
+        };
     }
 
     async destroy(): Promise<void> {

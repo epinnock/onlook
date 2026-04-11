@@ -5,6 +5,13 @@ import { makeAutoObservable } from 'mobx';
 import type { ErrorManager } from '../error';
 import { CLISessionImpl, CLISessionType, type CLISession, type TerminalSession } from './terminal';
 
+// Lazy-loaded to keep test imports clean — `@/utils/supabase/client` pulls
+// in `@/env` which validates env vars at import time and breaks bun:test
+// runs that don't have the full env. The actual import happens inside
+// the ExpoBrowser branch of the start() method, only at runtime in the
+// browser.
+type SupabaseClientFactory = () => unknown;
+
 export class SessionManager {
     provider: Provider | null = null;
     isConnecting = false;
@@ -28,8 +35,17 @@ export class SessionManager {
 
         this.isConnecting = true;
 
-        // Detect provider type from sandboxId prefix
-        const resolvedProvider = providerType
+        // Provider selection priority:
+        //   1. Explicit `providerType` arg from the caller (passed by the
+        //      branch boot path after Wave G — reads branch.providerType
+        //      from the DB).
+        //   2. Branch model on `this.branch.sandbox.providerType` (set by
+        //      the per-branch settings UI).
+        //   3. Legacy sandboxId-prefix sniffing (cf- → Cloudflare,
+        //      slash → NodeFs, else CSB).
+        const branchProviderType = (this.branch as { sandbox?: { providerType?: string } } | undefined)?.sandbox?.providerType;
+        const resolvedProvider: CodeProvider = providerType
+            ?? (branchProviderType as CodeProvider | undefined)
             ?? (sandboxId.startsWith('cf-') ? CodeProvider.Cloudflare
             : sandboxId.startsWith('/') || sandboxId.includes('/') ? CodeProvider.NodeFs
             : CodeProvider.CodeSandbox);
@@ -50,6 +66,36 @@ export class SessionManager {
                 provider = await createCodeProviderClient(CodeProvider.NodeFs, {
                     providerOptions: {
                         nodefs: { rootDir: sandboxId },
+                    },
+                });
+            } else if (resolvedProvider === CodeProvider.ExpoBrowser) {
+                // Wave D §1.7: ExpoBrowser branches read from Supabase
+                // Storage. The projectId comes from the branch reference;
+                // the supabase URL/anon key from env. The branch retains
+                // its CSB sandboxId (Position B) — that ID is used as the
+                // storage prefix discriminator.
+                //
+                // FOUND-R1.7 fix (2026-04-08): pass the editor's existing
+                // authenticated browser-side Supabase client into the
+                // provider so Storage requests inherit the user's session
+                // (the sb-127-auth-token cookie). Without this, the
+                // provider's storage adapter creates its own client with
+                // a fresh GoTrueClient that has no session, and Storage
+                // RLS denies all reads even though the user owns the
+                // project. The "Multiple GoTrueClient instances detected"
+                // warning is the symptom of the broken path.
+                const projectId = (this.branch as { projectId?: string } | undefined)?.projectId ?? '';
+                const branchId = (this.branch as { id?: string } | undefined)?.id ?? sandboxId;
+                // Lazy-import to dodge env validation at test time (see top of file)
+                const { createClient: createSupabaseBrowserClient } = await import('@/utils/supabase/client');
+                const supabaseClient = createSupabaseBrowserClient() as unknown as SupabaseClientFactory;
+                provider = await createCodeProviderClient(CodeProvider.ExpoBrowser, {
+                    providerOptions: {
+                        expoBrowser: {
+                            projectId,
+                            branchId,
+                            supabaseClient,
+                        },
                     },
                 });
             } else {
@@ -137,6 +183,9 @@ export class SessionManager {
     onExpoUrlDetected?: (url: string) => void;
 
     async createTerminalSessions(provider: Provider) {
+        // Always create the task session — every provider has a virtual
+        // 'dev' task (CSB runs Metro/Next; ExpoBrowser's BrowserTask drives
+        // the in-browser bundler).
         const task = new CLISessionImpl(
             'server',
             CLISessionType.TASK,
@@ -145,24 +194,42 @@ export class SessionManager {
             { onExpoUrlDetected: (url) => this.onExpoUrlDetected?.(url) },
         );
         this.terminalSessions.set(task.id, task);
-        const terminal = new CLISessionImpl(
-            'terminal',
-            CLISessionType.TERMINAL,
-            provider,
-            this.errorManager,
-        );
-
-        this.terminalSessions.set(terminal.id, terminal);
         this.activeTerminalSessionId = task.id;
 
-        // Initialize the sessions after creation
-        try {
-            await Promise.all([
-                task.initTask(),
-                terminal.initTerminal()
-            ]);
-        } catch (error) {
-            console.error('Failed to initialize terminal sessions:', error);
+        // Wave D §1.7.2 — capability-gated terminal session.
+        // Providers without a real shell (ExpoBrowser, NodeFs) skip the
+        // interactive xterm session entirely. The bottom-panel terminal
+        // tab should hide for these branches (UI-side filter not yet
+        // wired — happens when the bottom panel reads
+        // session.terminalSessions and looks for type === TERMINAL).
+        const caps = provider.getCapabilities?.();
+        const supportsTerminal = caps?.supportsTerminal ?? true;
+
+        if (supportsTerminal) {
+            const terminal = new CLISessionImpl(
+                'terminal',
+                CLISessionType.TERMINAL,
+                provider,
+                this.errorManager,
+            );
+            this.terminalSessions.set(terminal.id, terminal);
+
+            // Initialize both sessions after creation
+            try {
+                await Promise.all([
+                    task.initTask(),
+                    terminal.initTerminal()
+                ]);
+            } catch (error) {
+                console.error('Failed to initialize terminal sessions:', error);
+            }
+        } else {
+            // Initialize only the task session
+            try {
+                await task.initTask();
+            } catch (error) {
+                console.error('Failed to initialize task session:', error);
+            }
         }
     }
 
@@ -222,8 +289,13 @@ export class SessionManager {
     async ping() {
         if (!this.provider) return false;
         try {
-            await this.provider.runCommand({ args: { command: 'echo "ping"' } });
-            return true;
+            // Wave D §1.7.1: route through provider.ping() instead of
+            // runCommand("echo ping"). The interceptor on no-shell
+            // providers (ExpoBrowser) wouldn't allow `echo` and would
+            // surface PROVIDER_NO_SHELL — making the session look dead.
+            // provider.ping() is the abstract-class contract for "are you
+            // alive" and every provider implements it.
+            return await this.provider.ping();
         } catch (error) {
             console.error('Failed to connect to sandbox', error);
             return false;

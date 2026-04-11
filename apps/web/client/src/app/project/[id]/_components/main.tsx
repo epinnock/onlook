@@ -1,5 +1,6 @@
 'use client';
 
+import { PreviewServiceWorkerRegister } from '@/components/preview/preview-sw-register';
 import { useEditorEngine } from '@/components/store/editor';
 import { SubscriptionModal } from '@/components/ui/pricing-modal';
 import { SettingsModalWithProjects } from '@/components/ui/settings-modal/with-project';
@@ -81,6 +82,11 @@ export const Main = observer(() => {
 
     return (
         <TooltipProvider>
+            {/* Wave H §1.3 — register the preview service worker once at the
+                editor root so the canvas iframes can resolve the
+                `/preview/<branchId>/<frameId>/` scope used by ExpoBrowser
+                branches. Returns null; safe to mount unconditionally. */}
+            <PreviewServiceWorkerRegister />
             <div className="h-screen w-screen flex flex-row select-none relative overflow-hidden">
                 <Canvas />
 

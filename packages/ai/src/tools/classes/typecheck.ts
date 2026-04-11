@@ -28,6 +28,19 @@ export class TypecheckTool extends ClientTool {
                 };
             }
 
+            // Per-branch capability gate (Wave B / §1.7.6).
+            // ExpoBrowser branches have no shell — typecheck via @typescript/vfs
+            // in a Web Worker is the long-term plan (§1.7.6 measurement gate),
+            // but it's deferred until Sprint 4. For v1, return a clean
+            // "unavailable" so the agent moves on instead of erroring.
+            const caps = sandbox.session.provider?.getCapabilities?.();
+            if (caps && !caps.supportsShell) {
+                return {
+                    success: true,
+                    error: 'Typecheck is not yet available in browser-preview mode. Trust the editor squiggles + write_file changes are validated by the bundler at preview time.',
+                };
+            }
+
             // Run Next.js typecheck command
             const result = await sandbox.session.runCommand('bunx tsc --noEmit');
 

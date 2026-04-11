@@ -1,5 +1,6 @@
 
 import { useEditorEngine } from '@/components/store/editor';
+import { useUserFeatureFlags } from '@/hooks/use-user-feature-flags';
 import { api } from '@/trpc/react';
 import { DefaultSettings } from '@onlook/constants';
 import { toDbProjectSettings } from '@onlook/db';
@@ -105,6 +106,41 @@ export const ProjectTab = observer(() => {
         setFormData(prev => ({ ...prev, [field]: value }));
     };
 
+    // Wave I §0.5 — per-branch preview runtime toggle.
+    // Visible only when (a) the user has the useExpoBrowserPreview flag and
+    // (b) there's an active branch booted (so we know its current provider).
+    const userFlags = useUserFeatureFlags();
+    const activeBranch = editorEngine.branches.activeBranch;
+    const currentProviderType = activeBranch?.sandbox?.providerType ?? 'code_sandbox';
+    const showPreviewRuntimeToggle = userFlags.isEnabled('useExpoBrowserPreview') && !!activeBranch;
+    const { mutateAsync: updateBranch } = api.branch.update.useMutation();
+    const utilsForBranch = api.useUtils();
+    const [isSwitchingRuntime, setIsSwitchingRuntime] = useState(false);
+
+    const switchPreviewRuntime = async (next: 'code_sandbox' | 'expo_browser') => {
+        if (!activeBranch || next === currentProviderType) return;
+        setIsSwitchingRuntime(true);
+        try {
+            await updateBranch({
+                id: activeBranch.id,
+                providerType: next,
+            });
+            await utilsForBranch.branch.getByProjectId.invalidate({
+                projectId: editorEngine.projectId,
+            });
+            toast.success(
+                next === 'expo_browser'
+                    ? 'Switched to browser preview. Reopen the branch to apply.'
+                    : 'Switched to CodeSandbox. Reopen the branch to apply.',
+            );
+        } catch (error) {
+            console.error('Failed to switch preview runtime:', error);
+            toast.error('Failed to switch preview runtime.');
+        } finally {
+            setIsSwitchingRuntime(false);
+        }
+    };
+
     return (
         <div className="text-sm flex flex-col h-full">
             <div className="flex flex-col gap-4 p-6 pb-24 overflow-y-auto flex-1">
@@ -124,6 +160,47 @@ export const ProjectTab = observer(() => {
                     </div>
                 </div>
                 <Separator />
+
+                {showPreviewRuntimeToggle && (
+                    <>
+                        <div className="flex flex-col gap-4">
+                            <div className="flex flex-col gap-2">
+                                <h2 className="text-lg">Preview runtime</h2>
+                                <p className="text-small text-foreground-secondary">
+                                    Where this branch&rsquo;s preview runs. Browser preview costs $0 but doesn&rsquo;t support publish or remote git push (yet). Switch back to CodeSandbox any time — your sandbox is preserved.
+                                </p>
+                            </div>
+                            <div className="flex flex-col gap-2">
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                        type="radio"
+                                        name="preview-runtime"
+                                        checked={currentProviderType === 'code_sandbox'}
+                                        onChange={() => switchPreviewRuntime('code_sandbox')}
+                                        disabled={isSwitchingRuntime}
+                                    />
+                                    <span>CodeSandbox (default — full Linux container)</span>
+                                </label>
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                        type="radio"
+                                        name="preview-runtime"
+                                        checked={currentProviderType === 'expo_browser'}
+                                        onChange={() => switchPreviewRuntime('expo_browser')}
+                                        disabled={isSwitchingRuntime}
+                                    />
+                                    <span>Browser preview (free — Expo / React Native only)</span>
+                                </label>
+                                {isSwitchingRuntime && (
+                                    <span className="text-xs text-foreground-tertiary">
+                                        Saving — reopen the branch for the new runtime to take effect.
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+                        <Separator />
+                    </>
+                )}
 
                 <div className="flex flex-col gap-4">
                     <div className="flex flex-col gap-2">

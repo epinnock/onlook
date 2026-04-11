@@ -1,5 +1,6 @@
 import { CodeProviderSync } from '@/services/sync-engine/sync-engine';
-import type { Provider } from '@onlook/code-provider';
+import { BrowserMetro, type BundleResult } from '@onlook/browser-metro';
+import { CodeProvider, ExpoBrowserProvider, type Provider } from '@onlook/code-provider';
 import { EXCLUDED_SYNC_PATHS, ProjectType } from '@onlook/constants';
 import type { CodeFileSystem } from '@onlook/file-system';
 import { type FileEntry } from '@onlook/file-system';
@@ -26,6 +27,15 @@ export class SandboxManager {
     readonly gitManager: GitManager;
     private providerReactionDisposer?: () => void;
     private sync: CodeProviderSync | null = null;
+    private bundler: BrowserMetro | null = null;
+    private bundlerSubscriptions: Array<() => void> = [];
+    // FOUND-R1.5-followup: tracks scheduled re-attach retries when the Vfs
+    // is empty at attach time. Bounded to avoid runaway setTimeout loops if
+    // the sync never populates the local file system.
+    private attachRetryTimer: ReturnType<typeof setTimeout> | null = null;
+    private attachRetryCount = 0;
+    private static readonly ATTACH_MAX_RETRIES = 10;
+    private static readonly ATTACH_RETRY_INTERVAL_MS = 500;
     preloadScriptState: PreloadScriptState = PreloadScriptState.NOT_INJECTED
     routerConfig: RouterConfig | null = null;
     projectType: ProjectType | null = null;
@@ -89,7 +99,11 @@ export class SandboxManager {
         if (!this.session.provider) {
             throw new Error('Provider not initialized');
         }
-        this.projectType = await detectProjectTypeFromProvider(this.session.provider, this.branch.sandbox.id);
+        this.projectType = await detectProjectTypeFromProvider(
+            this.session.provider,
+            this.branch.sandbox.id,
+            this.branch.sandbox.providerType,
+        );
         return this.projectType;
     }
 
@@ -104,6 +118,16 @@ export class SandboxManager {
         });
 
         await this.sync.start();
+        // TR1.5: BrowserMetro reads directly from the local Vfs, so we
+        // MUST wait for the sync engine's initial pullFromSandbox() to
+        // finish populating the file system. When getInstance() returns
+        // an already-running shared instance, start() short-circuits via
+        // its `isRunning` guard and returns before the first pull is
+        // done — leaving bundler.bundle() to read an empty Vfs and
+        // produce `bundled 0 modules` / `Module not found: App.tsx`.
+        // Awaiting `firstPullComplete` covers both the first-call and
+        // shared-instance paths.
+        await this.sync.firstPullComplete;
         await this.ensurePreloadScriptExists();
 
         // Set Expo mode on the file system so OIDs use dataSet prop
@@ -114,6 +138,194 @@ export class SandboxManager {
         }
 
         await this.fs.rebuildIndex();
+
+        // Wave H §1.3 follow-up: wire @onlook/browser-metro into the editor
+        // for ExpoBrowser branches. The bundler reads from the local
+        // CodeFileSystem (already populated by CodeProviderSync above),
+        // bundles via Sucrase, and posts the result to the preview
+        // service worker via both BroadcastChannel AND a direct
+        // postMessage to the active SW (more reliable across browsers).
+        await this.attachBrowserMetro(provider);
+    }
+
+    /**
+     * Wire @onlook/browser-metro into the editor for ExpoBrowser branches.
+     * Idempotent: tearing down any previous bundler before constructing
+     * a new one. Called from initializeSyncEngine after the local
+     * CodeFileSystem has been populated.
+     */
+    private async attachBrowserMetro(provider: Provider): Promise<void> {
+        console.info('[SandboxManager] attachBrowserMetro called for branch', this.branch.id);
+
+        // Tear down any previous bundler instance
+        for (const unsub of this.bundlerSubscriptions) {
+            try { unsub(); } catch { /* ignore */ }
+        }
+        this.bundlerSubscriptions = [];
+        if (this.bundler) {
+            try { this.bundler.dispose(); } catch { /* ignore */ }
+            this.bundler = null;
+        }
+
+        // Cancel any in-flight re-attach retry — we're about to either run
+        // a fresh attach or schedule a new retry below, so the previous
+        // one (if any) is stale.
+        if (this.attachRetryTimer !== null) {
+            clearTimeout(this.attachRetryTimer);
+            this.attachRetryTimer = null;
+        }
+
+        // FOUND-R1.5-followup (2026-04-08): defensive guard — even with
+        // `sync.firstPullComplete` awaited in `initializeSyncEngine`, a
+        // shared `CodeProviderSync` instance (getInstance + refCount > 1)
+        // can resolve `firstPullComplete` from a previous consumer's pull,
+        // leaving this consumer's view of the Vfs empty. If the Vfs has
+        // zero files at this moment, defer the bundler attach until the
+        // local file system has been populated. See the follow-up note in
+        // `plans/expo-browser-status.md` (2026-04-08).
+        const allFiles = await this.fs.listAll();
+        if (allFiles.length === 0) {
+            if (this.attachRetryCount >= SandboxManager.ATTACH_MAX_RETRIES) {
+                console.error(
+                    '[SandboxManager] attachBrowserMetro: Vfs still empty after',
+                    SandboxManager.ATTACH_MAX_RETRIES,
+                    'retries — giving up for branch',
+                    this.branch.id,
+                );
+                this.attachRetryCount = 0;
+                return;
+            }
+            this.attachRetryCount++;
+            console.info(
+                '[SandboxManager] attachBrowserMetro: Vfs empty, deferring until first file lands (retry',
+                this.attachRetryCount,
+                'of',
+                SandboxManager.ATTACH_MAX_RETRIES,
+                ')',
+            );
+            this.attachRetryTimer = setTimeout(() => {
+                this.attachRetryTimer = null;
+                // Only retry if the original provider is still the active one —
+                // if the session has torn down or swapped providers, bundling
+                // for a stale provider would be wrong.
+                if (this.session.provider === provider) {
+                    void this.attachBrowserMetro(provider);
+                }
+            }, SandboxManager.ATTACH_RETRY_INTERVAL_MS);
+            return;
+        }
+        // Reset the retry counter once the Vfs has been populated.
+        this.attachRetryCount = 0;
+
+        // Only no-shell providers (ExpoBrowser) get a real bundler.
+        // Duck-type via getCapabilities() instead of instanceof — Next.js
+        // can load the same class from server + client bundles, breaking
+        // instanceof checks across the RSC/client boundary.
+        const caps = provider.getCapabilities?.();
+        const isBrowserPreviewProvider = caps != null && caps.supportsTerminal === false && caps.supportsShell === false;
+        console.info('[SandboxManager] attachBrowserMetro: provider caps =', caps, 'isBrowserPreview =', isBrowserPreviewProvider);
+        if (!isBrowserPreviewProvider) {
+            console.info('[SandboxManager] attachBrowserMetro: provider does not need a browser bundler — skipping');
+            return;
+        }
+
+        const branchId = this.branch.id;
+
+        const bundler = new BrowserMetro({
+            vfs: this.fs,
+            esmUrl: process.env.NEXT_PUBLIC_BROWSER_METRO_ESM_URL ?? 'https://esm.sh',
+            broadcastChannel: 'onlook-preview',
+            logger: {
+                debug: (m) => console.debug('[browser-metro]', m),
+                info: (m) => console.info('[browser-metro]', m),
+                error: (m, e) => console.error('[browser-metro]', m, e),
+            },
+        });
+        this.bundler = bundler;
+
+        // Tag every published bundle with the branchId so the SW can key
+        // its cache correctly. The SW listens on both BroadcastChannel
+        // AND self.message — we publish on both to maximise reliability.
+        const publish = (result: BundleResult) => {
+            try {
+                const channel = new BroadcastChannel('onlook-preview');
+                channel.postMessage({ type: 'bundle', branchId, result });
+                channel.close();
+            } catch (err) {
+                console.error('[SandboxManager] BroadcastChannel publish failed:', err);
+            }
+            if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+                navigator.serviceWorker.getRegistration('/preview/').then((reg) => {
+                    reg?.active?.postMessage({ type: 'bundle', branchId, result });
+                }).catch((err) => {
+                    console.error('[SandboxManager] SW postMessage failed:', err);
+                });
+            }
+        };
+
+        // Subscribe to bundler updates
+        const unsubUpdate = bundler.onUpdate(publish);
+        this.bundlerSubscriptions.push(unsubUpdate);
+
+        // Hook the bundler into the provider's BrowserTask so
+        // SessionManager.restartDevServer triggers a re-bundle.
+        // Cast to ExpoBrowserProvider for the attachBundler() method —
+        // we already verified above that the provider is a browser-
+        // preview provider via getCapabilities() duck-typing.
+        const expoProvider = provider as unknown as ExpoBrowserProvider;
+        if (typeof expoProvider.attachBundler === 'function') {
+            expoProvider.attachBundler({
+                onRebundle: async () => {
+                    await bundler.invalidate();
+                },
+                onStop: async () => {
+                    bundler.dispose();
+                },
+                banner: '[browser-metro] bundling Expo project in your browser…\n',
+            });
+        }
+
+        // Run the initial bundle now that everything is wired
+        try {
+            console.info('[SandboxManager] Running initial browser-metro bundle for branch', branchId);
+            await bundler.bundle();
+        } catch (err) {
+            console.error('[SandboxManager] Initial bundle failed:', err);
+        }
+
+        // Watch the local Vfs for file changes and re-bundle on every
+        // write. Without this, browser-metro only runs the initial
+        // bundle and never updates — the canvas iframe stays stuck on
+        // whatever was rendered at mount time even after the user
+        // edits a file in the editor (chat AI, inline editor, etc.).
+        //
+        // The watcher fires for ANY file change in the Vfs, including
+        // sync engine pulls and writes from .onlook/* internal files,
+        // so we filter to source extensions only and skip noise dirs.
+        // The bundler.invalidate() call is debounced inside the
+        // BrowserMetro class, so even rapid bursts of writes only
+        // produce one re-bundle per debounce window.
+        try {
+            const stopWatching = this.fs.watchDirectory('/', (event) => {
+                const eventPath = event.path || '';
+                // Source files only — node_modules, .onlook internals, and
+                // lock files generate noise that doesn't affect the bundle.
+                if (!/\.(tsx?|jsx?|mjs|cjs|json|css|scss|sass|less)$/i.test(eventPath)) return;
+                if (eventPath.includes('node_modules')) return;
+                if (eventPath.includes('/.onlook/') || eventPath.startsWith('.onlook/')) return;
+                if (eventPath.endsWith('package-lock.json') || eventPath.endsWith('bun.lockb')) return;
+                console.info(
+                    '[SandboxManager] file change detected, invalidating bundler:',
+                    event.type,
+                    eventPath,
+                );
+                void bundler.invalidate();
+            });
+            this.bundlerSubscriptions.push(stopWatching);
+            console.info('[SandboxManager] Vfs watcher attached for live re-bundling');
+        } catch (err) {
+            console.error('[SandboxManager] Failed to attach Vfs watcher (live re-bundling disabled):', err);
+        }
     }
 
     private async ensurePreloadScriptExists(): Promise<void> {
@@ -291,6 +503,11 @@ export class SandboxManager {
     clear() {
         this.providerReactionDisposer?.();
         this.providerReactionDisposer = undefined;
+        if (this.attachRetryTimer !== null) {
+            clearTimeout(this.attachRetryTimer);
+            this.attachRetryTimer = null;
+        }
+        this.attachRetryCount = 0;
         this.sync?.release();
         this.sync = null;
         this.preloadScriptState = PreloadScriptState.NOT_INJECTED

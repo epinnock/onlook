@@ -60,6 +60,18 @@ export class BashReadTool extends ClientTool {
                 };
             }
 
+            // Per-branch capability gate (Wave B / §1.7.7).
+            // ExpoBrowser branches have no shell — return PROVIDER_NO_SHELL so
+            // the model adapts and uses file ops + glob/grep instead.
+            const caps = sandbox.session.provider?.getCapabilities?.();
+            if (caps && !caps.supportsShell) {
+                return {
+                    output: '',
+                    success: false,
+                    error: 'PROVIDER_NO_SHELL: shell unavailable in browser-preview mode for this branch. Use list_files / read_file / glob / grep instead.',
+                };
+            }
+
             // Use allowed commands from parameter or default to all enum values
             const readOnlyCommands = args.allowed_commands || BashReadTool.ALLOWED_BASH_READ_COMMANDS.options;
             const commandParts = args.command.trim().split(/\s+/);

@@ -51,6 +51,7 @@ const user0 = {
     updatedAt: new Date(),
     stripeCustomerId: null,
     githubInstallationId: null,
+    featureFlags: {},
 } satisfies User;
 
 const project0 = createDefaultProject({

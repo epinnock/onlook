@@ -6,4 +6,5 @@ export enum CodeProvider {
     Modal = 'modal',
     NodeFs = 'node_fs',
     Cloudflare = 'cloudflare',
+    ExpoBrowser = 'expo_browser',
 }

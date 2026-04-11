@@ -1,0 +1,26 @@
+{
+  "id": "aabbccddeeff0011223344556677889900112233445566778899aabbccddeeff",
+  "createdAt": "2026-04-08T10:01:29.000Z",
+  "runtimeVersion": "1.0.0",
+  "launchAsset": {
+    "key": "bundle-aabbccddeeff0011223344556677889900112233445566778899aabbccddeeff",
+    "contentType": "application/javascript",
+    "url": "http://127.0.0.1:8789/bundle/aabbccddeeff0011223344556677889900112233445566778899aabbccddeeff/index.android.bundle"
+  },
+  "assets": [],
+  "metadata": {},
+  "extra": {
+    "expoClient": {
+      "name": "minimal-expo-th1-3",
+      "slug": "minimal-expo-th1-3",
+      "version": "1.0.0",
+      "sdkVersion": "54.0.0",
+      "platforms": ["ios", "android"],
+      "icon": null,
+      "splash": { "backgroundColor": "#ffffff" },
+      "newArchEnabled": true
+    },
+    "scopeKey": "@onlook/preview",
+    "eas": { "projectId": null }
+  }
+}

@@ -108,6 +108,7 @@ const mockUser: User = {
   updatedAt: new Date('2024-11-01'),
   stripeCustomerId: null,
   githubInstallationId: null,
+  featureFlags: {},
 };
 
 // Create diverse mock projects
@@ -399,6 +400,7 @@ export const MinimalUser: Story = {
       updatedAt: new Date(),
       stripeCustomerId: null,
       githubInstallationId: null,
+      featureFlags: {},
     },
     projects: mockProjects.slice(0, 2),
     isLoading: false,

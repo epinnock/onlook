@@ -1,5 +1,9 @@
 import { Icons } from '@onlook/ui/icons';
 import type { EditorEngine } from '@onlook/web-client/src/components/store/editor/engine';
+// @ts-expect-error - picomatch ships its own JS-only export; @types/picomatch
+// is not installed because it's already pulled in transitively by Tailwind.
+// We type the matcher as (path: string) => boolean below to keep callers safe.
+import picomatch from 'picomatch';
 import { z } from 'zod';
 import { ClientTool } from '../models/client';
 import {
@@ -7,12 +11,72 @@ import {
     buildShellExclusionPattern,
     filterExcludedPaths
 } from '../shared/helpers/cli';
+import { getFileSystem } from '../shared/helpers/files';
 import { BRANCH_ID_SCHEMA } from '../shared/type';
 
 interface GlobResult {
     success: boolean;
     output: string;
-    method: 'bash' | 'sh' | 'find';
+    method: 'bash' | 'sh' | 'find' | 'in-process';
+}
+
+/**
+ * In-process glob via picomatch over the local CodeFileSystem mirror.
+ * Used for ExpoBrowser branches (no shell available).
+ */
+async function tryInProcessGlob(
+    branchId: string,
+    editorEngine: EditorEngine,
+    searchPath: string,
+    pattern: string,
+): Promise<GlobResult> {
+    try {
+        const fs = await getFileSystem(branchId, editorEngine);
+        const allEntries = await fs.listAll();
+        const allFiles = allEntries
+            .filter((e) => e.type === 'file')
+            .map((e) => normalizeRelative(e.path));
+
+        // Scope to searchPath if provided
+        const scoped =
+            searchPath === '.' || searchPath === ''
+                ? allFiles
+                : allFiles.filter((p) => p === searchPath || p.startsWith(searchPath.replace(/\/$/, '') + '/'));
+
+        // Build a picomatch matcher for the pattern.
+        // The pattern may be relative to searchPath (e.g. "**/*.ts") or
+        // already include it. picomatch handles both with the right basedir.
+        const isMatch = picomatch(pattern, { dot: false });
+        const matched = scoped.filter((p) => {
+            const relative =
+                searchPath === '.' || searchPath === ''
+                    ? p
+                    : p.startsWith(searchPath + '/')
+                      ? p.slice(searchPath.length + 1)
+                      : p;
+            return isMatch(relative) || isMatch(p);
+        });
+
+        const filtered = filterExcludedPaths(matched);
+
+        return {
+            success: filtered.length > 0,
+            output: filtered.join('\n'),
+            method: 'in-process',
+        };
+    } catch (error) {
+        return {
+            success: false,
+            output: `In-process glob failed: ${error instanceof Error ? error.message : String(error)}`,
+            method: 'in-process',
+        };
+    }
+}
+
+function normalizeRelative(filePath: string): string {
+    // CodeFileSystem.listAll() returns paths starting with '/'. Drop the
+    // leading slash so they look relative for downstream display.
+    return filePath.startsWith('/') ? filePath.slice(1) : filePath;
 }
 
 export class GlobTool extends ClientTool {
@@ -41,6 +105,19 @@ export class GlobTool extends ClientTool {
 
             const searchPath = args.path || '.';
             const pattern = args.pattern;
+
+            // Per-branch capability gate (Wave B / §1.7.4).
+            // For ExpoBrowser branches (no shell), walk the local CodeFileSystem
+            // mirror with picomatch instead of shelling out to bash/find.
+            // Latency stays local — no provider round-trip.
+            const caps = sandbox.session.provider?.getCapabilities?.();
+            if (caps && !caps.supportsShell) {
+                const inProcess = await tryInProcessGlob(args.branchId, editorEngine, searchPath, pattern);
+                if (!inProcess.success) {
+                    return `No files found matching pattern "${pattern}" in path "${searchPath}"`;
+                }
+                return await processAndFormatResults(inProcess.output, pattern, searchPath, inProcess.method);
+            }
 
             // Enhanced input validation
             const validationError = await validateInputs(pattern, searchPath, sandbox);
@@ -232,7 +309,7 @@ async function validateInputs(pattern: string, searchPath: string, sandbox: any)
     return null; // All validations passed
 }
 
-async function processAndFormatResults(output: string, pattern: string, searchPath: string, method: 'bash' | 'sh' | 'find'): Promise<string> {
+async function processAndFormatResults(output: string, pattern: string, searchPath: string, method: 'bash' | 'sh' | 'find' | 'in-process'): Promise<string> {
     if (!output || !output.trim()) {
         return `No files found matching pattern "${pattern}" in path "${searchPath}"`;
     }

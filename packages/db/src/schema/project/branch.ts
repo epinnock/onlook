@@ -27,8 +27,13 @@ export const branches = pgTable('branches', {
 
     // sandbox
     sandboxId: varchar('sandbox_id').notNull(),
-    // providerType will be added via migration when DB is ready.
-    // For now, CF sandboxes are identified by their 'cf-' prefix on sandboxId.
+    // providerType selects which CodeProvider implementation runs the editor
+    // session for this branch. Per-branch (not per-project) so a single
+    // project can A/B branches between providers. Default 'code_sandbox' to
+    // preserve existing behavior for all current rows after the migration.
+    // Allowed values match the CodeProvider enum in
+    // packages/code-provider/src/providers.ts.
+    providerType: varchar('provider_type').notNull().default('code_sandbox'),
 }, (table) => [
     index('branches_project_id_idx').on(table.projectId),
     uniqueIndex('branches_name_per_project_ux').on(table.projectId, table.name),

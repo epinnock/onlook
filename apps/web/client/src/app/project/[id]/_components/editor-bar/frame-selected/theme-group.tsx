@@ -11,7 +11,20 @@ export function ThemeGroup({ frameData }: { frameData: FrameData }) {
     useEffect(() => {
         const getTheme = async () => {
             if (!frameData?.view) {
-                console.error('No frame view found');
+                // Benign: frame view is asynchronously created by FrameManager.
+                // ThemeGroup's effect can run before it's ready on initial mount
+                // or after IndexedDB cache clears. Demoted to debug so Next 16's
+                // dev overlay doesn't surface a routine race as a Console Error.
+                console.debug('[ThemeGroup] frame view not yet available, skipping theme fetch');
+                return;
+            }
+
+            // ExpoBrowser branches use the SW preview iframe which doesn't
+            // expose CSB's getTheme/setTheme penpal methods. The control is
+            // a no-op in that mode — the canvas iframe's color scheme is
+            // governed by the bundle's runtime, not by an editor toggle.
+            if (typeof frameData.view.getTheme !== 'function') {
+                console.debug('[ThemeGroup] view has no getTheme (browser-preview); skipping');
                 return;
             }
 
@@ -24,7 +37,14 @@ export function ThemeGroup({ frameData }: { frameData: FrameData }) {
     async function changeTheme(newTheme: SystemTheme) {
         const previousTheme = theme;
         setTheme(newTheme);
-        const success = await frameData.view?.setTheme(newTheme);
+        if (typeof frameData.view?.setTheme !== 'function') {
+            // Same browser-preview gating as the read path above —
+            // surface a friendly toast instead of a runtime crash.
+            toast.error('Theme toggle not available in browser preview');
+            setTheme(previousTheme);
+            return;
+        }
+        const success = await frameData.view.setTheme(newTheme);
         if (!success) {
             toast.error('Failed to change theme');
             setTheme(previousTheme);

@@ -28,9 +28,29 @@ export class GitManager {
     }
 
     /**
+     * Wave D §1.7.3 — capability gate.
+     * Returns true when this branch's provider supports a real shell
+     * (git CLI). For ExpoBrowser branches the gate returns false and
+     * GitManager methods short-circuit cleanly. Real isomorphic-git
+     * support is a Sprint 4 stretch task — until then, ExpoBrowser
+     * branches keep their original CSB sandbox (Position B), so users
+     * who need git can flip back temporarily.
+     */
+    private supportsShellGit(): boolean {
+        const caps = this.sandbox.session.provider?.getCapabilities?.();
+        return caps?.supportsShell ?? true;
+    }
+
+    /**
      * Initialize git manager - auto-initializes repo if needed and preloads commits
      */
     async init(): Promise<void> {
+        if (!this.supportsShellGit()) {
+            // Browser-preview branches: skip git init/listCommits.
+            // The commits panel will show empty until isomorphic-git lands.
+            this.commits = [];
+            return;
+        }
         const isInitialized = await this.isRepoInitialized();
         if (!isInitialized) {
             await this.initRepo();

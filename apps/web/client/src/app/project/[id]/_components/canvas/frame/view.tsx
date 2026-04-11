@@ -84,6 +84,22 @@ export const FrameComponent = observer(
             const isSelected = editorEngine.frames.isSelected(frame.id);
             const isActiveBranch = editorEngine.branches.activeBranch.id === frame.branchId;
 
+            // Wave H §1.1 — when the frame's branch is on the ExpoBrowser
+            // provider, route the iframe at the in-browser preview SW scope
+            // (`/preview/<branchId>/<frameId>/`) instead of the persisted
+            // `frame.url` (which still points at the originating CSB host
+            // for branches that were opted into ExpoBrowser via the
+            // per-branch settings toggle). Non-ExpoBrowser branches keep
+            // their existing `frame.url` flow unchanged.
+            const frameBranch =
+                editorEngine.branches.getBranchById(frame.branchId) ??
+                editorEngine.branches.activeBranch;
+            const previewProviderType = frameBranch?.sandbox?.providerType ?? 'code_sandbox';
+            const isBrowserPreview = previewProviderType === 'expo_browser';
+            const computedSrc = isBrowserPreview
+                ? `${typeof window !== 'undefined' ? window.location.origin : ''}/preview/${frame.branchId}/${frame.id}/`
+                : frame.url;
+
             const setupPenpalConnection = () => {
                 try {
                     if (!iframeRef.current?.contentWindow) {
@@ -317,7 +333,7 @@ export const FrameComponent = observer(
                             isActiveBranch && !isSelected && 'outline-dashed',
                             !isActiveBranch && isInDragSelection && 'outline-teal-500',
                         )}
-                        src={frame.url}
+                        src={computedSrc}
                         sandbox="allow-modals allow-forms allow-same-origin allow-scripts allow-popups allow-downloads"
                         allow="geolocation; microphone; camera; midi; encrypted-media"
                         style={{ width: frame.dimension.width, height: frame.dimension.height }}

@@ -17,6 +17,7 @@ import { useState } from 'react';
 import { Members } from '../members';
 import { BranchDisplay } from './branch';
 import { ModeToggle } from './mode-toggle';
+import { PreviewOnDeviceButton } from './preview-on-device-button';
 import { ProjectBreadcrumb } from './project-breadcrumb';
 import { PublishButton } from './publish';
 
@@ -114,6 +115,7 @@ export const TopBar = observer(() => {
                         {t(transKeys.editor.toolbar.versionHistory)}
                     </TooltipContent>
                 </Tooltip>
+                <PreviewOnDeviceButton />
                 <PublishButton />
             </div>
         </div>
