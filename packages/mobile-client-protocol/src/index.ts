@@ -10,19 +10,19 @@
  * See plans/onlook-mobile-client-task-queue.md "Hotspot file registry" for the pattern.
  */
 
-// Populated by MCF3 — bundle envelope (@onlook/browser-metro IIFE shape)
-// export * from './bundle-envelope.ts';
+// MCF3 — bundle envelope (@onlook/browser-metro IIFE shape)
+export * from './bundle-envelope.ts';
 
-// Populated by MCF4 — cf-expo-relay manifest Zod schema
-// export * from './manifest.ts';
+// MCF4 — cf-expo-relay manifest Zod schema
+export * from './manifest.ts';
 
-// Populated by MCF5 — WebSocket message discriminated union
-// export * from './ws-messages.ts';
+// MCF5 — WebSocket message discriminated union
+export * from './ws-messages.ts';
 
-// Populated by MCF6 — OnlookInspector descriptor types
-// export * from './inspector.ts';
+// MCF6 — OnlookInspector descriptor types
+export * from './inspector.ts';
 
-// Populated by MCF7 — runtime version constant + compatibility matrix
-// export * from './runtime-version.ts';
+// MCF7 — runtime version constant + compatibility matrix
+export * from './runtime-version.ts';
 
 export const PROTOCOL_PACKAGE_NAME = '@onlook/mobile-client-protocol' as const;
