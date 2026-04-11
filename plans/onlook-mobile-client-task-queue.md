@@ -109,11 +109,11 @@ These files are touched by many conceptually-independent pieces of work. Each is
 | Hotspot file | Owner task | Strategy |
 |---|---|---|
 | `apps/mobile-client/package.json` | **MCF1** | Owner adds every anticipated dep up front (`react-native@0.81.x`, `expo`, `expo-camera`, `expo-secure-store`, `expo-haptics`, `@onlook/mobile-client-protocol`, Maestro, etc.). No downstream task touches this file. |
-| `apps/mobile-client/ios/OnlookMobile.xcodeproj/project.pbxproj` | **MCF8** | Owner runs `expo prebuild` once, then pre-registers every anticipated `.swift`/`.mm`/`.h` file as an empty stub and commits the populated pbxproj. Downstream tasks only edit the contents of those stub files. |
-| `apps/mobile-client/ios/Podfile` + `Podfile.lock` | **MCF8** | Owner adds all pod references up front. No downstream task touches Podfile. |
-| `apps/mobile-client/ios/OnlookMobile/Info.plist` | **MCF8** | Owner adds all required keys: camera permission, URL types for `onlook://` scheme, `NSAppTransportSecurity` for local relay, etc. |
-| `apps/mobile-client/android/app/build.gradle` | **MCF8** | Owner adds all anticipated deps + NDK config for JSI/C++ up front. |
-| `apps/mobile-client/android/app/src/main/AndroidManifest.xml` | **MCF8** | Owner adds camera permission, deep-link intent filter, `usesCleartextTraffic` for local relay. |
+| `apps/mobile-client/ios/OnlookMobile.xcodeproj/project.pbxproj` | **MCF8 (initial) → per-wave "xcode scribe"** | MCF8 runs `expo prebuild --clean` and commits the vanilla output. **Pre-registration of downstream stub files was dropped** (2026-04-11 decision) because reliable pbxproj surgery requires the `xcodeproj` Ruby gem and is too fragile to do by hand. Instead: each Wave that needs new native files gets one **serialized "xcode scribe" sub-task** (e.g., `MC1.X`, `MC2.X`, `MC4.X`) whose sole job is to batch-add that wave's new `.swift`/`.mm`/`.h`/`.cpp` files to `project.pbxproj` via the `xcodeproj` gem. All other tasks in the wave write their Swift/ObjC/C++ file contents but never touch the pbxproj. The scribe runs after the wave's content tasks finish and before the wave's build validation. |
+| `apps/mobile-client/ios/Podfile` + `Podfile.lock` | **MCF8** | Owner runs `expo prebuild --clean` and commits the generated Podfile. Any new pod references during Waves 2–5 go through a `Podfile` follow-up patch to MCF8 (one per wave if needed), not through individual tasks. |
+| `apps/mobile-client/ios/OnlookMobile/Info.plist` | **MCF8** | Owner pre-populates all required keys up front: `NSCameraUsageDescription`, `CFBundleURLTypes` for `onlook://` scheme, `NSAppTransportSecurity` for local relay dev. Info.plist is hand-editable XML so this is safe. |
+| `apps/mobile-client/android/app/build.gradle` | **MCF8** | Owner runs `expo prebuild` and commits the generated gradle config. Wave-specific additions (NDK config for JSI/C++, new native module deps) go through append-only patches owned by a per-wave scribe task, same pattern as the pbxproj scribe above. |
+| `apps/mobile-client/android/app/src/main/AndroidManifest.xml` | **MCF8** | Owner pre-populates `CAMERA` permission, `onlook://` deep-link intent filter, and `usesCleartextTraffic="true"` (dev-only, gated on `android:debuggable`). Hand-editable XML so pre-population is safe. |
 | `packages/mobile-client-protocol/src/index.ts` | **MCF2** | Owner creates the re-export index with every anticipated named export. Downstream F3–F7 tasks fill in the per-type files; index.ts never changes again. |
 | `apps/cf-expo-relay/src/manifest-builder.ts` | **MC6.2** | Owner adds the `extra.expoClient.onlookRuntimeVersion` field. Only one mobile-client wave task touches the relay, and it's this one. |
 | `packages/browser-metro/src/host/index.ts` | **MC4.12** | Owner adds the `target: 'expo-go' | 'onlook-client'` flag + jsx-source hook wiring. |
@@ -194,11 +194,11 @@ Phase F is explicitly serial. Every task in here either creates a hotspot file o
   - Deps: MCF2
   - Validate: `bun test packages/mobile-client-protocol/src/runtime-version.test.ts` (compatibility matrix: `0.1.0` client accepts `0.1.x` bundles, rejects `0.2.0`)
 
-- **MCF8** — `expo prebuild` + commit iOS/Android projects with stub file pre-registration
-  - Files: ENTIRE `apps/mobile-client/ios/**`, ENTIRE `apps/mobile-client/android/**`
+- **MCF8** — `expo prebuild` + commit vanilla iOS/Android projects + Info.plist/AndroidManifest pre-population
+  - Files: ENTIRE `apps/mobile-client/ios/**`, ENTIRE `apps/mobile-client/android/**`, + targeted edits to `ios/OnlookMobile/Info.plist` and `android/app/src/main/AndroidManifest.xml`
   - Deps: MCF1
   - Validate: `cd apps/mobile-client && cd ios && pod install && xcodebuild -workspace OnlookMobile.xcworkspace -scheme OnlookMobile -configuration Debug -sdk iphonesimulator build | tail -20` exits 0 AND `cd ../android && ./gradlew assembleDebug` exits 0
-  - Note: This is the single biggest Phase F task. It creates empty stub files for every Swift/ObjC/C++/Kotlin file Waves 1–5 will populate, and registers them in `project.pbxproj` / `build.gradle` up front.
+  - Note: **Scope narrowed 2026-04-11** — no longer pre-registers downstream stub files in `project.pbxproj` or `build.gradle`. Rationale: reliable pbxproj surgery requires the `xcodeproj` Ruby gem and is too fragile to do by hand across ~40 wave tasks. Instead each wave that needs new native files adds one serialized "xcode scribe" sub-task (e.g., `MC1.X`, `MC2.X`) that batches all pbxproj additions for that wave via the gem. Scribe runs between the wave's content tasks and its build validation. Info.plist and AndroidManifest.xml ARE pre-populated in MCF8 because they're hand-editable XML. See "Hotspot file registry" table for the full scribe pattern.
 
 - **MCF9** — Maestro e2e harness scaffold
   - Files: `apps/mobile-client/e2e/maestro.config.yaml`, `apps/mobile-client/e2e/flows/00-smoke.yaml`, `apps/mobile-client/verification/results.json` (with empty `flows: {}`)
@@ -222,9 +222,9 @@ Phase F is explicitly serial. Every task in here either creates a hotspot file o
   - Validate: `test -f apps/mobile-client/.claude/rules.template.md`
 
 - **MCF13** — Per-task `validate` harness script
-  - Files: `apps/mobile-client/scripts/validate-task.ts`
-  - Deps: MCF9, MCF10
-  - Validate: `bun run apps/mobile-client/scripts/validate-task.ts MCF0` exits 0 (smoke-check that the harness itself runs)
+  - Files: `apps/mobile-client/scripts/validate-task.ts`, `apps/mobile-client/scripts/__tests__/validate-task.test.ts`
+  - Deps: MCF1 (workspace must exist so the harness can live inside it; the dependency on MCF9/MCF10 from the original queue was incorrect — the harness only needs to parse the queue markdown and run bash, and its own tests exercise that in isolation)
+  - Validate: `bun test apps/mobile-client/scripts/__tests__/validate-task.test.ts` (4 tests: usage error, MCF0 dry-run, MCF7 dry-run, unknown task rejection)
 
 **Phase F exit criterion:** `feat/mobile-client` has a buildable iOS and Android scaffold that boots to a black screen, runs an empty Maestro smoke flow, and has the entire shared protocol package typechecking. All hotspot files are pre-populated. Waves 1–6 can now run in parallel.
 
@@ -816,7 +816,7 @@ These are explicit holes in the source plan that the decomposition surfaced. Eac
 
 1. **Maestro vs. Detox for e2e.** MCF9 picks Maestro on the strength of its YAML simplicity, but `packages/browser-metro` has no prior art and Detox has better physical-device support. If Maestro can't drive the three-finger long-press in Wave 5 (MC5.10), the decomposition needs a framework swap and every `bun run mobile:e2e:*` command changes. Low probability, high blast radius.
 2. **Runtime asset versioning across `feat/mobile-client` long-running-branch lifespan.** MCF11 wires `packages/mobile-preview/runtime/bundle.js` into the iOS/Android binary at build time. But that runtime file is under active development elsewhere in the repo. If it churns during the queue's run, every Wave 2 task silently rebuilds against a different runtime. **Mitigation:** pin the runtime commit hash in `apps/mobile-client/scripts/bundle-runtime.ts` and only bump it via an explicit task (add `MCF11b` if this becomes a problem).
-3. **Xcode project.pbxproj merge conflicts despite MCF8's pre-population.** MCF8 pre-registers stub files, but if any Wave 2/3/4 task discovers it needs a file type MCF8 didn't anticipate (e.g., a `.metal` shader, a storyboard), the hotspot assumption breaks. **Mitigation:** dead-letter any task that needs a new pbxproj entry; a human adds it via a follow-up MCF8-extension task.
+3. **Xcode project.pbxproj merge conflicts — resolved 2026-04-11 via the "xcode scribe" pattern.** MCF8 used to pre-register every anticipated stub file in the pbxproj up front; that approach required reliable programmatic pbxproj edits (which in practice means the `xcodeproj` Ruby gem, and the tool's fragility across ~40 wave tasks made it a worse cure than the disease). Replaced with: MCF8 commits only the vanilla `expo prebuild` output + hand-editable XML (Info.plist, AndroidManifest.xml). Each wave gets one serialized "xcode scribe" sub-task (`MC1.X`, `MC2.X`, etc.) whose sole job is to batch every new `.swift`/`.mm`/`.h`/`.cpp` file that wave introduces into the pbxproj via `xcodeproj`. Scribe runs between the wave's content tasks and its build validation. Gradle follows the same pattern for android/app/build.gradle additions. See "Hotspot file registry" table for the full description.
 4. **Editor-side touchpoints are under-scoped.** The queue has three editor-side tasks (MC3.19, MC4.15/16/17, MC5.16/17) that all land in `apps/web/client`. The source plan references an "existing dev panel" but the decomposition didn't verify that panel's shape before assigning file paths. Those paths are best-effort and the agents working those tasks should grep for real file locations and adjust the task's Files field as they go. This is the only place in the queue where the task's file list is treated as a hint rather than a contract.
 5. **Sucrase `jsx-source` fidelity.** MC4.12 assumes Sucrase has a hook point that can emit `__source`. If not, the agent needs to fall back to a Babel plugin, which adds a bundler dep and a parse pass. **Mitigation:** the task's first retry should dead-letter immediately on "no hook point," and a human decides whether to add Babel or change the inspector approach to something source-less (e.g., `findNode` + view-name heuristics).
 
