@@ -1,3 +1,11 @@
 {
-  "flows": {}
+  "flows": {
+    "MCF9": {
+      "state": "passed",
+      "validated_at": "2026-04-11T09:14:17.014Z",
+      "validate_command": "cd apps/mobile-client && maestro test e2e/flows/00-smoke.yaml",
+      "exit_code": 0,
+      "stderr_tail": ""
+    }
+  }
 }

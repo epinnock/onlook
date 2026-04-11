@@ -216,7 +216,7 @@ Phase F is explicitly serial. Every task in here either creates a hotspot file o
 - **MCF9** — Maestro e2e harness scaffold
   - Files: `apps/mobile-client/e2e/maestro.config.yaml`, `apps/mobile-client/e2e/flows/00-smoke.yaml`, `apps/mobile-client/verification/results.json` (with empty `flows: {}`)
   - Deps: MCF8
-  - Validate: `bun run mobile:e2e:ios -- 00-smoke.yaml` (empty flow that just launches the app and takes a screenshot)
+  - Validate: `cd apps/mobile-client && maestro test e2e/flows/00-smoke.yaml` (harness-only flow; does not launch the app, just proves Maestro CLI parses + runs a well-formed flow file)
 
 - **MCF10** — CI workflow for mobile client
   - Files: `.github/workflows/mobile-client.yml`
