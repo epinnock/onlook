@@ -15,8 +15,8 @@
         "format": "eslint --fix .",
         "clean": "rm -rf node_modules",
         "bundle-runtime": "bun run scripts/bundle-runtime.ts",
-        "e2e:ios": "maestro test e2e/flows",
-        "e2e:android": "maestro test e2e/flows"
+        "mobile:e2e:ios": "bun run scripts/run-e2e.ts",
+        "mobile:e2e:android": "bun run scripts/run-e2e.ts"
     },
     "dependencies": {
         "@onlook/mobile-client-protocol": "*",
