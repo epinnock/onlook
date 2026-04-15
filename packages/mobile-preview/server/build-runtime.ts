@@ -9,11 +9,31 @@
  * Run: bun run packages/mobile-preview/server/build-runtime.ts
  */
 
-import { join } from 'path';
+import { existsSync, readFileSync } from 'fs';
+import { dirname, join } from 'path';
 
 const ROOT = join(import.meta.dir, '..');
+export const DEFAULT_EXPO_SDK_VERSION = '54.0.0';
+export const RUNTIME_BUILD_METADATA_FILENAME = 'bundle.meta.json';
 
-async function build() {
+export interface RuntimeBuildMetadata {
+  sdkVersion: string;
+}
+
+export function getRuntimeBuildMetadataPath(runtimeBundlePath: string): string {
+  return join(dirname(runtimeBundlePath), RUNTIME_BUILD_METADATA_FILENAME);
+}
+
+export function readRuntimeBuildMetadata(runtimeBundlePath: string): RuntimeBuildMetadata | null {
+  const metadataPath = getRuntimeBuildMetadataPath(runtimeBundlePath);
+  if (!existsSync(metadataPath)) {
+    return null;
+  }
+
+  return JSON.parse(readFileSync(metadataPath, 'utf-8')) as RuntimeBuildMetadata;
+}
+
+export async function buildRuntime() {
   console.log('[build-runtime] Bundling React runtime...');
 
   const result = await Bun.build({
@@ -57,6 +77,10 @@ __d(function(global,require,_imports,_exports,module,exports,_dependencyMap){
   const suffix = '\n}, 0, []);\n__r(0);\n';
 
   await Bun.write(outPath, preamble + rawBundle + suffix);
+  await Bun.write(
+    getRuntimeBuildMetadataPath(outPath),
+    `${JSON.stringify({ sdkVersion: DEFAULT_EXPO_SDK_VERSION }, null, 2)}\n`,
+  );
 
   // Clean up raw bundle
   const fs = require('fs');
@@ -67,4 +91,6 @@ __d(function(global,require,_imports,_exports,module,exports,_dependencyMap){
   console.log('[build-runtime] Done.');
 }
 
-build().catch(console.error);
+if (import.meta.main) {
+  buildRuntime().catch(console.error);
+}
