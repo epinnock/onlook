@@ -264,9 +264,10 @@ Goal: buildable app that loads a Hermes JS context and prints `[onlook-runtime] 
   - Validate: `bun run mobile:build:ios && bun run mobile:e2e:ios -- 02-black-screen.yaml`
 
 - **MC1.4** — iOS Hermes init in AppDelegate (reads `onlook-runtime.js` asset and evals once)
-  - Files: `apps/mobile-client/ios/OnlookMobile/HermesBootstrap.mm`
-  - Deps: MCF11, MC1.1
-  - Validate: `bun run mobile:e2e:ios -- 03-hermes-eval.yaml` (device log contains `[onlook-runtime] hermes ready`)
+  - Files: `apps/mobile-client/ios/OnlookMobileClient/HermesBootstrap.swift`, `apps/mobile-client/ios/OnlookMobileClient/AppDelegate.swift` (override `bundleURL`), `apps/mobile-client/scripts/run-build.ts` (bake `main.jsbundle` via `expo export:embed`), `apps/mobile-client/scripts/validate-mc14.sh`, `apps/mobile-client/e2e/flows/03-hermes-eval.yaml`
+  - Deps: MCF11, MCF8b
+  - Validate: `bash apps/mobile-client/scripts/validate-mc14.sh` (builds, reinstalls, launches, scrapes device log for `[onlook-runtime] hermes ready` — see script header for why this replaced the original maestro flow)
+  - Status: **iOS landed 2026-04-15.** Approach pivoted from the original Obj-C++ / `RCTHostRuntimeDelegate.didInitializeRuntime` / `evaluateJavaScript` design to a pure-Swift `bundleURL()` override that composes a combined `onlook-runtime.js + main.jsbundle` and returns its tmp URL. Reasons: (a) under bridgeless / new arch, RCTHost loads the bundle directly from `bundleURL` and never consults `loadSource:` or `loadBundleAtURL:` delegate hooks (empirically confirmed by NSLogging both); (b) Expo's `ExpoReactNativeFactory` doesn't expose `RCTHost` to the delegate, so we can't set `host.runtimeDelegate` to receive `didInitializeRuntime` before Hermes starts; (c) byte-level prepend in `bundleURL` is platform-portable and avoids the `jsi::Runtime &` C++ reference that Swift can't bridge. The maestro flow (03-hermes-eval.yaml) currently hangs because the bare-scaffold app renders nothing for `waitForAnimationToEnd` to settle on — switched validate to a `simctl log stream` scrape (`scripts/validate-mc14.sh`) that asserts the log line directly. Restore the maestro path in a later wave once user JS renders something.
 
 - **MC1.5** — Android `MainActivity.kt` — activity lifecycle + Hermes bootstrap
   - Files: `apps/mobile-client/android/app/src/main/java/com/onlook/mobile/MainActivity.kt`

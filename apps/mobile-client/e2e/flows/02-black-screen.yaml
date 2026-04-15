@@ -1,0 +1,22 @@
+# 02-black-screen.yaml — Wave 1 task MC1.3 of plans/onlook-mobile-client-task-queue.md.
+#
+# Asserts the app launches to a black screen — i.e. the root view controller
+# is mounted, the window is visible, and no red RN error overlay appears.
+# We don't assert any specific text yet because the app doesn't render any
+# UI until the runtime + user bundle are loaded (MC1.4 and later).
+#
+# Maestro can't directly assert on screen pixel color, but it CAN assert
+# that no element with text exists (which is how an unstyled, content-less
+# RN root view renders on boot). A red-box error would introduce visible
+# text like "Error", "Unable to load", etc., so `assertNotVisible` on
+# common error strings catches the failure mode we care about.
+
+appId: com.onlook.mobile
+---
+- launchApp:
+    clearState: true
+- waitForAnimationToEnd:
+    timeout: 5000
+- assertNotVisible: "Error"
+- assertNotVisible: "Unable to load"
+- assertNotVisible: "RCTFatal"

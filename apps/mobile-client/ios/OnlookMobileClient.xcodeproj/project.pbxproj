@@ -11,8 +11,10 @@
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
 		45A820ADCF976C4E539BD479 /* OnlookLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CCEB76AA8C8E65563C3D265 /* OnlookLogger.swift */; };
 		5FCE3FAAF7C72C95A290B230 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD0EEBAEA629EA0B4A4A98FE /* ExpoModulesProvider.swift */; };
+		9AA77EE9615F1F28B0460B8A /* HermesBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 751569567CF7839D697C2619 /* HermesBootstrap.swift */; };
 		A97B3DB5E491B8B1F7B71D2D /* libPods-OnlookMobileClient.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A73E8FA38A23CD5C50605EA4 /* libPods-OnlookMobileClient.a */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
+		BBFDB5E7DD3BFA8610AE4940 /* main.jsbundle in Resources */ = {isa = PBXBuildFile; fileRef = 89B0D449CECFEC04F71DBCDD /* main.jsbundle */; };
 		E39D494E18A1615B949298D6 /* onlook-runtime.js in Resources */ = {isa = PBXBuildFile; fileRef = EC86DCCB7DE93DCD86EE9F9F /* onlook-runtime.js */; };
 		F0D24F166FDA72378CE986C6 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 48E3EF96145B6BAC5F2AF4D9 /* PrivacyInfo.xcprivacy */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
@@ -24,6 +26,8 @@
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = OnlookMobileClient/Info.plist; sourceTree = "<group>"; };
 		48E3EF96145B6BAC5F2AF4D9 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = OnlookMobileClient/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		4CCEB76AA8C8E65563C3D265 /* OnlookLogger.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = OnlookLogger.swift; path = OnlookMobileClient/OnlookLogger.swift; sourceTree = "<group>"; };
+		751569567CF7839D697C2619 /* HermesBootstrap.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HermesBootstrap.swift; path = OnlookMobileClient/HermesBootstrap.swift; sourceTree = "<group>"; };
+		89B0D449CECFEC04F71DBCDD /* main.jsbundle */ = {isa = PBXFileReference; includeInIndex = 1; name = main.jsbundle; path = OnlookMobileClient/Resources/main.jsbundle; sourceTree = "<group>"; };
 		A73E8FA38A23CD5C50605EA4 /* libPods-OnlookMobileClient.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-OnlookMobileClient.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = OnlookMobileClient/SplashScreen.storyboard; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
@@ -60,6 +64,8 @@
 				48E3EF96145B6BAC5F2AF4D9 /* PrivacyInfo.xcprivacy */,
 				4CCEB76AA8C8E65563C3D265 /* OnlookLogger.swift */,
 				EC86DCCB7DE93DCD86EE9F9F /* onlook-runtime.js */,
+				751569567CF7839D697C2619 /* HermesBootstrap.swift */,
+				89B0D449CECFEC04F71DBCDD /* main.jsbundle */,
 			);
 			name = OnlookMobileClient;
 			sourceTree = "<group>";
@@ -204,6 +210,7 @@
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
 				F0D24F166FDA72378CE986C6 /* PrivacyInfo.xcprivacy in Resources */,
 				E39D494E18A1615B949298D6 /* onlook-runtime.js in Resources */,
+				BBFDB5E7DD3BFA8610AE4940 /* main.jsbundle in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -331,6 +338,7 @@
 				F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */,
 				5FCE3FAAF7C72C95A290B230 /* ExpoModulesProvider.swift in Sources */,
 				45A820ADCF976C4E539BD479 /* OnlookLogger.swift in Sources */,
+				9AA77EE9615F1F28B0460B8A /* HermesBootstrap.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

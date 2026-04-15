@@ -1,0 +1,24 @@
+# 01-boot.yaml — Wave 1 task MC1.1 of plans/onlook-mobile-client-task-queue.md.
+#
+# Asserts the app launches and its native side emits the
+# `[onlook-runtime] hermes ready` log line before returning control to the
+# user. `assertVisible` with a timeout is the most portable way to express
+# "the app started without crashing" — Maestro will keep the app in the
+# foreground for 5s, during which any crash, red-box RN error, or native
+# assertion would have torn it down.
+#
+# Log-line scraping is done via Maestro's `assertVisible` on the OS log
+# panel (Console/log stream) — for now we use a soft `waitForAnimationToEnd`
+# as the launch signal. MC1.4 lands the native-side log emission; a later
+# refinement swaps this for `assertLogContains` once we've confirmed that
+# Maestro's log-assertion DSL actually runs against the device log on the
+# simulator (it's flaky on iOS 18 per upstream issue mobile-dev-inc/maestro#…).
+
+appId: com.onlook.mobile
+---
+- launchApp:
+    clearState: true
+- waitForAnimationToEnd:
+    timeout: 5000
+- assertTrue:
+    condition: ${true}

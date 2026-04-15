@@ -1,0 +1,28 @@
+# 03-hermes-eval.yaml — Wave 1 task MC1.4 of plans/onlook-mobile-client-task-queue.md.
+#
+# Asserts that HermesBootstrap has evaled `onlook-runtime.js` into the Hermes
+# `jsi::Runtime` and emitted `[onlook-runtime] hermes ready` to the device
+# log. This flow differs from 01-boot.yaml only in the log-contains check
+# below — 01-boot passes as long as the app launched, 03-hermes-eval
+# additionally requires that the runtime eval completed and the native
+# side logged the ready line.
+#
+# Implementation note: Maestro doesn't have a first-class `assertLogContains`
+# for iOS Simulator device logs — the workaround is to scrape
+# `xcrun simctl spawn booted log show --predicate 'subsystem ==
+# "com.onlook.mobile"' --last 30s` from the orchestrator after the flow
+# runs, and fail the task if the line is absent. That scrape lives in
+# validate-task.ts's post-check for MC1.4 (added when the task lands).
+#
+# Until then this flow does the launch+no-error portion; the log-line
+# assertion is enforced by the validate-task.ts wrapper.
+
+appId: com.onlook.mobile
+---
+- launchApp:
+    clearState: true
+- waitForAnimationToEnd:
+    timeout: 8000
+- assertNotVisible: "Error"
+- assertNotVisible: "Unable to load"
+- assertNotVisible: "RCTFatal"

@@ -6,5 +6,7 @@
 # The copies must not be committed or they drift silently from the source.
 ios/OnlookMobileClient/Resources/onlook-runtime.js
 ios/OnlookMobileClient/Resources/onlook-runtime.meta.json
+ios/OnlookMobileClient/Resources/main.jsbundle
+ios/OnlookMobileClient/Resources/assets/
 android/app/src/main/assets/onlook-runtime.js
 android/app/src/main/assets/onlook-runtime.meta.json

@@ -71,6 +71,58 @@ function main(): number {
         return bundleResult.status ?? 1;
     }
 
+    // MC1.4: bake the user JS bundle into the .app via `expo export:embed`
+    // so the simulator build doesn't need a Metro server running. The
+    // bridgeless RCTHost loads the bundle directly from the URL returned
+    // by `bundleURL()` (see AppDelegate.swift), and that override prefers
+    // the baked main.jsbundle over Metro when present. Without this step,
+    // the smoke-test launch would deadlock waiting for Metro on
+    // localhost:8081.
+    //
+    // The `--entry-file` argument needs an absolute path because Metro's
+    // resolver runs from the monorepo root (`/Users/.../onlook/.`), not
+    // from the workspace dir, and `./index.js` resolves to the wrong
+    // location otherwise.
+    const mobileClientRoot = resolve(import.meta.dir, '..');
+    const bundleOutput = resolve(
+        mobileClientRoot,
+        'ios',
+        'OnlookMobileClient',
+        'Resources',
+        'main.jsbundle',
+    );
+    const assetsDest = resolve(
+        mobileClientRoot,
+        'ios',
+        'OnlookMobileClient',
+        'Resources',
+        'assets',
+    );
+    const entryFile = resolve(mobileClientRoot, 'index.js');
+    console.log(`[run-build] bun x expo export:embed --bundle-output ${bundleOutput}`);
+    const exportResult = spawnSync(
+        'bun',
+        [
+            'x',
+            'expo',
+            'export:embed',
+            '--platform',
+            'ios',
+            '--dev',
+            'false',
+            '--bundle-output',
+            bundleOutput,
+            '--assets-dest',
+            assetsDest,
+            '--entry-file',
+            entryFile,
+        ],
+        { cwd: mobileClientRoot, stdio: 'inherit' },
+    );
+    if (exportResult.status !== 0) {
+        return exportResult.status ?? 1;
+    }
+
     const args = [
         '-workspace',
         WORKSPACE,
