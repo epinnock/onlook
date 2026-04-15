@@ -1,5 +1,7 @@
 var createWebSocketReconnectManager =
   require('./ws-reconnect.js').createWebSocketReconnectManager;
+var createWebSocketKeepaliveManager =
+  require('./keepalive.js').createWebSocketKeepaliveManager;
 
 var MOBILE_PREVIEW_WS_PORT = 8788;
 var SOCKET_ID = 42;
@@ -54,6 +56,28 @@ function installWebSocketBootstrap(target, log) {
     log: log,
     setTimeout: getRuntimeTimer(target, 'setTimeout', setTimeout),
   });
+  target._wsKeepalive = createWebSocketKeepaliveManager({
+    clearTimeout: getRuntimeTimer(target, 'clearTimeout', clearTimeout),
+    handleDeadConnection: function(reason) {
+      target.wsConnected = false;
+      if (target.wsModule && typeof target.wsModule.close === 'function') {
+        try {
+          target.wsModule.close(SOCKET_ID);
+        } catch (_) {}
+      }
+      target._scheduleWebSocketReconnect(reason);
+    },
+    log: log,
+    sendPing: function() {
+      if (!target.wsModule || typeof target.wsModule.send !== 'function') {
+        throw new Error('WebSocketModule.send unavailable');
+      }
+
+      log('B13 ws: keepalive ping');
+      target.wsModule.send(JSON.stringify({ type: 'ping' }), SOCKET_ID);
+    },
+    setTimeout: getRuntimeTimer(target, 'setTimeout', setTimeout),
+  });
 
   target._handleMessage = function(msg) {
     if (msg.type === 'eval' && msg.code) {
@@ -84,17 +108,20 @@ function installWebSocketBootstrap(target, log) {
     var wsModule = resolveWebSocketModule(target);
     if (!wsModule) {
       log('B13 ws: no module proxy');
+      target._wsKeepalive.markDisconnected();
       target._scheduleWebSocketReconnect('module unavailable');
       return;
     }
 
     if (typeof wsModule.connect !== 'function') {
       log('B13 ws: WebSocketModule not available');
+      target._wsKeepalive.markDisconnected();
       target._scheduleWebSocketReconnect('module unavailable');
       return;
     }
 
     target.wsModule = wsModule;
+    target._wsKeepalive.markDisconnected();
     registerWebSocketListeners(target, wsModule);
 
     var resolvedPort = port || getWebSocketPort(target);
@@ -106,12 +133,22 @@ function installWebSocketBootstrap(target, log) {
       log('B13 ws: connect() called');
     } catch (error) {
       log('B13 ws: connect error: ' + error.message);
+      target._wsKeepalive.markDisconnected();
       target._scheduleWebSocketReconnect('connect error');
     }
   };
 
   target._markWebSocketConnected = function() {
     target._wsReconnect.markConnected();
+    target._wsKeepalive.markConnected();
+  };
+
+  target._markWebSocketAlive = function() {
+    target._wsKeepalive.markActivity();
+  };
+
+  target._markWebSocketDisconnected = function() {
+    target._wsKeepalive.markDisconnected();
   };
 
   target._scheduleWebSocketReconnect = function(reason) {

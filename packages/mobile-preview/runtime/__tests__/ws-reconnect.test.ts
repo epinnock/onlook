@@ -183,7 +183,7 @@ describe('websocket reconnect manager', () => {
     expect(clock.getDelays()).toEqual([2000]);
 
     callableModules.RCTDeviceEventEmitter?.emit('websocketOpen', { id: 42 });
-    expect(clock.getDelays()).toEqual([]);
+    expect(clock.getDelays()).toEqual([15000]);
 
     callableModules.RCTDeviceEventEmitter?.emit('websocketClosed', { id: 42 });
     expect(clock.getDelays()).toEqual([1000]);
