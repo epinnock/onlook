@@ -11,6 +11,7 @@ import {
 import { diffHostProps } from './props.js';
 import { STATIC_HOST_CONFIG } from './static-config.js';
 import { createHostInstance, createTextHostInstance } from './instance.js';
+import { commitHostInstanceUpdate } from './update.js';
 
 export function createHostConfig(fab, rootTag) {
   return {
@@ -59,8 +60,7 @@ export function createHostConfig(fab, rootTag) {
     },
 
     commitUpdate(instance, updatePayload, type, prevProps, nextProps, internalHandle) {
-      const flatProps = flattenHostProps(updatePayload);
-      instance.node = fab.cloneNodeWithNewProps(instance.node, flatProps);
+      commitHostInstanceUpdate(fab, instance, updatePayload, nextProps);
     },
 
     commitTextUpdate(textInstance, oldText, newText) {

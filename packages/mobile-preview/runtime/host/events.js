@@ -1,5 +1,9 @@
+import { bubbleEventThroughParentChain } from './bubbling.js';
+import { createSyntheticEvent } from './synthetic-event.js';
+
 const registeredFabricHosts = new WeakSet();
 const eventHandlersByTag = new Map();
+const parentTagByTag = new Map();
 
 let lastFabricEvent = null;
 
@@ -54,8 +58,46 @@ export function registerHostInstanceEventHandlers(tag, props) {
   return nextHandlers;
 }
 
+export function refreshHostInstanceEventHandlers(tag, props) {
+  return registerHostInstanceEventHandlers(tag, props);
+}
+
 export function getHostInstanceEventHandlers(tag) {
   return eventHandlersByTag.get(tag) ?? null;
+}
+
+export function registerHostInstanceEventParent(tag, parentTag) {
+  if (typeof tag !== 'number') {
+    return null;
+  }
+
+  if (typeof parentTag !== 'number') {
+    parentTagByTag.delete(tag);
+    return null;
+  }
+
+  parentTagByTag.set(tag, parentTag);
+  return parentTag;
+}
+
+export function getHostInstanceEventParentTag(tag) {
+  return parentTagByTag.get(tag) ?? null;
+}
+
+export function dispatchBubbledEvent(eventName, eventType, targetTag, payload, options = {}) {
+  return bubbleEventThroughParentChain({
+    targetTag,
+    eventName,
+    getHandlers: getHostInstanceEventHandlers,
+    getParentTag: getHostInstanceEventParentTag,
+    createEvent(currentTarget) {
+      return createSyntheticEvent(eventType, payload, {
+        ...options,
+        target: targetTag,
+        currentTarget,
+      });
+    },
+  });
 }
 
 export function __getLastFabricEventForTests() {
@@ -66,7 +108,12 @@ export function __getEventHandlerRegistryForTests() {
   return eventHandlersByTag;
 }
 
+export function __getEventParentRegistryForTests() {
+  return parentTagByTag;
+}
+
 export function __resetFabricEventsForTests() {
   lastFabricEvent = null;
   eventHandlersByTag.clear();
+  parentTagByTag.clear();
 }
