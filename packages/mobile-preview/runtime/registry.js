@@ -97,6 +97,27 @@ function findRuntimeShimCollection(fallbackId) {
   return runtimeShimCollections.find(collection => collection.matches(fallbackId)) ?? null;
 }
 
+function reconcileRuntimeShimCollection(runtimeShimCollection) {
+  const nextRuntimeShims = [];
+  const seenIds = new Set();
+
+  for (const shim of runtimeShims) {
+    if (runtimeShimCollection.matches(shim.fallbackId)) {
+      shim.id = runtimeShimCollection.resolveId(shim.fallbackId);
+    }
+
+    if (seenIds.has(shim.id)) {
+      continue;
+    }
+
+    seenIds.add(shim.id);
+    nextRuntimeShims.push(shim);
+  }
+
+  runtimeShims.length = 0;
+  runtimeShims.push(...nextRuntimeShims);
+}
+
 function resolveRuntimeShimId(moduleExports, candidate, fallbackId) {
   if (candidate && typeof candidate === 'object' && typeof candidate.id === 'string') {
     return candidate.id;
@@ -147,6 +168,7 @@ function registerRuntimeShim(moduleExports, fallbackId) {
     }
 
     runtimeShimCollections.push(runtimeShimCollection);
+    reconcileRuntimeShimCollection(runtimeShimCollection);
     return runtimeShimCollection;
   }
 
