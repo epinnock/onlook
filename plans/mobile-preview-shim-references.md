@@ -243,3 +243,4 @@ Similar problems to ours, worth studying for inspiration:
 - `plans/why-browser-only-mobile-preview.md` — plain-English explainer
 - `plans/mobile-preview-gap-analysis.md` — built vs. missing
 - `plans/mobile-preview-shim-implementation.md` — the workstream plan with timeframes
+- `plans/mobile-preview-shim-task-queue.md` — Codex-oriented parallel execution queue through Workstream G
