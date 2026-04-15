@@ -1,6 +1,59 @@
+var createWebSocketReconnectManager =
+  require('./ws-reconnect.js').createWebSocketReconnectManager;
+
+var MOBILE_PREVIEW_WS_PORT = 8788;
+var SOCKET_ID = 42;
+
+function resolveWebSocketModule(target) {
+  var proxy = target.__turboModuleProxy || target.nativeModuleProxy;
+  if (!proxy) {
+    return null;
+  }
+
+  try {
+    return proxy.WebSocketModule || (typeof proxy === 'function' ? proxy('WebSocketModule') : null);
+  } catch (_) {
+    return null;
+  }
+}
+
+function getRuntimeTimer(target, name, fallback) {
+  var timer = target && typeof target[name] === 'function' ? target[name] : fallback;
+  return timer.bind ? timer.bind(target) : timer;
+}
+
+function getWebSocketPort(target) {
+  var port = target && (target.mobilePreviewWsPort || target.__ONLOOK_MOBILE_PREVIEW_WS_PORT__);
+  return typeof port === 'number' && port > 0 ? port : MOBILE_PREVIEW_WS_PORT;
+}
+
+function registerWebSocketListeners(target, wsModule) {
+  if (target._registeredWebSocketModule === wsModule) {
+    return;
+  }
+
+  var events = ['websocketOpen', 'websocketMessage', 'websocketClosed', 'websocketFailed'];
+  for (var i = 0; i < events.length; i++) {
+    try {
+      wsModule.addListener(events[i]);
+    } catch (_) {}
+  }
+
+  target._registeredWebSocketModule = wsModule;
+}
+
 function installWebSocketBootstrap(target, log) {
   target.wsConnected = false;
   target.wsModule = null;
+  target._registeredWebSocketModule = null;
+  target._wsReconnect = createWebSocketReconnectManager({
+    clearTimeout: getRuntimeTimer(target, 'clearTimeout', clearTimeout),
+    connect: function(host, port) {
+      target._connectWebSocketNow(host, port);
+    },
+    log: log,
+    setTimeout: getRuntimeTimer(target, 'setTimeout', setTimeout),
+  });
 
   target._handleMessage = function(msg) {
     if (msg.type === 'eval' && msg.code) {
@@ -27,39 +80,47 @@ function installWebSocketBootstrap(target, log) {
     }
   };
 
-  target._tryConnectWebSocket = function(host) {
-    var proxy = target.__turboModuleProxy || target.nativeModuleProxy;
-    if (!proxy) {
+  target._connectWebSocketNow = function(host, port) {
+    var wsModule = resolveWebSocketModule(target);
+    if (!wsModule) {
       log('B13 ws: no module proxy');
+      target._scheduleWebSocketReconnect('module unavailable');
       return;
     }
 
-    try {
-      target.wsModule =
-        proxy.WebSocketModule || (typeof proxy === 'function' ? proxy('WebSocketModule') : null);
-    } catch (_) {}
-
-    if (!target.wsModule || typeof target.wsModule.connect !== 'function') {
+    if (typeof wsModule.connect !== 'function') {
       log('B13 ws: WebSocketModule not available');
+      target._scheduleWebSocketReconnect('module unavailable');
       return;
     }
 
-    var events = ['websocketOpen', 'websocketMessage', 'websocketClosed', 'websocketFailed'];
-    for (var i = 0; i < events.length; i++) {
-      try {
-        target.wsModule.addListener(events[i]);
-      } catch (_) {}
-    }
+    target.wsModule = wsModule;
+    registerWebSocketListeners(target, wsModule);
 
-    var url = 'ws://' + host + ':8788';
+    var resolvedPort = port || getWebSocketPort(target);
+    var url = 'ws://' + host + ':' + resolvedPort;
     log('B13 ws: connecting to ' + url);
 
     try {
-      target.wsModule.connect(url, [], {}, 42);
+      target.wsModule.connect(url, [], {}, SOCKET_ID);
       log('B13 ws: connect() called');
     } catch (error) {
       log('B13 ws: connect error: ' + error.message);
+      target._scheduleWebSocketReconnect('connect error');
     }
+  };
+
+  target._markWebSocketConnected = function() {
+    target._wsReconnect.markConnected();
+  };
+
+  target._scheduleWebSocketReconnect = function(reason) {
+    return target._wsReconnect.scheduleReconnect(reason);
+  };
+
+  target._tryConnectWebSocket = function(host, port) {
+    var reconnectPort = getWebSocketPort(target);
+    return target._wsReconnect.connectNow(host, reconnectPort);
   };
 }
 

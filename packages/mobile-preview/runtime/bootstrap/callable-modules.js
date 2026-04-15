@@ -21,6 +21,9 @@ function registerCallableModules(target, log) {
 
         if (eventName === 'websocketOpen' && event.id === 42) {
           target.wsConnected = true;
+          if (typeof target._markWebSocketConnected === 'function') {
+            target._markWebSocketConnected();
+          }
           log('B13 ws: CONNECTED');
           return;
         }
@@ -37,12 +40,18 @@ function registerCallableModules(target, log) {
         if (eventName === 'websocketClosed' && event.id === 42) {
           target.wsConnected = false;
           log('B13 ws: CLOSED');
+          if (typeof target._scheduleWebSocketReconnect === 'function') {
+            target._scheduleWebSocketReconnect('closed');
+          }
           return;
         }
 
         if (eventName === 'websocketFailed' && event.id === 42) {
           target.wsConnected = false;
           log('B13 ws: FAILED ' + event.message);
+          if (typeof target._scheduleWebSocketReconnect === 'function') {
+            target._scheduleWebSocketReconnect(event.message || 'failed');
+          }
         }
       },
       addListener: function() {},
