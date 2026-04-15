@@ -1,5 +1,6 @@
 import { readProjectFiles } from './files';
 import { collectDependencyGraph } from './graph';
+import { preflightUnsupportedMobilePreviewImports } from './preflight';
 import { resolveEntryPath } from './resolution';
 import { wrapEvalBundle } from './runtime';
 import { buildModuleCode } from './transpile';
@@ -14,6 +15,7 @@ export async function buildMobilePreviewBundle(
 ): Promise<MobilePreviewBundleResult> {
     const files = await readProjectFiles(vfs);
     const entryPath = resolveEntryPath(files);
+    preflightUnsupportedMobilePreviewImports(files, entryPath);
     const orderedModules = collectDependencyGraph(files, entryPath);
     const moduleMap: Record<string, string> = {};
 

@@ -48,6 +48,8 @@ export const SUPPORTED_BARE_IMPORTS = new Set([
     'react',
     'react-native',
     'react-native-safe-area-context',
+    'react-native-screens',
+    'react-native-svg',
     // Editor-injected preload script used by the web canvas iframe. On the
     // native mobile-preview path it's a no-op — the __require runtime shim
     // returns an empty module for it so App.tsx's top-level import doesn't
