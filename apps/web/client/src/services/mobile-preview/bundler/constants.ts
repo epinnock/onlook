@@ -26,6 +26,22 @@ export const SOURCE_EXTENSIONS = [
     '.json',
 ] as const;
 
+export const IMAGE_ASSET_EXTENSIONS = [
+    '.png',
+    '.jpg',
+    '.jpeg',
+    '.gif',
+    '.webp',
+    '.bmp',
+    '.svg',
+    '.avif',
+] as const;
+
+export const RESOLVABLE_EXTENSIONS = [
+    ...SOURCE_EXTENSIONS,
+    ...IMAGE_ASSET_EXTENSIONS,
+] as const;
+
 export const SUPPORTED_BARE_IMPORTS = new Set([
     'expo-router',
     'expo-status-bar',

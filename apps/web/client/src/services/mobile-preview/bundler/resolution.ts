@@ -1,4 +1,4 @@
-import { ENTRY_CANDIDATES, SOURCE_EXTENSIONS } from './constants';
+import { ENTRY_CANDIDATES, RESOLVABLE_EXTENSIONS } from './constants';
 import { dirname, joinPath, normalizePath } from './path-utils';
 import { MobilePreviewBundleError } from './types';
 
@@ -64,14 +64,14 @@ function resolveFileCandidate(
         return normalizedPath;
     }
 
-    for (const extension of SOURCE_EXTENSIONS) {
+    for (const extension of RESOLVABLE_EXTENSIONS) {
         const withExtension = `${normalizedPath}${extension}`;
         if (files.has(withExtension)) {
             return withExtension;
         }
     }
 
-    for (const extension of SOURCE_EXTENSIONS) {
+    for (const extension of RESOLVABLE_EXTENSIONS) {
         const indexPath = joinPath(normalizedPath, `index${extension}`);
         if (files.has(indexPath)) {
             return indexPath;

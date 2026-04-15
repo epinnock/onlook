@@ -1,3 +1,4 @@
+import { inlineImageAsset, isImageAssetPath } from './asset-loader';
 import { SOURCE_EXTENSIONS } from './constants';
 import { normalizePath } from './path-utils';
 import type { MobilePreviewVfs } from './types';
@@ -22,6 +23,7 @@ export function shouldSyncMobilePreviewPath(filePath: string): boolean {
     }
     return (
         SOURCE_EXTENSIONS.some((extension) => normalizedPath.endsWith(extension)) ||
+        isImageAssetPath(normalizedPath) ||
         normalizedPath === 'package.json'
     );
 }
@@ -43,6 +45,11 @@ export async function readProjectFiles(
         }
 
         const raw = await vfs.readFile(normalizedPath);
+        if (isImageAssetPath(normalizedPath)) {
+            files.set(normalizedPath, inlineImageAsset(normalizedPath, raw));
+            continue;
+        }
+
         files.set(
             normalizedPath,
             typeof raw === 'string' ? raw : new TextDecoder().decode(raw),
