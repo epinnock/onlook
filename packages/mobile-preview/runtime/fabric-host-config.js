@@ -5,4 +5,10 @@
  * live under runtime/host to keep the reconciler surface easier to change.
  */
 
-export { createHostConfig } from './host/create-host-config.js';
+import { createHostConfig as createBaseHostConfig } from './host/create-host-config.js';
+import { registerFabricEventHandler } from './host/events.js';
+
+export function createHostConfig(fab, rootTag) {
+  registerFabricEventHandler(fab);
+  return createBaseHostConfig(fab, rootTag);
+}

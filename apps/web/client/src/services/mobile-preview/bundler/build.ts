@@ -1,5 +1,6 @@
 import { readProjectFiles } from './files';
 import { collectDependencyGraph } from './graph';
+import { evaluateMobilePreviewBundleBudget } from './budget';
 import { preflightUnsupportedMobilePreviewImports } from './preflight';
 import { resolveEntryPath } from './resolution';
 import { wrapEvalBundle } from './runtime';
@@ -29,9 +30,17 @@ export async function buildMobilePreviewBundle(
         moduleMap[filePath] = buildModuleCode(filePath, source, files);
     }
 
+    const code = wrapEvalBundle(entryPath, orderedModules, moduleMap);
+    const budget = evaluateMobilePreviewBundleBudget(code);
+
+    if (budget.warningMessage) {
+        console.warn(`[mobile-preview] ${budget.warningMessage}`);
+    }
+
     return {
-        code: wrapEvalBundle(entryPath, orderedModules, moduleMap),
+        code,
         entryPath,
         moduleCount: orderedModules.length,
+        budget,
     };
 }

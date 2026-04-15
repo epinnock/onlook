@@ -14,6 +14,14 @@ export interface MobilePreviewBundleResult {
     code: string;
     entryPath: string;
     moduleCount: number;
+    budget: MobilePreviewBundleBudget;
+}
+
+export interface MobilePreviewBundleBudget {
+    bytes: number;
+    warningThresholdBytes: number;
+    hardLimitBytes: number;
+    warningMessage: string | null;
 }
 
 export class MobilePreviewBundleError extends Error {
