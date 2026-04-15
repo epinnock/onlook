@@ -9,14 +9,21 @@
  * Run: bun run packages/mobile-preview/server/build-runtime.ts
  */
 
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { readdir, rm } from 'fs/promises';
-import { join, relative } from 'path';
+import { dirname, join, relative } from 'path';
 
 const ROOT = join(import.meta.dir, '..');
 const RUNTIME_DIR = join(ROOT, 'runtime');
 const GENERATED_ENTRY_NAME = '.generated-entry.js';
 const SHIMS_DIR_NAME = 'shims';
+
+export const DEFAULT_EXPO_SDK_VERSION = '54.0.0';
+export const RUNTIME_BUILD_METADATA_FILENAME = 'bundle.meta.json';
+
+export interface RuntimeBuildMetadata {
+  sdkVersion: string;
+}
 
 function normalizeRelativeRuntimePath(path: string) {
   const normalizedPath = path.replaceAll('\\', '/');
@@ -39,9 +46,7 @@ async function collectRuntimeShimPaths(path: string, runtimeDir: string): Promis
       continue;
     }
 
-    shimPaths.push(
-      normalizeRelativeRuntimePath(relative(runtimeDir, entryPath)),
-    );
+    shimPaths.push(normalizeRelativeRuntimePath(relative(runtimeDir, entryPath)));
   }
 
   return shimPaths;
@@ -73,6 +78,19 @@ export function createRuntimeEntrySource(shimPaths: string[]) {
   return lines.join('\n');
 }
 
+export function getRuntimeBuildMetadataPath(runtimeBundlePath: string): string {
+  return join(dirname(runtimeBundlePath), RUNTIME_BUILD_METADATA_FILENAME);
+}
+
+export function readRuntimeBuildMetadata(runtimeBundlePath: string): RuntimeBuildMetadata | null {
+  const metadataPath = getRuntimeBuildMetadataPath(runtimeBundlePath);
+  if (!existsSync(metadataPath)) {
+    return null;
+  }
+
+  return JSON.parse(readFileSync(metadataPath, 'utf-8')) as RuntimeBuildMetadata;
+}
+
 async function writeGeneratedRuntimeEntry(runtimeDir = RUNTIME_DIR) {
   const shimPaths = await discoverRuntimeShimPaths(runtimeDir);
   const entryPath = join(runtimeDir, GENERATED_ENTRY_NAME);
@@ -85,7 +103,7 @@ async function writeGeneratedRuntimeEntry(runtimeDir = RUNTIME_DIR) {
   };
 }
 
-export async function build() {
+export async function buildRuntime() {
   console.log('[build-runtime] Bundling React runtime...');
 
   const { entryPath, shimPaths } = await writeGeneratedRuntimeEntry();
@@ -93,7 +111,9 @@ export async function build() {
   const outPath = join(RUNTIME_DIR, 'bundle.js');
 
   try {
-    console.log(`[build-runtime] Discovered ${shimPaths.length} runtime shim${shimPaths.length === 1 ? '' : 's'}.`);
+    console.log(
+      `[build-runtime] Discovered ${shimPaths.length} runtime shim${shimPaths.length === 1 ? '' : 's'}.`,
+    );
 
     const result = await Bun.build({
       entrypoints: [entryPath],
@@ -111,14 +131,12 @@ export async function build() {
 
     const rawBundle = await Bun.file(rawPath).text();
 
-    // Check for ESM leaks
-    const esmLines = rawBundle.split('\n').filter(l => /^export |^import /.test(l));
+    const esmLines = rawBundle.split('\n').filter(line => /^export |^import /.test(line));
     if (esmLines.length > 0) {
       console.error('[build-runtime] ESM leak detected:', esmLines);
       process.exit(1);
     }
 
-    // Wrap in polyfills + Metro module system
     const preamble = `(function(g) {
   if (!g.performance) g.performance = { now: function() { return Date.now(); } };
   if (typeof g.setTimeout === "undefined") { var _t=1; g.setTimeout = function(fn,ms) { var id=_t++; if(!ms||ms<=0){fn();return id;} return id; }; g.clearTimeout = function(){}; }
@@ -134,6 +152,10 @@ __d(function(global,require,_imports,_exports,module,exports,_dependencyMap){
     const suffix = '\n}, 0, []);\n__r(0);\n';
 
     await Bun.write(outPath, preamble + rawBundle + suffix);
+    await Bun.write(
+      getRuntimeBuildMetadataPath(outPath),
+      `${JSON.stringify({ sdkVersion: DEFAULT_EXPO_SDK_VERSION }, null, 2)}\n`,
+    );
 
     await rm(rawPath, { force: true });
 
@@ -146,7 +168,7 @@ __d(function(global,require,_imports,_exports,module,exports,_dependencyMap){
 }
 
 if (import.meta.main) {
-  build().catch(error => {
+  buildRuntime().catch(error => {
     console.error(error);
     process.exit(1);
   });

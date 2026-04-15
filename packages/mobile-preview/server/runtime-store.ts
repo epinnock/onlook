@@ -2,6 +2,11 @@ import { createHash } from 'crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 
+import {
+  DEFAULT_EXPO_SDK_VERSION,
+  RUNTIME_BUILD_METADATA_FILENAME,
+  readRuntimeBuildMetadata,
+} from './build-runtime';
 import type { ManifestFields } from './manifest';
 
 export type PreviewPlatform = 'ios' | 'android';
@@ -12,7 +17,7 @@ export interface RuntimeStoreOptions {
   storeDir: string;
 }
 
-function buildRuntimeManifestFields(hash: string): ManifestFields {
+function buildRuntimeManifestFields(hash: string, sdkVersion: string): ManifestFields {
   return {
     runtimeVersion: '1.0.0',
     launchAsset: {
@@ -26,7 +31,7 @@ function buildRuntimeManifestFields(hash: string): ManifestFields {
         name: 'onlook-preview',
         slug: 'onlook-preview',
         version: '1.0.0',
-        sdkVersion: '54.0.0',
+        sdkVersion,
         platforms: ['ios', 'android'],
         newArchEnabled: true,
       },
@@ -58,13 +63,20 @@ export function createRuntimeStore(options: RuntimeStoreOptions) {
       const hash = createHash('sha256').update(bundle).digest('hex');
       const runtimeDir = join(options.storeDir, hash);
       const timestamp = (options.now ?? (() => new Date()))().toISOString();
+      const runtimeBuildMetadata = readRuntimeBuildMetadata(runtimeBundlePath) ?? {
+        sdkVersion: DEFAULT_EXPO_SDK_VERSION,
+      };
 
       mkdirSync(runtimeDir, { recursive: true });
       writeFileSync(join(runtimeDir, 'index.ios.bundle.js'), bundle);
       writeFileSync(join(runtimeDir, 'index.android.bundle.js'), bundle);
       writeFileSync(
         join(runtimeDir, 'manifest-fields.json'),
-        JSON.stringify(buildRuntimeManifestFields(hash), null, 2),
+        JSON.stringify(buildRuntimeManifestFields(hash, runtimeBuildMetadata.sdkVersion), null, 2),
+      );
+      writeFileSync(
+        join(runtimeDir, RUNTIME_BUILD_METADATA_FILENAME),
+        JSON.stringify(runtimeBuildMetadata, null, 2),
       );
       writeFileSync(
         join(runtimeDir, 'meta.json'),
