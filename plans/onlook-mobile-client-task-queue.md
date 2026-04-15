@@ -253,9 +253,10 @@ Goal: buildable app that loads a Hermes JS context and prints `[onlook-runtime] 
   - Validate: `bun run mobile:build:ios && bun run mobile:e2e:ios -- 01-boot.yaml` (flow asserts device log contains `[onlook-runtime] hermes ready`)
 
 - **MC1.2** — iOS `SceneDelegate.swift` — single-window setup
-  - Files: `apps/mobile-client/ios/OnlookMobile/SceneDelegate.swift`
+  - Files: ~~`apps/mobile-client/ios/OnlookMobile/SceneDelegate.swift`~~
   - Deps: MCF8
   - Validate: `bun run mobile:build:ios` (builds; scene wiring is visual-only until MC3)
+  - Status: **✅ NO-OP / superseded 2026-04-15.** MCF8's Expo prebuild (SDK 54 / RN 0.81.6) generated an app using the legacy `@UIApplicationMain` + `window`-on-AppDelegate pattern, not UIScene. `Info.plist` has no `UIApplicationSceneManifest`, and `OnlookMobileClient/AppDelegate.swift:25` already does `window = UIWindow(frame: UIScreen.main.bounds)` before mounting React. Adding a `SceneDelegate.swift` would require refactoring Expo-managed AppDelegate (remove `@UIApplicationMain`, drop `window` property, add `application(_:configurationForConnecting:options:)`) and adding `UIApplicationSceneManifest` to Info.plist — a substantive lifecycle upgrade that risks breaking expo-dev-client, deep-link, and hot-reload integrations. Single-window setup is already satisfied by the AppDelegate pattern; no file to write. If a scene-based lifecycle is ever wanted (iPad multi-window, split-view, etc.) it should be driven by an explicit ADR, not this task.
 
 - **MC1.3** — iOS root view controller (hosts the Fabric root view)
   - Files: `apps/mobile-client/ios/OnlookMobile/OnlookRootViewController.swift`
