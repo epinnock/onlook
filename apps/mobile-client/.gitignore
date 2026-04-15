@@ -1,0 +1,10 @@
+# Generated runtime artifacts — see scripts/bundle-runtime.ts (MCF11).
+# Source of truth is packages/mobile-preview/runtime/bundle.js (itself built
+# by `bun run build:mobile-runtime`); bundle-runtime.ts copies it into the
+# iOS Resources dir + Android assets dir on every build so the .app / .apk
+# picks it up through Xcode's Copy Bundle Resources / Gradle's asset-merge.
+# The copies must not be committed or they drift silently from the source.
+ios/OnlookMobileClient/Resources/onlook-runtime.js
+ios/OnlookMobileClient/Resources/onlook-runtime.meta.json
+android/app/src/main/assets/onlook-runtime.js
+android/app/src/main/assets/onlook-runtime.meta.json

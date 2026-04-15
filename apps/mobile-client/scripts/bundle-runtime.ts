@@ -77,7 +77,7 @@ function defaultOptions(): Options {
             'apps',
             'mobile-client',
             'ios',
-            'OnlookMobile',
+            'OnlookMobileClient',
             'Resources',
             'onlook-runtime.js',
         ),
