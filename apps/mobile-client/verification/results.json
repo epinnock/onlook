@@ -13,6 +13,13 @@
       "validate_command": "test -f apps/mobile-client/SUPPORTED_MODULES.md && grep -q 'expo-camera' apps/mobile-client/SUPPORTED_MODULES.md",
       "exit_code": 0,
       "stderr_tail": ""
+    },
+    "MC1.10": {
+      "state": "passed",
+      "validated_at": "2026-04-15T02:38:43.427Z",
+      "validate_command": "bun run mobile:build:ios",
+      "exit_code": 0,
+      "stderr_tail": "$ cd apps/mobile-client && bun run mobile:build:ios\n$ bun run scripts/run-build.ts\n"
     }
   }
 }
