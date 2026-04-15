@@ -1,7 +1,11 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const DEFAULT_PLAYWRIGHT_PORT = 3000;
-const playwrightTestMatch = ['smoke.spec.ts', 'expo-browser/**/*.spec.ts'];
+const playwrightTestMatch = [
+    'smoke.spec.ts',
+    'expo-browser/**/*.spec.ts',
+    'mobile-preview/**/*.spec.ts',
+];
 
 const parsePort = (envVarName: 'PLAYWRIGHT_PORT' | 'PORT') => {
     const rawPort = process.env[envVarName]?.trim();
