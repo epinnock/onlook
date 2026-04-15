@@ -248,9 +248,10 @@ Phase F is explicitly serial. Every task in here either creates a hotspot file o
 Goal: buildable app that loads a Hermes JS context and prints `[onlook-runtime] hermes ready`.
 
 - **MC1.1** — iOS `AppDelegate.swift` — app lifecycle + Hermes bootstrap
-  - Files: `apps/mobile-client/ios/OnlookMobile/AppDelegate.swift`
+  - Files: ~~`apps/mobile-client/ios/OnlookMobile/AppDelegate.swift`~~
   - Deps: MCF8, MCF11
   - Validate: `bun run mobile:build:ios && bun run mobile:e2e:ios -- 01-boot.yaml` (flow asserts device log contains `[onlook-runtime] hermes ready`)
+  - Status: **✅ NO-OP / superseded 2026-04-15.** Two pieces are already in place: (a) Expo's `expo prebuild` (MCF8b) generated `OnlookMobileClient/AppDelegate.swift` using the legacy `@UIApplicationMain` pattern with `factory.startReactNative(...)`, and Hermes is initialized automatically because `app.config.ts` sets `jsEngine: 'hermes'` — there is no native bootstrap call to author; (b) the `[onlook-runtime] hermes ready` log line is emitted by MC1.4's `HermesBootstrap.swift` from inside `bundleURL()`. So the original MC1.1 deliverable is now split: the lifecycle is owned by Expo's generated AppDelegate, and the log line is owned by MC1.4. No new file to write here.
 
 - **MC1.2** — iOS `SceneDelegate.swift` — single-window setup
   - Files: ~~`apps/mobile-client/ios/OnlookMobile/SceneDelegate.swift`~~
@@ -259,9 +260,10 @@ Goal: buildable app that loads a Hermes JS context and prints `[onlook-runtime] 
   - Status: **✅ NO-OP / superseded 2026-04-15.** MCF8's Expo prebuild (SDK 54 / RN 0.81.6) generated an app using the legacy `@UIApplicationMain` + `window`-on-AppDelegate pattern, not UIScene. `Info.plist` has no `UIApplicationSceneManifest`, and `OnlookMobileClient/AppDelegate.swift:25` already does `window = UIWindow(frame: UIScreen.main.bounds)` before mounting React. Adding a `SceneDelegate.swift` would require refactoring Expo-managed AppDelegate (remove `@UIApplicationMain`, drop `window` property, add `application(_:configurationForConnecting:options:)`) and adding `UIApplicationSceneManifest` to Info.plist — a substantive lifecycle upgrade that risks breaking expo-dev-client, deep-link, and hot-reload integrations. Single-window setup is already satisfied by the AppDelegate pattern; no file to write. If a scene-based lifecycle is ever wanted (iPad multi-window, split-view, etc.) it should be driven by an explicit ADR, not this task.
 
 - **MC1.3** — iOS root view controller (hosts the Fabric root view)
-  - Files: `apps/mobile-client/ios/OnlookMobile/OnlookRootViewController.swift`
+  - Files: ~~`apps/mobile-client/ios/OnlookMobile/OnlookRootViewController.swift`~~
   - Deps: MCF8
   - Validate: `bun run mobile:build:ios && bun run mobile:e2e:ios -- 02-black-screen.yaml`
+  - Status: **⛔ NEEDS ADR 2026-04-15.** Same situation as MC1.2 (SceneDelegate). Expo's `factory.startReactNative(in: window, ...)` already mounts the Fabric root view inside the AppDelegate-owned `UIWindow` — no `OnlookRootViewController.swift` to author. Replacing Expo's root with a custom `OnlookRootViewController` would require overriding `ExpoReactNativeFactoryDelegate.createRootViewController()` (which is `open` — see `node_modules/expo/ios/AppDelegates/ExpoReactNativeFactoryDelegate.swift`) and either re-implementing the React mount or composing it inside our VC. That's a substantive change to Expo-managed code, not a Wave 1 mechanical task. If a custom root VC is ever wanted (e.g. to wrap React inside a navigation container, splash screen overlay, etc.) it should land behind a deliberate ADR. The original "black screen" goal is already met by the bare-scaffold app on launch.
 
 - **MC1.4** — iOS Hermes init in AppDelegate (reads `onlook-runtime.js` asset and evals once)
   - Files: `apps/mobile-client/ios/OnlookMobileClient/HermesBootstrap.swift`, `apps/mobile-client/ios/OnlookMobileClient/AppDelegate.swift` (override `bundleURL`), `apps/mobile-client/scripts/run-build.ts` (bake `main.jsbundle` via `expo export:embed`), `apps/mobile-client/scripts/validate-mc14.sh`, `apps/mobile-client/e2e/flows/03-hermes-eval.yaml`
@@ -288,7 +290,10 @@ Goal: buildable app that loads a Hermes JS context and prints `[onlook-runtime] 
   - Files: `apps/mobile-client/react-native.config.js`
   - Deps: MCF8
   - Validate: `bun run mobile:build:ios` AND `cd apps/mobile-client/ios && grep -L ExpoFileSystem Pods/Pods.xcodeproj/project.pbxproj` (proves the disallowed module is NOT in the build)
-  - Status: **⛔ NEEDS ADR 2026-04-15.** The validate asserts `ExpoFileSystem` is absent from the pbxproj, but Expo SDK 54 pulls it in as a baseline peer of `expo-modules-core` (along with ExpoAsset, ExpoConstants, ExpoFont, ExpoKeepAwake, etc. — 76 hits in the current `Pods.xcodeproj/project.pbxproj`). Excluding ExpoFileSystem breaks `expo` itself, so the task as specified cannot pass without either (a) forking the validate assertion to a non-baseline disallowed module (e.g. `expo-av`, which truly isn't needed), or (b) redefining the allowlist as "user-facing Expo modules JS code may import" rather than "the complete set of linked native libraries," and enforcing via autolinking config rather than pbxproj absence. Needs a design decision before an agent can execute. Don't dispatch until the ADR lands.
+  - Status: **🟢 ADR landed 2026-04-15** — see `plans/adr/MC1.8-module-allowlist.md`. New direction: enforce the allowlist at the **JS-import surface** (ESLint + Metro resolver), not at the linked-binary set. Original validate (`grep -L ExpoFileSystem ...`) is unworkable because ExpoFileSystem is a baseline `expo-modules-core` peer. New scope:
+    - **Files:** `apps/mobile-client/eslint.config.{js,mjs}` (or extension of `@onlook/eslint`), `apps/mobile-client/metro.config.js`, `apps/mobile-client/scripts/validate-mc18.sh`, optionally `apps/mobile-client/src/supported-modules.ts` (programmatic allowlist).
+    - **Validate:** `bun --filter @onlook/mobile-client lint && bash apps/mobile-client/scripts/validate-mc18.sh` (the script writes a probe file importing a banned module, runs lint + Metro bundle, asserts both reject).
+    - Ready to dispatch when picked up.
 
 - **MC1.9** — `SUPPORTED_MODULES.md` documentation
   - Files: `apps/mobile-client/SUPPORTED_MODULES.md`
@@ -372,9 +377,10 @@ Goal: replace Spike B's scraping path with a documented `global.OnlookRuntime.ru
   - Validate: `bun test apps/mobile-client/__tests__/OnlookRuntime_dispatchEvent.spec.ts` (a mock Maestro flow posts an event, JS-side listener returns via log)
 
 - **MC2.10** — Runtime asset loader (reads baked `onlook-runtime.js` and evals into fresh Hermes context before user bundle)
-  - Files: `apps/mobile-client/cpp/RuntimeAssetLoader.cpp`
+  - Files: ~~`apps/mobile-client/cpp/RuntimeAssetLoader.cpp`~~
   - Deps: MC2.3, MC2.4, MCF11
   - Validate: `bun run mobile:e2e:ios -- 08-runtime-evaled.yaml` (evaluates `typeof global.React === 'function'` before any user bundle)
+  - Status: **✅ COLLAPSED into MC1.4 (2026-04-15)** — see `plans/adr/MC1.4-MC2.10-runtime-context.md`. Decision: one Hermes context shared between the onlook runtime and the user bundle. MC1.4's Swift `bundleURL()` override (`apps/mobile-client/ios/OnlookMobileClient/{HermesBootstrap.swift,AppDelegate.swift}`) already does the runtime asset load + eval-before-user-bundle behavior MC2.10 was intended to deliver, just from a higher layer (file composition before xcodebuild loads, rather than C++ JSI eval at host init). The "fresh Hermes context" framing in this entry was sketched before the bridgeless prebuild revealed the actual host topology — bridgeless RN owns one runtime, can't cheaply spin up a second one, and the React-tree teardown in `reloadBundle` (MC2.8) is the atomic isolation unit, not the runtime itself. No `RuntimeAssetLoader.cpp` to author. The 08-runtime-evaled.yaml flow is still useful as a sanity check that `typeof global.React === 'function'` post-eval — restore it as part of MC2.3's validate when a renderable user bundle exists.
 
 - **MC2.11** — `iife-wrapper.ts` "no top-level export" unit test
   - Files: `packages/browser-metro/src/host/__tests__/iife-wrapper-no-export.test.ts`
