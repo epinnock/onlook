@@ -1,3 +1,6 @@
+var createModalSurfaceManager =
+  require('../host/modal-surface.js').createModalSurfaceManager;
+
 function createDefaultScreen(target) {
   var React = target.React;
 
@@ -36,9 +39,57 @@ function createDefaultScreen(target) {
   );
 }
 
+function installModalSurfaceSupport(target, rootTag, log) {
+  if (!target.fab || typeof target.fab.createChildSet !== 'function') {
+    target._modalSurfaceManager = null;
+    target._syncModalSurfaces = function() {
+      return [];
+    };
+    target._getModalSurfaces = function() {
+      return [];
+    };
+    target._clearModalSurfaces = function() {
+      return [];
+    };
+    return null;
+  }
+
+  var manager = createModalSurfaceManager(target.fab, rootTag);
+  target._modalSurfaceManager = manager;
+  target._syncModalSurfaces = function(children) {
+    var committedSurfaces = manager.sync(children);
+    if (committedSurfaces.length > 0) {
+      log('B13 modal surfaces synced=' + committedSurfaces.length);
+    }
+    return committedSurfaces;
+  };
+  target._getModalSurfaces = function() {
+    return manager.getSurfaces();
+  };
+  target._clearModalSurfaces = function() {
+    var clearedSurfaces = manager.dispose();
+    if (clearedSurfaces.length > 0) {
+      log('B13 modal surfaces cleared=' + clearedSurfaces.length);
+    }
+    return clearedSurfaces;
+  };
+
+  return manager;
+}
+
 function installAppRegistry(target, log) {
   target.currentRootTag = null;
   target.global = target;
+  target._modalSurfaceManager = null;
+  target._syncModalSurfaces = function() {
+    return [];
+  };
+  target._getModalSurfaces = function() {
+    return [];
+  };
+  target._clearModalSurfaces = function() {
+    return [];
+  };
 
   target.RN$AppRegistry = {
     runApplication: function(appKey, props) {
@@ -52,14 +103,33 @@ function installAppRegistry(target, log) {
         log('B13 ERROR: _initReconciler not found — runtime not loaded?');
       }
 
+      installModalSurfaceSupport(target, props.rootTag, log);
+      log('B13 modal surface manager initialized');
+
       if (typeof target.renderApp === 'function' && typeof target.React !== 'undefined') {
         target.renderApp(createDefaultScreen(target));
         log('B13 default screen rendered');
       }
     },
+    syncModalSurfaces: function(children) {
+      return target._syncModalSurfaces(children);
+    },
+    getModalSurfaces: function() {
+      return target._getModalSurfaces();
+    },
+    unmountApplicationComponentAtRootTag: function(rootTag) {
+      if (rootTag !== target.currentRootTag) {
+        return [];
+      }
+
+      var clearedSurfaces = target._clearModalSurfaces();
+      target.currentRootTag = null;
+      return clearedSurfaces;
+    },
   };
 }
 
 module.exports = {
+  installModalSurfaceSupport: installModalSurfaceSupport,
   installAppRegistry: installAppRegistry,
 };
