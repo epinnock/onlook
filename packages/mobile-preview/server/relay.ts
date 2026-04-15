@@ -1,3 +1,5 @@
+import { getEvalErrorPayload, isEvalResultMessage } from '../runtime/bootstrap/messages.js';
+
 export interface RelayClient {
   send(message: string): void;
 }
@@ -12,6 +14,7 @@ export function decodeRelayMessage(message: string | ArrayBuffer | Uint8Array): 
 export function createRelayState(log: (message: string) => void = console.log) {
   const clients = new Set<RelayClient>();
   let lastPushedMessage: string | null = null;
+  let lastRuntimeErrorMessage: string | null = null;
 
   function sendToClients(message: string) {
     for (const client of clients) {
@@ -31,6 +34,12 @@ export function createRelayState(log: (message: string) => void = console.log) {
           client.send(lastPushedMessage);
         } catch {}
       }
+
+      if (lastRuntimeErrorMessage) {
+        try {
+          client.send(lastRuntimeErrorMessage);
+        } catch {}
+      }
     },
 
     removeClient(client: RelayClient) {
@@ -45,6 +54,12 @@ export function createRelayState(log: (message: string) => void = console.log) {
     },
 
     relayMessage(message: string): number {
+      if (getEvalErrorPayload(message)) {
+        lastRuntimeErrorMessage = message;
+      } else if (isEvalResultMessage(message)) {
+        lastRuntimeErrorMessage = null;
+      }
+
       sendToClients(message);
       return clients.size;
     },
@@ -55,6 +70,10 @@ export function createRelayState(log: (message: string) => void = console.log) {
 
     getLastPushedMessage(): string | null {
       return lastPushedMessage;
+    },
+
+    getLastRuntimeErrorMessage(): string | null {
+      return lastRuntimeErrorMessage;
     },
   };
 }
