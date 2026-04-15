@@ -8,31 +8,18 @@ import {
   removeContainerChild,
   removeHostChild,
 } from './container.js';
-import { diffHostProps, flattenHostProps } from './props.js';
+import { diffHostProps } from './props.js';
 import { STATIC_HOST_CONFIG } from './static-config.js';
-import { allocTag } from './tags.js';
+import { createHostInstance, createTextHostInstance } from './instance.js';
 
 export function createHostConfig(fab, rootTag) {
   return {
     createInstance(type, props, rootContainerInstance, hostContext, internalHandle) {
-      const tag = allocTag();
-      const flatProps = flattenHostProps(props, { processStyleColors: true });
-      const node = fab.createNode(tag, type, rootTag, flatProps, internalHandle);
-
-      return { node, tag, type, children: [] };
+      return createHostInstance(fab, rootTag, type, props, internalHandle);
     },
 
     createTextInstance(text, rootContainerInstance, hostContext, internalHandle) {
-      const tag = allocTag();
-      const node = fab.createNode(
-        tag,
-        'RCTRawText',
-        rootTag,
-        { text: String(text) },
-        internalHandle,
-      );
-
-      return { node, tag, type: 'RCTRawText', children: [], text };
+      return createTextHostInstance(fab, rootTag, text, internalHandle);
     },
 
     appendInitialChild(parentInstance, child) {
