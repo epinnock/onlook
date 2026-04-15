@@ -7,6 +7,7 @@
 const React = require('react');
 const ReconcilerFactory = require('react-reconciler');
 const { createHostConfig } = require('./fabric-host-config.js');
+const nativeModulesShim = require('./shims/core/native-modules.js');
 
 // Debug: verify internals
 const g = globalThis;
@@ -73,6 +74,10 @@ g.View = 'View';
 g.Text = 'RCTText';
 g.RawText = 'RCTRawText';
 
+const nativeModuleBridge = nativeModulesShim.install(g);
+g.NativeModules = nativeModuleBridge.NativeModules;
+g.TurboModuleRegistry = nativeModuleBridge.TurboModuleRegistry;
+
 // TextC: auto-wraps string children in RCTRawText
 g.TextC = function TextC(props) {
   const { children, ...rest } = props;
@@ -89,4 +94,10 @@ g.TextC = function TextC(props) {
 g.renderApp = renderApp;
 g._initReconciler = initReconciler;
 
-module.exports = { React: R, renderApp, initReconciler };
+module.exports = {
+  React: R,
+  NativeModules: nativeModuleBridge.NativeModules,
+  TurboModuleRegistry: nativeModuleBridge.TurboModuleRegistry,
+  renderApp,
+  initReconciler,
+};
