@@ -339,7 +339,14 @@ Goal: replace Spike B's scraping path with a documented `global.OnlookRuntime.ru
 - **MC2.2** — C++ JSI host object skeleton (empty method bodies)
   - Files: `apps/mobile-client/cpp/OnlookRuntime.cpp`
   - Deps: MC2.1
-  - Validate: `bun run mobile:build:ios && bun run mobile:build:android`
+  - Validate: `bun run mobile:build:ios` (Android half split to MC2.2a pending Android toolchain per handoff's iOS-first cut line)
+  - Status: **iOS scope narrowed 2026-04-15.** OnlookRuntime.cpp compiles into `OnlookRuntime.o` for both arm64 + x86_64 in the OnlookMobileClient iOS target. Skeleton throws `jsi::JSError("not implemented (Wave 2 …)")` from every method body, with version() returning the sentinel string `"0.0.0-mc2.2-skeleton"`. See OnlookRuntime.h docstring for the public-API contract; bodies land in MC2.7 / MC2.8 / MC2.9 / MC2.12 / MC2.14.
+
+- **MC2.2a** — C++ JSI host object skeleton (Android compile) — deferred
+  - Files: `apps/mobile-client/cpp/OnlookRuntime.cpp` — same TU, just compiled as part of the Android target via CMake when MCF8c lands
+  - Deps: MCF8c (Android prebuild + Gradle + CMake), MC2.2
+  - Validate: `bun run mobile:build:android`
+  - Status: **⏸ deferred** — Android toolchain not active yet. The .cpp itself is platform-neutral (only depends on `<jsi/jsi.h>` which Hermes provides on both platforms); CMake just needs to pick it up.
 
 - **MC2.3** — iOS installer `.mm` that registers `OnlookRuntime` on `global`
   - Files: `apps/mobile-client/ios/OnlookMobile/OnlookRuntimeInstaller.mm`

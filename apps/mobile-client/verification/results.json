@@ -27,6 +27,20 @@
       "validate_command": "bash apps/mobile-client/scripts/validate-mc14.sh",
       "exit_code": 0,
       "stderr_tail": "$ cd apps/mobile-client && bun run mobile:build:ios\n$ bun run scripts/run-build.ts\n"
+    },
+    "MC2.1": {
+      "state": "passed",
+      "validated_at": "2026-04-15T08:13:21.247Z",
+      "validate_command": "bun run mobile:build:ios",
+      "exit_code": 0,
+      "stderr_tail": "$ cd apps/mobile-client && bun run mobile:build:ios\n$ bun run scripts/run-build.ts\n"
+    },
+    "MC2.2": {
+      "state": "passed",
+      "validated_at": "2026-04-15T08:28:42.217Z",
+      "validate_command": "bun run mobile:build:ios",
+      "exit_code": 0,
+      "stderr_tail": "$ cd apps/mobile-client && bun run mobile:build:ios\n$ bun run scripts/run-build.ts\n"
     }
   }
 }
