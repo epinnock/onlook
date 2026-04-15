@@ -56,6 +56,21 @@ function main(): number {
         return 2;
     }
 
+    // Refresh the Onlook runtime asset before xcodebuild so the
+    // OnlookMobileClient/Resources/onlook-runtime.js that Copy Bundle
+    // Resources picks up matches packages/mobile-preview/runtime/bundle.js
+    // (the source of truth). bundle-runtime.ts errors with a clear message
+    // if bundle.js doesn't exist yet — in that case the caller needs to
+    // `bun run build:mobile-runtime` first.
+    const bundlePath = resolve(import.meta.dir, 'bundle-runtime.ts');
+    console.log(`[run-build] bun run ${bundlePath}`);
+    const bundleResult = spawnSync('bun', ['run', bundlePath], {
+        stdio: 'inherit',
+    });
+    if (bundleResult.status !== 0) {
+        return bundleResult.status ?? 1;
+    }
+
     const args = [
         '-workspace',
         WORKSPACE,

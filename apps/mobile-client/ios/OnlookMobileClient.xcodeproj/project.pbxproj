@@ -13,6 +13,7 @@
 		5FCE3FAAF7C72C95A290B230 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD0EEBAEA629EA0B4A4A98FE /* ExpoModulesProvider.swift */; };
 		A97B3DB5E491B8B1F7B71D2D /* libPods-OnlookMobileClient.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A73E8FA38A23CD5C50605EA4 /* libPods-OnlookMobileClient.a */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
+		E39D494E18A1615B949298D6 /* onlook-runtime.js in Resources */ = {isa = PBXBuildFile; fileRef = EC86DCCB7DE93DCD86EE9F9F /* onlook-runtime.js */; };
 		F0D24F166FDA72378CE986C6 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 48E3EF96145B6BAC5F2AF4D9 /* PrivacyInfo.xcprivacy */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
 /* End PBXBuildFile section */
@@ -29,6 +30,7 @@
 		BD0EEBAEA629EA0B4A4A98FE /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-OnlookMobileClient/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 		E68C0C3FCDF9A37C6C65EE02 /* Pods-OnlookMobileClient.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-OnlookMobileClient.debug.xcconfig"; path = "Target Support Files/Pods-OnlookMobileClient/Pods-OnlookMobileClient.debug.xcconfig"; sourceTree = "<group>"; };
 		EC3FF8084B4F4A28C692F46F /* Pods-OnlookMobileClient.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-OnlookMobileClient.release.xcconfig"; path = "Target Support Files/Pods-OnlookMobileClient/Pods-OnlookMobileClient.release.xcconfig"; sourceTree = "<group>"; };
+		EC86DCCB7DE93DCD86EE9F9F /* onlook-runtime.js */ = {isa = PBXFileReference; includeInIndex = 1; name = "onlook-runtime.js"; path = "OnlookMobileClient/Resources/onlook-runtime.js"; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = OnlookMobileClient/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* OnlookMobileClient-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "OnlookMobileClient-Bridging-Header.h"; path = "OnlookMobileClient/OnlookMobileClient-Bridging-Header.h"; sourceTree = "<group>"; };
@@ -57,6 +59,7 @@
 				AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */,
 				48E3EF96145B6BAC5F2AF4D9 /* PrivacyInfo.xcprivacy */,
 				4CCEB76AA8C8E65563C3D265 /* OnlookLogger.swift */,
+				EC86DCCB7DE93DCD86EE9F9F /* onlook-runtime.js */,
 			);
 			name = OnlookMobileClient;
 			sourceTree = "<group>";
@@ -200,6 +203,7 @@
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
 				F0D24F166FDA72378CE986C6 /* PrivacyInfo.xcprivacy in Resources */,
+				E39D494E18A1615B949298D6 /* onlook-runtime.js in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
