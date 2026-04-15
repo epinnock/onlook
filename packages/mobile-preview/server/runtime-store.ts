@@ -5,6 +5,7 @@ import { join } from 'path';
 import {
   DEFAULT_EXPO_SDK_VERSION,
   RUNTIME_BUILD_METADATA_FILENAME,
+  type RuntimeBuildMetadata,
   readRuntimeBuildMetadata,
 } from './build-runtime';
 import type { ManifestFields } from './manifest';
@@ -105,6 +106,15 @@ export function createRuntimeStore(options: RuntimeStoreOptions) {
       if (!existsSync(fieldsPath)) return null;
 
       return JSON.parse(readFileSync(fieldsPath, 'utf-8')) as ManifestFields;
+    },
+
+    getRuntimeBuildMetadata(bundleHash: string): RuntimeBuildMetadata | null {
+      const metadataPath = join(options.storeDir, bundleHash, RUNTIME_BUILD_METADATA_FILENAME);
+      if (!existsSync(metadataPath)) {
+        return null;
+      }
+
+      return JSON.parse(readFileSync(metadataPath, 'utf-8')) as RuntimeBuildMetadata;
     },
 
     getBundle(bundleHash: string, platform: PreviewPlatform) {

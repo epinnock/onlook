@@ -25,6 +25,10 @@ import {
     shouldSyncMobilePreviewPath,
     type MobilePreviewVfs,
 } from '@/services/mobile-preview';
+import type {
+    MobilePreviewRuntimeMessage,
+    MobilePreviewStatusResponse,
+} from '@/services/mobile-preview/types';
 
 import type { QrModalStatus } from '@/components/ui/qr-modal';
 
@@ -50,17 +54,6 @@ export interface UseMobilePreviewStatusResult {
     retry: () => Promise<void>;
 }
 
-interface MobilePreviewStatusResponse {
-    runtimeHash: string | null;
-    clients: number;
-    manifestUrl: string | null;
-}
-
-interface MobilePreviewRuntimeMessage {
-    type: string;
-    error?: string;
-}
-
 type ReadyQrModalStatus = Extract<QrModalStatus, { kind: 'ready' }>;
 
 interface MobilePreviewRuntimeTransitionArgs {
@@ -73,6 +66,93 @@ interface MobilePreviewRuntimeTransitionArgs {
 interface MobilePreviewRuntimeTransitionResult {
     nextStatus: QrModalStatus | null;
     runtimeErrorMessage: string | null;
+}
+
+function normalizeExpoSdkVersion(version: string): string | null {
+    const match = version.match(/\d+(?:\.\d+){0,2}/);
+    return match?.[0] ?? null;
+}
+
+function getExpoSdkMajor(version: string | null): string | null {
+    if (!version) {
+        return null;
+    }
+
+    const normalizedVersion = normalizeExpoSdkVersion(version);
+    return normalizedVersion?.split('.')[0] ?? null;
+}
+
+export function extractProjectExpoSdkVersion(packageJson: string): string | null {
+    try {
+        const parsed = JSON.parse(packageJson) as {
+            dependencies?: Record<string, unknown>;
+            devDependencies?: Record<string, unknown>;
+            peerDependencies?: Record<string, unknown>;
+        };
+        const expoVersion =
+            parsed.dependencies?.expo ??
+            parsed.devDependencies?.expo ??
+            parsed.peerDependencies?.expo;
+
+        return typeof expoVersion === 'string'
+            ? normalizeExpoSdkVersion(expoVersion)
+            : null;
+    } catch {
+        return null;
+    }
+}
+
+export async function readProjectExpoSdkVersion(
+    fileSystem?: MobilePreviewVfs,
+): Promise<string | null> {
+    if (!fileSystem) {
+        return null;
+    }
+
+    try {
+        const packageJson = await fileSystem.readFile('package.json');
+        const contents =
+            typeof packageJson === 'string'
+                ? packageJson
+                : new TextDecoder().decode(packageJson);
+
+        return extractProjectExpoSdkVersion(contents);
+    } catch {
+        return null;
+    }
+}
+
+export function hasMobilePreviewSdkMismatch(
+    projectSdkVersion: string | null,
+    runtimeSdkVersion: string | null,
+): boolean {
+    const projectSdkMajor = getExpoSdkMajor(projectSdkVersion);
+    const runtimeSdkMajor = getExpoSdkMajor(runtimeSdkVersion);
+
+    return !!projectSdkMajor && !!runtimeSdkMajor && projectSdkMajor !== runtimeSdkMajor;
+}
+
+export function formatMobilePreviewSdkMismatchError(
+    runtimeSdkVersion: string,
+    projectSdkVersion: string,
+): string {
+    return `Mobile preview runtime uses Expo SDK ${runtimeSdkVersion}, but this project depends on Expo SDK ${projectSdkVersion}.`;
+}
+
+export async function getMobilePreviewSdkMismatchMessage(
+    fileSystem: MobilePreviewVfs | undefined,
+    runtimeSdkVersion: string | null,
+): Promise<string | null> {
+    const projectSdkVersion = await readProjectExpoSdkVersion(fileSystem);
+    if (
+        !runtimeSdkVersion ||
+        !projectSdkVersion ||
+        !hasMobilePreviewSdkMismatch(projectSdkVersion, runtimeSdkVersion)
+    ) {
+        return null;
+    }
+
+    return formatMobilePreviewSdkMismatchError(runtimeSdkVersion, projectSdkVersion);
 }
 
 export function deriveMobilePreviewSocketUrl(baseUrl: string): string {
@@ -225,6 +305,18 @@ export function useMobilePreviewStatus(
                 return;
             }
 
+            const sdkMismatchMessage = await getMobilePreviewSdkMismatchMessage(
+                opts.fileSystem,
+                body.runtimeSdkVersion,
+            );
+            if (sdkMismatchMessage) {
+                setStatus({
+                    kind: 'error',
+                    message: sdkMismatchMessage,
+                });
+                return;
+            }
+
             const qrSvg = await renderQrSvg(body.manifestUrl);
             const readyStatus = {
                 kind: 'ready',
@@ -251,7 +343,7 @@ export function useMobilePreviewStatus(
                 message: `Failed to reach mobile-preview server: ${message}`,
             });
         }
-    }, [opts.serverBaseUrl]);
+    }, [opts.fileSystem, opts.serverBaseUrl]);
 
     const close = useCallback(() => {
         setIsOpen(false);
