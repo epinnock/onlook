@@ -1,5 +1,6 @@
 import { transform } from 'sucrase';
 
+import { buildInlineAssetModuleCode, isImageAssetPath } from './asset-loader';
 import { REQUIRE_RE, SUPPORTED_BARE_IMPORTS } from './constants';
 import { isBareSpecifier } from './path-utils';
 import { resolveProjectSpecifier } from './resolution';
@@ -10,6 +11,10 @@ export function buildModuleCode(
     source: string,
     files: Map<string, string>,
 ): string {
+    if (isImageAssetPath(filePath)) {
+        return buildInlineAssetModuleCode(source);
+    }
+
     if (filePath.endsWith('.json')) {
         return [
             `module.exports = ${source.trim() || 'null'};`,
