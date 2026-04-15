@@ -228,12 +228,12 @@ function __require(specifier) {
   if (specifier === 'react') {
     return React;
   }
-  if (specifier === 'react-native') {
-    return __reactNative;
-  }
   const __runtimeShim = __resolveRuntimeShim(specifier);
   if (__runtimeShim != null) {
     return __runtimeShim;
+  }
+  if (specifier === 'react-native') {
+    return __reactNative;
   }
   if (specifier === 'react-native-safe-area-context') {
     return __safeAreaContext;
