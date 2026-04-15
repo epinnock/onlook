@@ -92,6 +92,15 @@ export function createMobilePreviewServer(
   });
   const relay = createRelayState(logger.log);
 
+  const getRuntimeSdkVersion = () => {
+    const runtimeHash = runtimeStore.getCurrentRuntimeHash();
+    if (!runtimeHash) {
+      return null;
+    }
+
+    return runtimeStore.getRuntimeBuildMetadata(runtimeHash)?.sdkVersion ?? null;
+  };
+
   const createHttpFetchHandler = () => {
     return async (request: Request): Promise<Response> => {
       const url = new URL(request.url);
@@ -110,6 +119,7 @@ export function createMobilePreviewServer(
           Response.json(
             buildHttpStatus({
               runtimeHash: runtimeStore.getCurrentRuntimeHash(),
+              runtimeSdkVersion: getRuntimeSdkVersion(),
               clientCount: relay.getClientCount(),
               lanIp,
               httpPort,
@@ -196,6 +206,7 @@ export function createMobilePreviewServer(
         return Response.json(
           buildWsStatus({
             runtimeHash: runtimeStore.getCurrentRuntimeHash(),
+            runtimeSdkVersion: getRuntimeSdkVersion(),
             clientCount: relay.getClientCount(),
             lanIp,
             httpPort,

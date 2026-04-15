@@ -3,6 +3,7 @@ interface StatusOptions {
   httpPort: number;
   lanIp: string;
   runtimeHash: string | null;
+  runtimeSdkVersion: string | null;
 }
 
 interface WsStatusOptions extends StatusOptions {
@@ -20,6 +21,7 @@ export function buildHttpStatus(options: StatusOptions) {
     runtimeHash: options.runtimeHash,
     clients: options.clientCount,
     manifestUrl: buildManifestUrl(options),
+    runtimeSdkVersion: options.runtimeSdkVersion,
   };
 }
 

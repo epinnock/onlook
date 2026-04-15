@@ -73,11 +73,13 @@ describe('mobile preview server', () => {
         clients: number;
         manifestUrl: string;
         runtimeHash: string;
+        runtimeSdkVersion: string;
       },
     ).toEqual({
       runtimeHash,
       clients: 0,
       manifestUrl: `exp://10.0.0.5:4100/manifest/${runtimeHash}`,
+      runtimeSdkVersion: '54.0.0',
     });
 
     const pushResponse = await fetchHandler(
