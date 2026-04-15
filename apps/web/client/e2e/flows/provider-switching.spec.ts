@@ -14,6 +14,29 @@ import {
     type SandboxProvider,
 } from '../../../../../packages/constants/src/sandbox';
 
+const DEFAULT_PLAYWRIGHT_PORT = 3000;
+
+const parsePort = (envVarName: 'PLAYWRIGHT_PORT' | 'PORT') => {
+    const rawPort = process.env[envVarName]?.trim();
+    if (!rawPort) {
+        return null;
+    }
+
+    const port = Number.parseInt(rawPort, 10);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        throw new Error(`${envVarName} must be a valid port. Received "${rawPort}".`);
+    }
+
+    return port;
+};
+
+const defaultLocalPort =
+    parsePort('PLAYWRIGHT_PORT') ??
+    parsePort('PORT') ??
+    DEFAULT_PLAYWRIGHT_PORT;
+
+const getExpectedLocalUrl = (port: number) => `http://localhost:${port}`;
+
 // ---------------------------------------------------------------------------
 // Cross-provider URL generation
 // ---------------------------------------------------------------------------
@@ -47,16 +70,16 @@ describe('Provider Switching - URL Generation', () => {
     });
 
     it('node_fs URL uses HTTP (localhost)', () => {
-        const url = getSandboxPreviewUrl('node_fs', 'test', 3000);
+        const url = getSandboxPreviewUrl('node_fs', 'test', defaultLocalPort);
         expect(url).toMatch(/^http:\/\//);
-        expect(url).toBe('http://localhost:3000');
+        expect(url).toBe(getExpectedLocalUrl(defaultLocalPort));
     });
 
     it('node_fs ignores sandbox ID entirely', () => {
         const url1 = getSandboxPreviewUrl('node_fs', 'sandbox-a', 4000);
         const url2 = getSandboxPreviewUrl('node_fs', 'sandbox-b', 4000);
         expect(url1).toBe(url2);
-        expect(url1).toBe('http://localhost:4000');
+        expect(url1).toBe(getExpectedLocalUrl(4000));
     });
 
     it('unknown provider throws', () => {
