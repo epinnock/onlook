@@ -43,6 +43,7 @@
         "docker:restart": "docker compose down && docker compose up -d --build",
         "dev:mobile-preview": "cd packages/mobile-preview && bun run dev",
         "build:mobile-runtime": "cd packages/mobile-preview && bun run build:runtime",
+        "mobile:build:ios": "cd apps/mobile-client && bun run mobile:build:ios",
         "mobile:e2e:ios": "cd apps/mobile-client && bun run mobile:e2e:ios",
         "mobile:e2e:android": "cd apps/mobile-client && bun run mobile:e2e:android"
     },
