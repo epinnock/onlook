@@ -58,10 +58,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             await devLogin();
         } catch (error) {
             console.error('Error signing in with password:', error);
+            throw error;
         } finally {
             setSigningInMethod(null);
         }
-    }
+    };
 
     return (
         <AuthContext.Provider value={{ signingInMethod, lastSignInMethod, handleLogin, handleDevLogin, isAuthModalOpen, setIsAuthModalOpen }}>

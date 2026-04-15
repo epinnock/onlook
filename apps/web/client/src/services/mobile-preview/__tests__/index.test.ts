@@ -37,6 +37,51 @@ function makeFakeVfs(files: Record<string, string>): MobilePreviewVfs {
 }
 
 describe('buildMobilePreviewBundle', () => {
+    test('waits briefly for entry files to sync before failing the build', async () => {
+        let listCalls = 0;
+        const files = new Map([
+            ['package.json', JSON.stringify({ main: 'App.tsx' })],
+            [
+                'App.tsx',
+                `
+                    export default function App() {
+                        return null;
+                    }
+                `,
+            ],
+        ]);
+
+        const vfs: MobilePreviewVfs = {
+            async listAll() {
+                listCalls += 1;
+                if (listCalls < 3) {
+                    return [];
+                }
+
+                return Array.from(files.keys()).map((path) => ({
+                    path,
+                    type: 'file' as const,
+                }));
+            },
+            async readFile(path) {
+                const content = files.get(path);
+                if (content == null) {
+                    throw new Error(`Missing file: ${path}`);
+                }
+
+                return content;
+            },
+            watchDirectory() {
+                return () => undefined;
+            },
+        };
+
+        const bundle = await buildMobilePreviewBundle(vfs);
+
+        expect(bundle.entryPath).toBe('App.tsx');
+        expect(listCalls).toBe(3);
+    });
+
     test('resolves package.json main values without an explicit extension', async () => {
         const vfs = makeFakeVfs({
             'package.json': JSON.stringify({ main: 'src/App' }),

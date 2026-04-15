@@ -8,6 +8,15 @@ import { SignInMethod } from '@onlook/models';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 
+function isLoopbackHost(host: string | null): boolean {
+    if (!host) {
+        return false;
+    }
+
+    const hostname = host.split(':')[0];
+    return hostname === '127.0.0.1' || hostname === 'localhost';
+}
+
 export async function login(provider: SignInMethod.GITHUB | SignInMethod.GOOGLE) {
     const supabase = await createClient();
     const origin = (await headers()).get('origin') ?? env.NEXT_PUBLIC_SITE_URL;
@@ -38,14 +47,17 @@ export async function login(provider: SignInMethod.GITHUB | SignInMethod.GOOGLE)
 }
 
 export async function devLogin() {
-    if (env.NODE_ENV !== 'development') {
+    const host = (await headers()).get('host');
+    if (env.NODE_ENV !== 'development' && !isLoopbackHost(host)) {
         throw new Error('Dev login is only available in development mode');
     }
 
     const supabase = await createClient();
-    const { data: { session } } = await supabase.auth.getSession();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
 
-    if (session) {
+    if (user) {
         redirect(Routes.AUTH_REDIRECT);
     }
 

@@ -9,6 +9,17 @@ import {
 const VERIFICATION_PROJECT_ID = '2bff33ae-7334-457e-a69e-93a5d90b18b3';
 const RUNTIME_HASH = 'runtime-hash-boot-and-push';
 const RUNTIME_MANIFEST_URL = `exp://preview.test/manifest/${RUNTIME_HASH}`;
+const USER_GET_INPUT = encodeURIComponent(
+    JSON.stringify({
+        0: {
+            json: null,
+            meta: {
+                values: ['undefined'],
+                v: 1,
+            },
+        },
+    }),
+);
 
 const CANDIDATE_PROJECT_IDS = [
     VERIFICATION_PROJECT_ID,
@@ -44,21 +55,55 @@ function getMobilePreviewEndpointUrl(path: '/status' | '/push'): string {
     return url.toString();
 }
 
-async function signInWithDevMode(page: Page): Promise<void> {
-    await page.goto(getEditorUrl('/login'));
+async function waitForAuthenticatedSession(page: Page): Promise<void> {
+    const userGetUrl = getEditorUrl(`/api/trpc/user.get?batch=1&input=${USER_GET_INPUT}`);
 
-    const devModeButton = page.getByRole('button', {
-        name: /dev mode: sign in as demo user/i,
-    });
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+        const cookies = await page.context().cookies([getEditorBaseUrl()]);
+        const hasAuthCookie = cookies.some(
+            (cookie) => cookie.name.includes('auth-token') && cookie.value.length > 0,
+        );
 
-    if (!(await devModeButton.isVisible({ timeout: 15_000 }).catch(() => false))) {
-        return;
+        if (!hasAuthCookie) {
+            await page.waitForTimeout(500);
+            continue;
+        }
+
+        const response = await page.context().request.get(userGetUrl).catch(() => null);
+        if (!response) {
+            await page.waitForTimeout(500);
+            continue;
+        }
+
+        const body = await response.text();
+        if (
+            response.ok() &&
+            body.includes('"result"') &&
+            !body.includes('"error"') &&
+            !body.includes('Auth session missing!')
+        ) {
+            return;
+        }
+
+        await page.waitForTimeout(500);
     }
 
-    await devModeButton.click();
-    await page.waitForURL((url) => !url.pathname.startsWith('/login'), {
-        timeout: 30_000,
-    });
+    throw new Error('Timed out waiting for an authenticated dev-login session.');
+}
+
+async function signInWithDevMode(page: Page): Promise<void> {
+    const response = await page
+        .context()
+        .request.get(getEditorUrl('/auth/dev-login?returnUrl=%2Fprojects'))
+        .catch(() => null);
+
+    if (response && response.status() >= 500) {
+        throw new Error(
+            `dev-login route returned ${response.status()} at ${response.url()}`,
+        );
+    }
+
+    await waitForAuthenticatedSession(page);
 }
 
 async function gotoProjectPage(page: Page, projectId: string): Promise<void> {
@@ -76,13 +121,11 @@ async function gotoProjectPage(page: Page, projectId: string): Promise<void> {
 }
 
 async function openFirstExpoBrowserProject(page: Page): Promise<string> {
-    const editorReady = page
-        .locator('[data-testid="project-editor"], body[data-onlook-loaded="true"]')
-        .first();
     const previewFrame = page
         .locator('iframe[id^="frame-"], iframe[src*="/preview/"]')
         .first();
     const previewButton = page.getByTestId('preview-on-device-button');
+    const loadingProject = page.getByText('Loading project...');
     const applicationErrorHeading = page
         .getByRole('heading', {
             name: /application error: a client-side exception has occurred/i,
@@ -101,6 +144,10 @@ async function openFirstExpoBrowserProject(page: Page): Promise<string> {
             continue;
         }
 
+        await loadingProject
+            .waitFor({ state: 'hidden', timeout: 120_000 })
+            .catch(() => undefined);
+
         if (
             await applicationErrorHeading
                 .isVisible({ timeout: 2_000 })
@@ -109,18 +156,7 @@ async function openFirstExpoBrowserProject(page: Page): Promise<string> {
             continue;
         }
 
-        const mounted = await editorReady
-            .waitFor({ state: 'attached', timeout: 10_000 })
-            .then(() => true)
-            .catch(() => false);
-        if (!mounted) {
-            continue;
-        }
-
-        const buttonVisible = await previewButton
-            .isVisible({ timeout: 10_000 })
-            .catch(() => false);
-        if (!buttonVisible) {
+        if (!(await previewButton.isVisible({ timeout: 20_000 }).catch(() => false))) {
             continue;
         }
 

@@ -60,6 +60,8 @@ export interface UseMobilePreviewStatusResult {
 }
 
 type ReadyQrModalStatus = Extract<QrModalStatus, { kind: 'ready' }>;
+const PACKAGE_JSON_SYNC_RETRY_COUNT = 20;
+const PACKAGE_JSON_SYNC_RETRY_DELAY_MS = 250;
 
 interface MobilePreviewRuntimeTransitionArgs {
     data: unknown;
@@ -114,17 +116,34 @@ export async function readProjectExpoSdkVersion(
         return null;
     }
 
-    try {
-        const packageJson = await fileSystem.readFile('package.json');
-        const contents =
-            typeof packageJson === 'string'
-                ? packageJson
-                : new TextDecoder().decode(packageJson);
+    for (let attempt = 0; attempt < PACKAGE_JSON_SYNC_RETRY_COUNT; attempt += 1) {
+        try {
+            if (
+                'exists' in fileSystem &&
+                typeof fileSystem.exists === 'function' &&
+                !(await fileSystem.exists('package.json'))
+            ) {
+                await new Promise((resolve) =>
+                    setTimeout(resolve, PACKAGE_JSON_SYNC_RETRY_DELAY_MS),
+                );
+                continue;
+            }
 
-        return extractProjectExpoSdkVersion(contents);
-    } catch {
-        return null;
+            const packageJson = await fileSystem.readFile('package.json');
+            const contents =
+                typeof packageJson === 'string'
+                    ? packageJson
+                    : new TextDecoder().decode(packageJson);
+
+            return extractProjectExpoSdkVersion(contents);
+        } catch {
+            await new Promise((resolve) =>
+                setTimeout(resolve, PACKAGE_JSON_SYNC_RETRY_DELAY_MS),
+            );
+        }
     }
+
+    return null;
 }
 
 export function hasMobilePreviewSdkMismatch(

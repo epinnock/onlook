@@ -1,20 +1,22 @@
 import { expect, test, type Page } from '@playwright/test';
-import { createServerClient } from '@supabase/ssr';
-
 import { MOBILE_PREVIEW_FIXTURE_SDK_VERSION } from '../helpers/fixture';
 
 const VERIFICATION_PROJECT_ID = '2bff33ae-7334-457e-a69e-93a5d90b18b3';
 const MISMATCHED_RUNTIME_SDK_VERSION = '53.0.0';
-const DEMO_USER_EMAIL = 'support@onlook.com';
-const DEMO_USER_PASSWORD = 'password';
-const LOCAL_SUPABASE_URL =
-    process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() || 'http://127.0.0.1:54321';
-const LOCAL_SUPABASE_ANON_KEY =
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim() ||
-    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdWJhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0';
 
 const TARGET_PROJECT_ID =
     process.env.ONLOOK_E2E_PROJECT_ID?.trim() || VERIFICATION_PROJECT_ID;
+const USER_GET_INPUT = encodeURIComponent(
+    JSON.stringify({
+        0: {
+            json: null,
+            meta: {
+                values: ['undefined'],
+                v: 1,
+            },
+        },
+    }),
+);
 
 function escapeRegExp(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -46,6 +48,42 @@ function resolveAppUrl(pathname: string): string {
     return new URL(pathname, getWebBaseUrl()).toString();
 }
 
+async function waitForAuthenticatedSession(page: Page): Promise<void> {
+    const userGetUrl = resolveAppUrl(`/api/trpc/user.get?batch=1&input=${USER_GET_INPUT}`);
+
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+        const cookies = await page.context().cookies([getWebBaseUrl()]);
+        const hasAuthCookie = cookies.some(
+            (cookie) => cookie.name.includes('auth-token') && cookie.value.length > 0,
+        );
+
+        if (!hasAuthCookie) {
+            await page.waitForTimeout(500);
+            continue;
+        }
+
+        const response = await page.context().request.get(userGetUrl).catch(() => null);
+        if (!response) {
+            await page.waitForTimeout(500);
+            continue;
+        }
+
+        const body = await response.text();
+        if (
+            response.ok() &&
+            body.includes('"result"') &&
+            !body.includes('"error"') &&
+            !body.includes('Auth session missing!')
+        ) {
+            return;
+        }
+
+        await page.waitForTimeout(500);
+    }
+
+    throw new Error('Timed out waiting for an authenticated dev-login session.');
+}
+
 async function gotoAppPath(page: Page, pathname: string): Promise<void> {
     try {
         await page.goto(resolveAppUrl(pathname), {
@@ -70,73 +108,33 @@ async function gotoAppPath(page: Page, pathname: string): Promise<void> {
 }
 
 async function signInAsDemoUser(page: Page): Promise<void> {
-    const cookiesToSet: Array<{
-        name: string;
-        value: string;
-        options?: {
-            path?: string;
-            httpOnly?: boolean;
-            secure?: boolean;
-            sameSite?: 'lax' | 'strict' | 'none';
-            expires?: string | number | Date;
-        };
-    }> = [];
+    const returnUrl = encodeURIComponent(`/project/${TARGET_PROJECT_ID}`);
+    await gotoAppPath(page, `/auth/dev-login?returnUrl=${returnUrl}`);
+    await waitForAuthenticatedSession(page);
+}
 
-    const supabase = createServerClient(
-        LOCAL_SUPABASE_URL,
-        LOCAL_SUPABASE_ANON_KEY,
-        {
-            cookies: {
-                getAll() {
-                    return [];
-                },
-                setAll(nextCookies) {
-                    cookiesToSet.splice(0, cookiesToSet.length, ...nextCookies);
-                },
-            },
-        },
-    );
-
-    const { error } = await supabase.auth.signInWithPassword({
-        email: DEMO_USER_EMAIL,
-        password: DEMO_USER_PASSWORD,
-    });
-    if (error) {
-        throw error;
-    }
-
-    await page.context().addCookies(
-        cookiesToSet.map(({ name, value, options }) => ({
-            name,
-            value,
-            url: getWebBaseUrl(),
-            httpOnly: options?.httpOnly ?? false,
-            secure: options?.secure ?? false,
-            sameSite:
-                options?.sameSite === 'strict'
-                    ? 'Strict'
-                    : options?.sameSite === 'none'
-                      ? 'None'
-                      : 'Lax',
-            ...(options?.expires instanceof Date
-                ? { expires: Math.floor(options.expires.getTime() / 1000) }
-                : typeof options?.expires === 'number'
-                  ? { expires: options.expires }
-                  : {}),
-        })),
-    );
+async function gotoProjectPage(page: Page): Promise<void> {
+    await gotoAppPath(page, `/project/${TARGET_PROJECT_ID}`);
 }
 
 async function openExpoBrowserProject(page: Page): Promise<void> {
-    const editorReady = page
-        .locator('[data-testid="project-editor"], body[data-onlook-loaded="true"]')
-        .first();
     const previewFrame = page
         .locator('iframe[id^="frame-"], iframe[src*="/preview/"]')
         .first();
     const previewButton = page.getByTestId('preview-on-device-button');
+    const loadingProject = page.getByText('Loading project...');
+    const applicationErrorHeading = page
+        .getByRole('heading', {
+            name: /application error: a client-side exception has occurred/i,
+        })
+        .first();
 
-    await gotoAppPath(page, `/project/${TARGET_PROJECT_ID}`);
+    await gotoProjectPage(page);
+
+    if (page.url().includes('/login')) {
+        await signInAsDemoUser(page);
+        await gotoProjectPage(page);
+    }
 
     if (page.url().includes('/see-a-demo')) {
         throw new Error(
@@ -144,8 +142,19 @@ async function openExpoBrowserProject(page: Page): Promise<void> {
         );
     }
 
-    await editorReady.waitFor({ state: 'attached', timeout: 90_000 });
-    await expect(previewButton).toBeVisible({ timeout: 30_000 });
+    await loadingProject
+        .waitFor({ state: 'hidden', timeout: 120_000 })
+        .catch(() => undefined);
+
+    if (
+        await applicationErrorHeading
+            .isVisible({ timeout: 2_000 })
+            .catch(() => false)
+    ) {
+        throw new Error('Project route rendered a client-side application error.');
+    }
+
+    await expect(previewButton).toBeVisible({ timeout: 60_000 });
     await previewFrame
         .waitFor({ state: 'attached', timeout: 30_000 })
         .catch(() => undefined);

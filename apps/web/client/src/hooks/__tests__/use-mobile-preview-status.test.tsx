@@ -107,6 +107,10 @@ describe('useMobilePreviewStatus helpers', () => {
                 async listAll() {
                     return [];
                 },
+                async exists(path) {
+                    expect(path).toBe('package.json');
+                    return true;
+                },
                 async readFile(path) {
                     expect(path).toBe('package.json');
                     return JSON.stringify({
@@ -128,6 +132,9 @@ describe('useMobilePreviewStatus helpers', () => {
                 async listAll() {
                     return [];
                 },
+                async exists() {
+                    return true;
+                },
                 async readFile() {
                     return JSON.stringify({
                         dependencies: {
@@ -145,5 +152,32 @@ describe('useMobilePreviewStatus helpers', () => {
         expect(message).toBe(
             formatMobilePreviewSdkMismatchError('54.0.0', '55.0.11'),
         );
+    });
+
+    test('waits briefly for package.json to appear in the synced file system', async () => {
+        let existsChecks = 0;
+
+        const sdkVersion = await readProjectExpoSdkVersion({
+            async listAll() {
+                return [];
+            },
+            async exists() {
+                existsChecks += 1;
+                return existsChecks >= 3;
+            },
+            async readFile() {
+                return JSON.stringify({
+                    dependencies: {
+                        expo: '~54.0.17',
+                    },
+                });
+            },
+            watchDirectory() {
+                return () => undefined;
+            },
+        });
+
+        expect(sdkVersion).toBe('54.0.17');
+        expect(existsChecks).toBe(3);
     });
 });
