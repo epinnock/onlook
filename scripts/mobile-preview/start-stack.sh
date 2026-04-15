@@ -76,6 +76,32 @@ source_repo_env_files() {
     source_env_file "${client_dir}/.env.development.local"
 }
 
+ensure_worktree_node_modules_copy() {
+    if [[ "${PRIMARY_CHECKOUT_ROOT}" == "${WORKTREE_ROOT}" ]]; then
+        return 0
+    fi
+
+    local target_node_modules="${PRIMARY_CHECKOUT_ROOT}/node_modules"
+    local worktree_node_modules="${WORKTREE_ROOT}/node_modules"
+
+    if [[ -d "${worktree_node_modules}" && ! -L "${worktree_node_modules}" ]]; then
+        return 0
+    fi
+
+    if [[ ! -d "${target_node_modules}" ]]; then
+        echo "[mobile-preview:start] missing shared node_modules at ${target_node_modules}" >&2
+        exit 1
+    fi
+
+    rm -rf "${worktree_node_modules}"
+
+    if cp -cR "${target_node_modules}" "${worktree_node_modules}" 2>/dev/null; then
+        return 0
+    fi
+
+    cp -R "${target_node_modules}" "${worktree_node_modules}"
+}
+
 ensure_runtime_bundle() {
     if [[ -f "${RUNTIME_BUNDLE_PATH}" ]]; then
         return 0
@@ -95,6 +121,37 @@ probe_web() {
 probe_mobile_preview() {
     curl -s -o /dev/null -w "%{http_code}" --max-time 2 \
         "http://127.0.0.1:${MOBILE_PREVIEW_PORT}/health" 2>/dev/null || true
+}
+
+get_listener_pid() {
+    lsof -nP -iTCP:"$1" -sTCP:LISTEN -Fp 2>/dev/null | sed -n 's/^p//p' | head -n 1
+}
+
+wait_for_listener_pid() {
+    local port="$1"
+    local pid_file="$2"
+    local launcher_pid="$3"
+    local label="$4"
+    local attempts="${5:-60}"
+
+    for ((i = 1; i <= attempts; i++)); do
+        local listener_pid
+        listener_pid="$(get_listener_pid "${port}")"
+        if [[ -n "${listener_pid}" ]]; then
+            printf '%s\n' "${listener_pid}" >"${pid_file}"
+            return 0
+        fi
+
+        if [[ -n "${launcher_pid}" ]] && ! kill -0 "${launcher_pid}" 2>/dev/null; then
+            echo "[mobile-preview:start] ${label} launcher exited before binding port ${port}. See ${WEB_LOG}" >&2
+            return 1
+        fi
+
+        sleep 1
+    done
+
+    echo "[mobile-preview:start] ${label} did not bind port ${port}. See ${WEB_LOG}" >&2
+    return 1
 }
 
 web_is_ready() {
@@ -154,7 +211,12 @@ REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
 WORKTREE_ROOT="$(git -C "${REPO_ROOT}" rev-parse --show-toplevel)"
 WORKTREE_NAME="$(basename "${WORKTREE_ROOT}")"
 PRIMARY_CHECKOUT_ROOT="$(
-    git -C "${WORKTREE_ROOT}" worktree list --porcelain | awk '/^worktree / { print $2; exit }'
+    git -C "${WORKTREE_ROOT}" worktree list --porcelain | awk '
+        /^worktree / && !seen {
+            print $2
+            seen = 1
+        }
+    '
 )"
 
 STACK_DIR="${WORKTREE_ROOT}/.tmp/mobile-preview/slot-${slot}"
@@ -185,6 +247,7 @@ source_repo_env_files "${PRIMARY_CHECKOUT_ROOT}"
 if [[ "${PRIMARY_CHECKOUT_ROOT}" != "${WORKTREE_ROOT}" ]]; then
     source_repo_env_files "${WORKTREE_ROOT}"
 fi
+ensure_worktree_node_modules_copy
 
 WEB_PORT=$((3100 + slot))
 MOBILE_PREVIEW_PORT=$((8787 + slot))
@@ -220,14 +283,16 @@ echo "[mobile-preview:start] slot=${MOBILE_PREVIEW_SLOT} web=${WEB_PORT} mobile=
 (
     cd "${WORKTREE_ROOT}/apps/web/client"
     env \
+        NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=8192}" \
         PORT="${WEB_PORT}" \
         PLAYWRIGHT_PORT="${WEB_PORT}" \
         PLAYWRIGHT_BASE_URL="${PLAYWRIGHT_BASE_URL}" \
         NEXT_PUBLIC_MOBILE_PREVIEW_URL="${NEXT_PUBLIC_MOBILE_PREVIEW_URL}" \
+        NEXT_TURBOPACK=0 \
         NEXT_IGNORE_INCORRECT_LOCKFILE=1 \
         NEXT_TELEMETRY_DISABLED=1 \
         SKIP_ENV_VALIDATION="${SKIP_ENV_VALIDATION:-1}" \
-        nohup bun run next dev --hostname 127.0.0.1 --port "${WEB_PORT}" >"${WEB_LOG}" 2>&1 &
+        nohup "${WORKTREE_ROOT}/node_modules/.bin/next" dev --hostname 127.0.0.1 --port "${WEB_PORT}" --webpack >"${WEB_LOG}" 2>&1 &
     echo $! >"${WEB_PID_FILE}"
     disown "$(cat "${WEB_PID_FILE}")" 2>/dev/null || true
 )
@@ -245,6 +310,9 @@ echo "[mobile-preview:start] slot=${MOBILE_PREVIEW_SLOT} web=${WEB_PORT} mobile=
     echo $! >"${MOBILE_PID_FILE}"
     disown "$(cat "${MOBILE_PID_FILE}")" 2>/dev/null || true
 )
+
+WEB_LAUNCHER_PID="$(cat "${WEB_PID_FILE}")"
+wait_for_listener_pid "${WEB_PORT}" "${WEB_PID_FILE}" "${WEB_LAUNCHER_PID}" "web app"
 
 WEB_PID="$(cat "${WEB_PID_FILE}")"
 MOBILE_PID="$(cat "${MOBILE_PID_FILE}")"

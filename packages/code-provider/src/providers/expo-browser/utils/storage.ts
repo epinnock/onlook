@@ -18,6 +18,7 @@ import {
     createClient,
     type SupabaseClient,
 } from '@supabase/supabase-js';
+import { isImageFile } from '@onlook/utility';
 
 /**
  * Subset of Supabase's FileObject we use. The full type isn't a
@@ -92,6 +93,16 @@ export interface StorageAdapter {
 const DIR_PLACEHOLDER = '.onlook-dir-placeholder';
 
 const DEFAULT_BUCKET = 'expo-projects';
+
+function bytesToBase64(bytes: Uint8Array): string {
+    let binary = '';
+
+    for (const byte of bytes) {
+        binary += String.fromCharCode(byte);
+    }
+
+    return btoa(binary);
+}
 
 export class SupabaseStorageAdapter implements StorageAdapter {
     private readonly client: SupabaseClient;
@@ -181,6 +192,19 @@ export class SupabaseStorageAdapter implements StorageAdapter {
                 `storage.download failed for ${key}: ${error?.message ?? 'no data'}`,
             );
         }
+
+        if (isImageFile(input.args.path)) {
+            const content = new Uint8Array(await data.arrayBuffer());
+            return {
+                file: {
+                    path: input.args.path,
+                    content,
+                    type: 'binary',
+                    toString: () => bytesToBase64(content),
+                },
+            };
+        }
+
         const text = await data.text();
         return {
             file: {

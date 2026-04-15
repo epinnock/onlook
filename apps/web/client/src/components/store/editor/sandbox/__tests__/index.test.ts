@@ -415,6 +415,80 @@ describe('SandboxManager.attachBrowserMetro (TR1.5)', () => {
 });
 
 describe('CodeProviderSync.firstPullComplete (TR1.5 Option A)', () => {
+    it('does not reuse a sync instance for a different file-system object with the same root path', () => {
+        const providerStub = {
+            listFiles: async () => ({ files: [] }),
+            readFile: async () => ({ file: { type: 'text', content: '' } }),
+            watchFiles: async () => ({ watcher: { stop: async () => undefined } }),
+            writeFile: async () => undefined,
+            statFile: async () => ({ type: 'file' }),
+            createDirectory: async () => undefined,
+            deleteFiles: async () => undefined,
+            renameFile: async () => undefined,
+        } as unknown as Parameters<typeof CodeProviderSync.getInstance>[0];
+
+        const createFakeFs = () =>
+            ({
+                rootPath: '/test-project/shared-root',
+                async listAll() {
+                    return [];
+                },
+                async readFile(): Promise<string> {
+                    return '';
+                },
+                async writeFile(): Promise<void> {
+                    /* no-op */
+                },
+                async deleteFile(): Promise<void> {
+                    /* no-op */
+                },
+                async deleteDirectory(): Promise<void> {
+                    /* no-op */
+                },
+                async createDirectory(): Promise<void> {
+                    /* no-op */
+                },
+                async exists(): Promise<boolean> {
+                    return false;
+                },
+                async getInfo() {
+                    return { isDirectory: false } as const;
+                },
+                async moveFile(): Promise<void> {
+                    /* no-op */
+                },
+                async listFiles(): Promise<string[]> {
+                    return [];
+                },
+                watchDirectory(): () => void {
+                    return () => undefined;
+                },
+            }) as unknown as CodeFileSystem;
+
+        const firstFs = createFakeFs();
+        const secondFs = createFakeFs();
+
+        const firstSync = CodeProviderSync.getInstance(
+            providerStub,
+            firstFs,
+            'test-sandbox-instance-identity',
+            { exclude: [] },
+        );
+        const secondSync = CodeProviderSync.getInstance(
+            providerStub,
+            secondFs,
+            'test-sandbox-instance-identity',
+            { exclude: [] },
+        );
+
+        try {
+            expect(secondSync).not.toBe(firstSync);
+        } finally {
+            firstSync.release();
+            secondSync.release();
+        }
+    });
+
     it('exposes a promise property that exists on a fresh instance', () => {
         // The getInstance + CodeFileSystem stack is hard to wire up
         // without ZenFS, so we probe the instance shape directly via

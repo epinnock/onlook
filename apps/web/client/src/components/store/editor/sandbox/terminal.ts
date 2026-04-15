@@ -129,21 +129,24 @@ export class CLISessionImpl implements CLISession {
 
     async initTask() {
         try {
-            await this.ensureXTermLibraries();
-
-            // Initialize xterm and fitAddon
-            this.fitAddon = new FitAddonClass!();
-            this.xterm = this.createXTerm();
-            this.xterm.loadAddon(this.fitAddon);
-
             const task = await this.createDevTaskTerminal();
             if (!task) {
                 console.error('Failed to create task');
                 return;
             }
             this.task = task;
+
+            if (typeof window !== 'undefined') {
+                await this.ensureXTermLibraries();
+
+                // Initialize xterm and fitAddon only in the browser.
+                this.fitAddon = new FitAddonClass!();
+                this.xterm = this.createXTerm();
+                this.xterm.loadAddon(this.fitAddon);
+            }
+
             const output = await task.open();
-            this.xterm.write(output);
+            this.xterm?.write(output);
             this.checkForExpoUrl(output);
             this.errorManager.processMessage(output);
             task.onOutput((data: string) => {

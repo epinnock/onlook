@@ -31,6 +31,9 @@ interface SyncInstance {
 
 export class CodeProviderSync {
     private static instances = new Map<string, SyncInstance>();
+    private static fileSystemIds = new WeakMap<CodeFileSystem, number>();
+    private static providerIds = new WeakMap<Provider, number>();
+    private static nextIdentity = 1;
 
     private watcher: ProviderFileWatcher | null = null;
     private localWatcher: (() => void) | null = null;
@@ -85,7 +88,7 @@ export class CodeProviderSync {
         sandboxId: string,
         config: SyncConfig = { include: [], exclude: [] },
     ): CodeProviderSync {
-        const key = CodeProviderSync.generateKey(sandboxId, fs);
+        const key = CodeProviderSync.generateKey(sandboxId, provider, fs);
 
         const existing = CodeProviderSync.instances.get(key);
         if (existing) {
@@ -112,8 +115,34 @@ export class CodeProviderSync {
     /**
      * Generate a unique key for a provider+filesystem combination.
      */
-    private static generateKey(sandboxId: string, fs: CodeFileSystem): string {
-        return `${sandboxId}:${fs.rootPath}`;
+    private static generateKey(
+        sandboxId: string,
+        provider: Provider,
+        fs: CodeFileSystem,
+    ): string {
+        return `${sandboxId}:${CodeProviderSync.getProviderIdentity(provider)}:${CodeProviderSync.getFileSystemIdentity(fs)}`;
+    }
+
+    private static getFileSystemIdentity(fs: CodeFileSystem): number {
+        const existing = CodeProviderSync.fileSystemIds.get(fs);
+        if (existing != null) {
+            return existing;
+        }
+
+        const nextIdentity = CodeProviderSync.nextIdentity++;
+        CodeProviderSync.fileSystemIds.set(fs, nextIdentity);
+        return nextIdentity;
+    }
+
+    private static getProviderIdentity(provider: Provider): number {
+        const existing = CodeProviderSync.providerIds.get(provider);
+        if (existing != null) {
+            return existing;
+        }
+
+        const nextIdentity = CodeProviderSync.nextIdentity++;
+        CodeProviderSync.providerIds.set(provider, nextIdentity);
+        return nextIdentity;
     }
 
     /**

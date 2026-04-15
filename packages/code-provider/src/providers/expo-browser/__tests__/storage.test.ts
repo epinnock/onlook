@@ -25,6 +25,7 @@ const stubClient = {
         from: () => ({
             list: async () => ({ data: [], error: null }),
             upload: async () => ({ data: null, error: null }),
+            download: async () => ({ data: new Blob(['']), error: null }),
         }),
     },
 } as unknown as SupabaseClient;
@@ -125,5 +126,36 @@ describe('SupabaseStorageAdapter.fromKey', () => {
 
     it("round-trips fromKey(toKey('foo/bar')) to 'foo/bar'", () => {
         expect(adapter.publicFromKey(adapter.publicToKey('foo/bar'))).toBe('foo/bar');
+    });
+});
+
+describe('SupabaseStorageAdapter.readFile', () => {
+    it('preserves image downloads as binary content', async () => {
+        const pngBytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+        const binaryClient = {
+            storage: {
+                from: () => ({
+                    list: async () => ({ data: [], error: null }),
+                    upload: async () => ({ data: null, error: null }),
+                    download: async () => ({
+                        data: new Blob([pngBytes], { type: 'image/png' }),
+                        error: null,
+                    }),
+                }),
+            },
+        } as unknown as SupabaseClient;
+        const adapter = new SupabaseStorageAdapter({
+            projectId: PROJECT_ID,
+            branchId: BRANCH_ID,
+            supabaseUrl: 'http://127.0.0.1:54321',
+            supabaseKey: 'test-key',
+            client: binaryClient,
+        });
+
+        const result = await adapter.readFile({ args: { path: 'assets/logo.png' } });
+
+        expect(result.file.type).toBe('binary');
+        expect(result.file.content).toEqual(pngBytes);
+        expect(result.file.toString()).toBe('iVBORw0KGgo=');
     });
 });
