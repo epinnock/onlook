@@ -20,6 +20,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { renderQrSvg } from '@/services/expo-relay';
 import {
+    createMobilePreviewErrorStore,
+    type MobilePreviewErrorPanelModel,
+} from '@/services/mobile-preview/error-store';
+import {
     buildMobilePreviewBundle,
     pushMobilePreviewUpdate,
     shouldSyncMobilePreviewPath,
@@ -48,6 +52,7 @@ export interface UseMobilePreviewStatusOptions {
 
 export interface UseMobilePreviewStatusResult {
     status: QrModalStatus;
+    errorPanel: MobilePreviewErrorPanelModel;
     isOpen: boolean;
     open: () => Promise<void>;
     close: () => void;
@@ -259,6 +264,10 @@ export function useMobilePreviewStatus(
     opts: UseMobilePreviewStatusOptions,
 ): UseMobilePreviewStatusResult {
     const [status, setStatus] = useState<QrModalStatus>({ kind: 'idle' });
+    const errorStoreRef = useRef(createMobilePreviewErrorStore());
+    const [errorPanel, setErrorPanel] = useState<MobilePreviewErrorPanelModel>(
+        () => errorStoreRef.current.getPanelModel(),
+    );
     const [isOpen, setIsOpen] = useState(false);
     const didPushRef = useRef(false);
     const isOpenRef = useRef(false);
@@ -266,6 +275,36 @@ export function useMobilePreviewStatus(
     const runtimeErrorMessageRef = useRef<string | null>(null);
 
     isOpenRef.current = isOpen;
+
+    const syncErrorPanel = useCallback(() => {
+        setErrorPanel(errorStoreRef.current.getPanelModel());
+    }, []);
+
+    const recordPushError = useCallback(
+        (message: string) => {
+            errorStoreRef.current.recordPushError(message);
+            syncErrorPanel();
+        },
+        [syncErrorPanel],
+    );
+
+    const clearPushError = useCallback(() => {
+        errorStoreRef.current.clearPushError();
+        syncErrorPanel();
+    }, [syncErrorPanel]);
+
+    const recordRuntimeError = useCallback(
+        (message: string) => {
+            errorStoreRef.current.recordRuntimeError(message);
+            syncErrorPanel();
+        },
+        [syncErrorPanel],
+    );
+
+    const clearRuntimeError = useCallback(() => {
+        errorStoreRef.current.clearRuntimeError();
+        syncErrorPanel();
+    }, [syncErrorPanel]);
 
     const open = useCallback(async () => {
         setIsOpen(true);
@@ -385,6 +424,7 @@ export function useMobilePreviewStatus(
             }
 
             socket.onmessage = (event) => {
+                const previousRuntimeErrorMessage = runtimeErrorMessageRef.current;
                 const transition = reduceMobilePreviewRuntimeMessage({
                     data: event.data,
                     isOpen: isOpenRef.current,
@@ -393,6 +433,20 @@ export function useMobilePreviewStatus(
                 });
 
                 runtimeErrorMessageRef.current = transition.runtimeErrorMessage;
+
+                if (
+                    transition.runtimeErrorMessage &&
+                    transition.runtimeErrorMessage !== previousRuntimeErrorMessage
+                ) {
+                    recordRuntimeError(transition.runtimeErrorMessage);
+                }
+
+                if (
+                    !transition.runtimeErrorMessage &&
+                    previousRuntimeErrorMessage
+                ) {
+                    clearRuntimeError();
+                }
 
                 if (transition.nextStatus) {
                     setStatus(transition.nextStatus);
@@ -461,6 +515,7 @@ export function useMobilePreviewStatus(
                     code: bundle.code,
                 });
                 didPushRef.current = true;
+                clearPushError();
             } catch (error) {
                 const message =
                     error instanceof Error ? error.message : String(error);
@@ -469,6 +524,7 @@ export function useMobilePreviewStatus(
                     '[mobile-preview] Failed to build/push preview bundle:',
                     error,
                 );
+                recordPushError(message);
 
                 // Surface the error in the QR modal only on the very first
                 // push attempt and only while the modal is actually open.
@@ -547,7 +603,7 @@ export function useMobilePreviewStatus(
         // error-surfacing guard) but omitted from the deps so toggling the
         // modal doesn't tear down and rebuild the file watcher.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [opts.fileSystem, opts.serverBaseUrl]);
+    }, [clearPushError, opts.fileSystem, opts.serverBaseUrl, recordPushError]);
 
-    return { status, isOpen, open, close, retry };
+    return { status, errorPanel, isOpen, open, close, retry };
 }
