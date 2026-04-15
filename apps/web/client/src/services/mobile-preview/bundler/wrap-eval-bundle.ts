@@ -104,7 +104,18 @@ const __installOnlookStyleHelpers = (target) => {
   target[__STYLE_HELPERS_GLOBAL_KEY] = helpers;
   return helpers;
 };
-const __styleHelpers = globalThis[__STYLE_HELPERS_GLOBAL_KEY] ?? __installOnlookStyleHelpers(globalThis);`;
+const __styleHelpers = globalThis[__STYLE_HELPERS_GLOBAL_KEY] ?? __installOnlookStyleHelpers(globalThis);
+const __RUNTIME_SHIM_REGISTRY_KEY = '__onlookShims';
+const __resolveRuntimeShim = (specifier) => {
+  const registry = globalThis[__RUNTIME_SHIM_REGISTRY_KEY];
+  if (!registry || typeof registry !== 'object') {
+    return null;
+  }
+  if (!Object.prototype.hasOwnProperty.call(registry, specifier)) {
+    return null;
+  }
+  return registry[specifier];
+};`;
 
 export function wrapEvalBundle(
     entryPath: string,
@@ -213,21 +224,6 @@ const __expoStatusBar = {
 };
 __expoStatusBar.default = __expoStatusBar.StatusBar;
 __expoStatusBar.__esModule = true;
-const __expoRouter = {
-  Link: ({ children }) => React.createElement(globalThis.TextC, null, children),
-  Redirect: () => null,
-  Slot: ({ children }) => React.createElement(React.Fragment, null, children ?? null),
-  Stack: ({ children }) => React.createElement(React.Fragment, null, children ?? null),
-  Tabs: ({ children }) => React.createElement(React.Fragment, null, children ?? null),
-  useRouter() {
-    return { push() {}, replace() {}, back() {} };
-  },
-  useLocalSearchParams() {
-    return {};
-  },
-};
-__expoRouter.default = __expoRouter;
-__expoRouter.__esModule = true;
 function __require(specifier) {
   if (specifier === 'react') {
     return React;
@@ -235,17 +231,15 @@ function __require(specifier) {
   if (specifier === 'react-native') {
     return __reactNative;
   }
+  const __runtimeShim = __resolveRuntimeShim(specifier);
+  if (__runtimeShim != null) {
+    return __runtimeShim;
+  }
   if (specifier === 'react-native-safe-area-context') {
     return __safeAreaContext;
   }
   if (specifier === 'expo-status-bar') {
     return __expoStatusBar;
-  }
-  if (specifier === 'expo-router') {
-    return __expoRouter;
-  }
-  if (specifier === 'onlook-preload-script.js') {
-    return {};
   }
   if (__cache[specifier]) {
     return __cache[specifier].exports;
