@@ -1,12 +1,14 @@
 import { flattenHostProps } from './props.js';
 import { allocTag } from './tags.js';
 import { resolveHostComponent } from './components/index.js';
+import { registerHostInstanceEventHandlers } from './events.js';
 
 export function createHostInstance(fab, rootTag, type, props, internalHandle) {
   const resolvedComponent = resolveHostComponent(type, props);
   const tag = allocTag();
   const flatProps = flattenHostProps(resolvedComponent.props, { processStyleColors: true });
   const node = fab.createNode(tag, resolvedComponent.type, rootTag, flatProps, internalHandle);
+  const handlers = registerHostInstanceEventHandlers(tag, resolvedComponent.props);
 
   return {
     node,
@@ -15,6 +17,7 @@ export function createHostInstance(fab, rootTag, type, props, internalHandle) {
     sourceType: type,
     componentId: resolvedComponent.componentId,
     children: [],
+    handlers,
   };
 }
 

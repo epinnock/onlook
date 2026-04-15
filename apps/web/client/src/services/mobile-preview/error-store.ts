@@ -1,10 +1,17 @@
 export type MobilePreviewErrorKind = 'push' | 'runtime';
 
+import {
+    formatMappedMobilePreviewRuntimeErrorMessage,
+    mapMobilePreviewRuntimeError,
+    type MobilePreviewMappedSourceLocation,
+} from './error-mapper';
+
 export interface MobilePreviewErrorEntry {
     kind: MobilePreviewErrorKind;
     message: string;
     occurredAt: number;
     occurrences: number;
+    sourceLocation?: MobilePreviewMappedSourceLocation;
 }
 
 export interface MobilePreviewErrorPanelItem {
@@ -14,6 +21,7 @@ export interface MobilePreviewErrorPanelItem {
     message: string;
     occurredAt: number;
     occurrences: number;
+    sourceLocation?: MobilePreviewMappedSourceLocation;
 }
 
 export interface MobilePreviewErrorPanelModel {
@@ -33,7 +41,16 @@ function cloneEntry(
         return null;
     }
 
-    return { ...entry };
+    return {
+        ...entry,
+        ...(entry.sourceLocation
+            ? {
+                  sourceLocation: {
+                      ...entry.sourceLocation,
+                  },
+              }
+            : {}),
+    };
 }
 
 function getPanelTitle(kind: MobilePreviewErrorKind): string {
@@ -45,13 +62,19 @@ function upsertError(
     kind: MobilePreviewErrorKind,
     message: string,
     occurredAt: number,
+    sourceLocation?: MobilePreviewMappedSourceLocation | null,
 ): MobilePreviewErrorEntry {
     const trimmedMessage = message.trim();
     if (!trimmedMessage) {
         throw new Error('Mobile preview errors require a non-empty message.');
     }
 
-    if (current?.message === trimmedMessage) {
+    const sameSourceLocation =
+        current?.sourceLocation?.filePath === sourceLocation?.filePath &&
+        current?.sourceLocation?.line === sourceLocation?.line &&
+        current?.sourceLocation?.column === sourceLocation?.column;
+
+    if (current?.message === trimmedMessage && sameSourceLocation) {
         return {
             ...current,
             occurredAt,
@@ -64,6 +87,7 @@ function upsertError(
         message: trimmedMessage,
         occurredAt,
         occurrences: 1,
+        ...(sourceLocation ? { sourceLocation: { ...sourceLocation } } : {}),
     };
 }
 
@@ -91,6 +115,13 @@ export function createMobilePreviewErrorStore(
                 message: entry.message,
                 occurredAt: entry.occurredAt,
                 occurrences: entry.occurrences,
+                ...(entry.sourceLocation
+                    ? {
+                          sourceLocation: {
+                              ...entry.sourceLocation,
+                          },
+                      }
+                    : {}),
             }));
 
         return {
@@ -123,7 +154,11 @@ export function createMobilePreviewErrorStore(
 
             return getSnapshot();
         },
-        recordRuntimeError(message: string, occurredAt = Date.now()) {
+        recordRuntimeError(
+            message: string,
+            occurredAt = Date.now(),
+            sourceLocation?: MobilePreviewMappedSourceLocation | null,
+        ) {
             snapshot = {
                 ...snapshot,
                 runtimeError: upsertError(
@@ -131,10 +166,27 @@ export function createMobilePreviewErrorStore(
                     'runtime',
                     message,
                     occurredAt,
+                    sourceLocation,
                 ),
             };
 
             return getSnapshot();
+        },
+        recordMappedRuntimeError(
+            message: string,
+            bundleCode: string,
+            occurredAt = Date.now(),
+        ) {
+            const mappedError = mapMobilePreviewRuntimeError(message, bundleCode);
+
+            return this.recordRuntimeError(
+                formatMappedMobilePreviewRuntimeErrorMessage(
+                    mappedError.message,
+                    mappedError.sourceLocation,
+                ),
+                occurredAt,
+                mappedError.sourceLocation,
+            );
         },
         clearRuntimeError() {
             snapshot = {

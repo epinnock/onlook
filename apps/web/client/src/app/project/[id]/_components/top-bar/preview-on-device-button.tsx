@@ -23,6 +23,10 @@
 import { useEditorEngine } from '@/components/store/editor';
 import { QrModal } from '@/components/ui/qr-modal';
 import { env } from '@/env';
+import {
+    useMobilePreviewConnection,
+    type MobilePreviewConnectionStatus,
+} from '@/hooks/use-mobile-preview-connection';
 import { useMobilePreviewStatus } from '@/hooks/use-mobile-preview-status';
 import { Button } from '@onlook/ui/button';
 import { observer } from 'mobx-react-lite';
@@ -44,6 +48,9 @@ function PreviewOnDeviceInner({
 }: {
     fileSystem: ReturnType<typeof useEditorEngine>['fileSystem'];
 }) {
+    const connection = useMobilePreviewConnection({
+        serverBaseUrl: env.NEXT_PUBLIC_MOBILE_PREVIEW_URL,
+    });
     // Browser-only mobile preview: hits the mobile-preview server's
     // /status endpoint to fetch the pre-staged static runtime manifest URL.
     // In dev this points at packages/mobile-preview/server (port 8787) over
@@ -61,16 +68,26 @@ function PreviewOnDeviceInner({
 
     return (
         <>
-            <Button
-                variant="ghost"
-                size="sm"
-                className="h-8"
-                onClick={handleClick}
-                data-testid="preview-on-device-button"
-                aria-label="Preview on device"
-            >
-                Preview on device
-            </Button>
+            <div className="flex items-center gap-2">
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8"
+                    onClick={handleClick}
+                    data-testid="preview-on-device-button"
+                    aria-label="Preview on device"
+                >
+                    Preview on device
+                </Button>
+                <span
+                    data-testid="mobile-preview-connection-status"
+                    data-status={connection.status.kind}
+                    className={getConnectionStatusClassName(connection.status)}
+                    aria-live="polite"
+                >
+                    {getConnectionStatusLabel(connection.status)}
+                </span>
+            </div>
             <QrModal
                 open={preview.isOpen}
                 onClose={preview.close}
@@ -79,4 +96,37 @@ function PreviewOnDeviceInner({
             />
         </>
     );
+}
+
+function getConnectionStatusClassName(status: MobilePreviewConnectionStatus): string {
+    const baseClassName =
+        'inline-flex h-8 items-center rounded-full border px-2 text-xs font-medium';
+
+    switch (status.kind) {
+        case 'connected':
+            return `${baseClassName} border-emerald-500/30 bg-emerald-500/10 text-emerald-300`;
+        case 'checking':
+            return `${baseClassName} border-amber-500/30 bg-amber-500/10 text-amber-300`;
+        case 'waiting':
+            return `${baseClassName} border-zinc-500/30 bg-zinc-500/10 text-zinc-300`;
+        case 'error':
+            return `${baseClassName} border-red-500/30 bg-red-500/10 text-red-300`;
+        case 'disabled':
+            return `${baseClassName} border-zinc-600/30 bg-zinc-600/10 text-zinc-400`;
+    }
+}
+
+function getConnectionStatusLabel(status: MobilePreviewConnectionStatus): string {
+    switch (status.kind) {
+        case 'connected':
+            return `${status.clients} ${status.clients === 1 ? 'device' : 'devices'}`;
+        case 'checking':
+            return 'Checking';
+        case 'waiting':
+            return status.hasRuntime ? '0 devices' : 'Starting runtime';
+        case 'error':
+            return 'Server offline';
+        case 'disabled':
+            return 'Preview unavailable';
+    }
 }
