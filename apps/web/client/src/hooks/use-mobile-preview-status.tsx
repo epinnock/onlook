@@ -56,12 +56,136 @@ interface MobilePreviewStatusResponse {
     manifestUrl: string | null;
 }
 
+interface MobilePreviewRuntimeMessage {
+    type: string;
+    error?: string;
+}
+
+type ReadyQrModalStatus = Extract<QrModalStatus, { kind: 'ready' }>;
+
+interface MobilePreviewRuntimeTransitionArgs {
+    data: unknown;
+    isOpen: boolean;
+    lastReadyStatus: ReadyQrModalStatus | null;
+    runtimeErrorMessage: string | null;
+}
+
+interface MobilePreviewRuntimeTransitionResult {
+    nextStatus: QrModalStatus | null;
+    runtimeErrorMessage: string | null;
+}
+
+export function deriveMobilePreviewSocketUrl(baseUrl: string): string {
+    return deriveMobilePreviewSocketUrls(baseUrl)[0] ?? baseUrl.trim();
+}
+
+export function deriveMobilePreviewSocketUrls(baseUrl: string): string[] {
+    const url = new URL(baseUrl.trim());
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+
+    const socketPorts = new Set<string>();
+    if (url.port) {
+        const port = Number.parseInt(url.port, 10);
+        if (!Number.isNaN(port)) {
+            socketPorts.add(String(port + 1));
+            if (port >= 8700 && port < 8900) {
+                socketPorts.add(String(port + 100));
+            }
+        }
+    }
+
+    if (!socketPorts.size) {
+        url.pathname = '/';
+        url.search = '';
+        url.hash = '';
+        return [url.toString()];
+    }
+
+    return [...socketPorts].map((port) => {
+        const socketUrl = new URL(url.toString());
+        socketUrl.port = port;
+        socketUrl.pathname = '/';
+        socketUrl.search = '';
+        socketUrl.hash = '';
+        return socketUrl.toString();
+    });
+}
+
+export function parseMobilePreviewRuntimeMessage(
+    data: unknown,
+): MobilePreviewRuntimeMessage | null {
+    if (typeof data !== 'string') {
+        return null;
+    }
+
+    try {
+        const parsed = JSON.parse(data) as MobilePreviewRuntimeMessage;
+        if (!parsed || typeof parsed !== 'object' || typeof parsed.type !== 'string') {
+            return null;
+        }
+        return parsed;
+    } catch {
+        return null;
+    }
+}
+
+export function formatMobilePreviewRuntimeError(message: string): string {
+    return `Mobile preview runtime error: ${message}`;
+}
+
+export function reduceMobilePreviewRuntimeMessage(
+    args: MobilePreviewRuntimeTransitionArgs,
+): MobilePreviewRuntimeTransitionResult {
+    const runtimeMessage = parseMobilePreviewRuntimeMessage(args.data);
+    if (!runtimeMessage) {
+        return {
+            nextStatus: null,
+            runtimeErrorMessage: args.runtimeErrorMessage,
+        };
+    }
+
+    if (runtimeMessage.type === 'evalError' && typeof runtimeMessage.error === 'string') {
+        const runtimeErrorMessage = runtimeMessage.error.trim();
+        if (!runtimeErrorMessage) {
+            return {
+                nextStatus: null,
+                runtimeErrorMessage: args.runtimeErrorMessage,
+            };
+        }
+
+        return {
+            nextStatus: {
+                kind: 'error',
+                message: formatMobilePreviewRuntimeError(runtimeErrorMessage),
+            },
+            runtimeErrorMessage,
+        };
+    }
+
+    if (runtimeMessage.type === 'evalResult' && args.runtimeErrorMessage) {
+        return {
+            nextStatus: args.isOpen ? (args.lastReadyStatus ?? { kind: 'idle' }) : { kind: 'idle' },
+            runtimeErrorMessage: null,
+        };
+    }
+
+    return {
+        nextStatus: null,
+        runtimeErrorMessage: args.runtimeErrorMessage,
+    };
+}
+
 export function useMobilePreviewStatus(
     opts: UseMobilePreviewStatusOptions,
 ): UseMobilePreviewStatusResult {
     const [status, setStatus] = useState<QrModalStatus>({ kind: 'idle' });
     const [isOpen, setIsOpen] = useState(false);
     const didPushRef = useRef(false);
+    const isOpenRef = useRef(false);
+    const readyStatusRef = useRef<ReadyQrModalStatus | null>(null);
+    const runtimeErrorMessageRef = useRef<string | null>(null);
+
+    isOpenRef.current = isOpen;
 
     const open = useCallback(async () => {
         setIsOpen(true);
@@ -102,7 +226,24 @@ export function useMobilePreviewStatus(
             }
 
             const qrSvg = await renderQrSvg(body.manifestUrl);
-            setStatus({ kind: 'ready', manifestUrl: body.manifestUrl, qrSvg });
+            const readyStatus = {
+                kind: 'ready',
+                manifestUrl: body.manifestUrl,
+                qrSvg,
+            } satisfies ReadyQrModalStatus;
+            readyStatusRef.current = readyStatus;
+
+            if (runtimeErrorMessageRef.current) {
+                setStatus({
+                    kind: 'error',
+                    message: formatMobilePreviewRuntimeError(
+                        runtimeErrorMessageRef.current,
+                    ),
+                });
+                return;
+            }
+
+            setStatus(readyStatus);
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             setStatus({
@@ -121,6 +262,74 @@ export function useMobilePreviewStatus(
     const retry = useCallback(async () => {
         await open();
     }, [open]);
+
+    useEffect(() => {
+        const baseUrl = opts.serverBaseUrl?.trim();
+        if (!baseUrl || typeof WebSocket === 'undefined') {
+            return;
+        }
+
+        let disposed = false;
+        let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+        let socket: WebSocket | null = null;
+        const socketUrls = deriveMobilePreviewSocketUrls(baseUrl);
+        let socketUrlIndex = 0;
+
+        const connect = () => {
+            if (disposed) {
+                return;
+            }
+
+            try {
+                socket = new WebSocket(
+                    socketUrls[socketUrlIndex] ?? deriveMobilePreviewSocketUrl(baseUrl),
+                );
+            } catch (error) {
+                console.error(
+                    '[mobile-preview] Failed to open status WebSocket:',
+                    error,
+                );
+                return;
+            }
+
+            socket.onmessage = (event) => {
+                const transition = reduceMobilePreviewRuntimeMessage({
+                    data: event.data,
+                    isOpen: isOpenRef.current,
+                    lastReadyStatus: readyStatusRef.current,
+                    runtimeErrorMessage: runtimeErrorMessageRef.current,
+                });
+
+                runtimeErrorMessageRef.current = transition.runtimeErrorMessage;
+
+                if (transition.nextStatus) {
+                    setStatus(transition.nextStatus);
+                }
+            };
+
+            socket.onclose = () => {
+                if (disposed) {
+                    return;
+                }
+
+                socketUrlIndex = (socketUrlIndex + 1) % socketUrls.length;
+                reconnectTimer = setTimeout(() => {
+                    reconnectTimer = null;
+                    connect();
+                }, 500);
+            };
+        };
+
+        connect();
+
+        return () => {
+            disposed = true;
+            if (reconnectTimer) {
+                clearTimeout(reconnectTimer);
+            }
+            socket?.close();
+        };
+    }, [opts.serverBaseUrl]);
 
     useEffect(() => {
         const baseUrl = opts.serverBaseUrl?.trim();
