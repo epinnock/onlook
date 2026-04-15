@@ -287,6 +287,7 @@ Goal: buildable app that loads a Hermes JS context and prints `[onlook-runtime] 
   - Files: `apps/mobile-client/react-native.config.js`
   - Deps: MCF8
   - Validate: `bun run mobile:build:ios` AND `cd apps/mobile-client/ios && grep -L ExpoFileSystem Pods/Pods.xcodeproj/project.pbxproj` (proves the disallowed module is NOT in the build)
+  - Status: **⛔ NEEDS ADR 2026-04-15.** The validate asserts `ExpoFileSystem` is absent from the pbxproj, but Expo SDK 54 pulls it in as a baseline peer of `expo-modules-core` (along with ExpoAsset, ExpoConstants, ExpoFont, ExpoKeepAwake, etc. — 76 hits in the current `Pods.xcodeproj/project.pbxproj`). Excluding ExpoFileSystem breaks `expo` itself, so the task as specified cannot pass without either (a) forking the validate assertion to a non-baseline disallowed module (e.g. `expo-av`, which truly isn't needed), or (b) redefining the allowlist as "user-facing Expo modules JS code may import" rather than "the complete set of linked native libraries," and enforcing via autolinking config rather than pbxproj absence. Needs a design decision before an agent can execute. Don't dispatch until the ADR lands.
 
 - **MC1.9** — `SUPPORTED_MODULES.md` documentation
   - Files: `apps/mobile-client/SUPPORTED_MODULES.md`
@@ -294,9 +295,16 @@ Goal: buildable app that loads a Hermes JS context and prints `[onlook-runtime] 
   - Validate: `test -f apps/mobile-client/SUPPORTED_MODULES.md && grep -q 'expo-camera' apps/mobile-client/SUPPORTED_MODULES.md`
 
 - **MC1.10** — Logger module (`OnlookLogger.swift` + Kotlin equivalent) for `[onlook-runtime]` prefix
-  - Files: `apps/mobile-client/ios/OnlookMobile/OnlookLogger.swift`, `apps/mobile-client/android/app/src/main/java/com/onlook/mobile/OnlookLogger.kt`
+  - Files: `apps/mobile-client/ios/OnlookMobileClient/OnlookLogger.swift`, ~~`apps/mobile-client/android/app/src/main/java/com/onlook/mobile/OnlookLogger.kt`~~ (Android half deferred — see MC1.10a)
   - Deps: MCF8
-  - Validate: `bun run mobile:build:ios && bun run mobile:build:android` (2-file task, same conceptual unit)
+  - Validate: `bun run mobile:build:ios` (Android half split to MC1.10a pending Android toolchain per handoff's iOS-first cut line)
+  - Status: **iOS scope narrowed 2026-04-15.** iOS-only half is self-contained: single new Swift file + pbxproj Sources-build-phase registration. Path in original entry (`OnlookMobile/...`) was wrong — actual Expo-generated app dir is `OnlookMobileClient/`. Since this task adds a new Swift source, it also updates `OnlookMobileClient.xcodeproj/project.pbxproj` inline (via `xcodeproj` Ruby gem already present on any machine that can run `pod install`) rather than waiting for a batched MC1.X scribe task — scribe pattern is worth-it when Swift files pile up across a wave, not for one file.
+
+- **MC1.10a** — Logger module (Kotlin) — deferred
+  - Files: `apps/mobile-client/android/app/src/main/java/com/onlook/mobile/OnlookLogger.kt`
+  - Deps: MCF8c (Android prebuild + Gradle, currently deferred)
+  - Validate: `bun run mobile:build:android`
+  - Status: **⏸ deferred** — lands when the Android toolchain is activated. Mirror of MC1.10; API surface must match so JS code can call `OnlookRuntime.log(...)` without platform branching.
 
 - **MC1.11** — CI job: iOS simulator build + 01/02/03 flow runs
   - Files: `.github/workflows/mobile-client.yml` (append only — MCF10 pre-reserved the job slot)
