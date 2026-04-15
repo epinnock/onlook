@@ -4,6 +4,38 @@ import { mock } from 'bun:test';
 
 console.log('🔧 Setting up test mocks...');
 
+const DEFAULT_PLAYWRIGHT_PORT = 3000;
+
+const parsePort = (envVarName: 'PLAYWRIGHT_PORT' | 'PORT') => {
+    const rawPort = process.env[envVarName]?.trim();
+    if (!rawPort) {
+        return null;
+    }
+
+    const port = Number.parseInt(rawPort, 10);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        throw new Error(`${envVarName} must be a valid port. Received "${rawPort}".`);
+    }
+
+    return port;
+};
+
+const resolveLocalTestUrl = () => {
+    const explicitBaseURL = process.env.PLAYWRIGHT_BASE_URL?.trim();
+    if (explicitBaseURL) {
+        return new URL(explicitBaseURL).toString();
+    }
+
+    const port =
+        parsePort('PLAYWRIGHT_PORT') ??
+        parsePort('PORT') ??
+        DEFAULT_PLAYWRIGHT_PORT;
+
+    return `http://localhost:${port}`;
+};
+
+const mockSandboxUrl = resolveLocalTestUrl();
+
 // Create comprehensive mock functions
 const createMockMutation = (returnValue?: any) => ({
     mutate: mock(async (params?: any) => {
@@ -69,13 +101,13 @@ mock.module('@/trpc/client', () => ({
             start: createMockMutation({
                 id: 'mock-sandbox-id',
                 status: 'ready',
-                url: 'http://localhost:3000'
+                url: mockSandboxUrl
             }),
             stop: createMockMutation(true),
             restart: createMockMutation({
                 id: 'mock-sandbox-id',
                 status: 'ready',
-                url: 'http://localhost:3000'
+                url: mockSandboxUrl
             }),
             hibernate: createMockMutation(true)
         }
