@@ -9,40 +9,117 @@
  * Run: bun run packages/mobile-preview/server/build-runtime.ts
  */
 
-import { join } from 'path';
+import { existsSync } from 'fs';
+import { readdir, rm } from 'fs/promises';
+import { join, relative } from 'path';
 
 const ROOT = join(import.meta.dir, '..');
+const RUNTIME_DIR = join(ROOT, 'runtime');
+const GENERATED_ENTRY_NAME = '.generated-entry.js';
+const SHIMS_DIR_NAME = 'shims';
 
-async function build() {
+function normalizeRelativeRuntimePath(path: string) {
+  const normalizedPath = path.replaceAll('\\', '/');
+  return normalizedPath.startsWith('.') ? normalizedPath : `./${normalizedPath}`;
+}
+
+async function collectRuntimeShimPaths(path: string, runtimeDir: string): Promise<string[]> {
+  const entries = await readdir(path, { withFileTypes: true });
+  const shimPaths: string[] = [];
+
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    const entryPath = join(path, entry.name);
+
+    if (entry.isDirectory()) {
+      shimPaths.push(...(await collectRuntimeShimPaths(entryPath, runtimeDir)));
+      continue;
+    }
+
+    if (!/\.(cjs|cts|js|jsx|mjs|mts|ts|tsx)$/.test(entry.name)) {
+      continue;
+    }
+
+    shimPaths.push(
+      normalizeRelativeRuntimePath(relative(runtimeDir, entryPath)),
+    );
+  }
+
+  return shimPaths;
+}
+
+export async function discoverRuntimeShimPaths(runtimeDir = RUNTIME_DIR) {
+  const shimsDir = join(runtimeDir, SHIMS_DIR_NAME);
+
+  if (!existsSync(shimsDir)) {
+    return [];
+  }
+
+  return collectRuntimeShimPaths(shimsDir, runtimeDir);
+}
+
+export function createRuntimeEntrySource(shimPaths: string[]) {
+  const lines = [
+    "require('./shell.js');",
+    "const registry = require('./registry.js');",
+    ...shimPaths.map(
+      shimPath =>
+        `registry.registerRuntimeShim(require(${JSON.stringify(shimPath)}), ${JSON.stringify(shimPath)});`,
+    ),
+    'registry.applyRuntimeShims(globalThis);',
+    "require('./runtime.js');",
+    '',
+  ];
+
+  return lines.join('\n');
+}
+
+async function writeGeneratedRuntimeEntry(runtimeDir = RUNTIME_DIR) {
+  const shimPaths = await discoverRuntimeShimPaths(runtimeDir);
+  const entryPath = join(runtimeDir, GENERATED_ENTRY_NAME);
+
+  await Bun.write(entryPath, createRuntimeEntrySource(shimPaths));
+
+  return {
+    entryPath,
+    shimPaths,
+  };
+}
+
+export async function build() {
   console.log('[build-runtime] Bundling React runtime...');
 
-  const result = await Bun.build({
-    entrypoints: [join(ROOT, 'runtime', 'entry.js')],
-    outdir: join(ROOT, 'runtime'),
-    naming: 'raw-bundle.js',
-    target: 'browser',
-    format: 'cjs',
-    minify: true,
-  });
+  const { entryPath, shimPaths } = await writeGeneratedRuntimeEntry();
+  const rawPath = join(RUNTIME_DIR, 'raw-bundle.js');
+  const outPath = join(RUNTIME_DIR, 'bundle.js');
 
-  if (!result.success) {
-    console.error('[build-runtime] Build failed:', result.logs);
-    process.exit(1);
-  }
+  try {
+    console.log(`[build-runtime] Discovered ${shimPaths.length} runtime shim${shimPaths.length === 1 ? '' : 's'}.`);
 
-  const rawPath = join(ROOT, 'runtime', 'raw-bundle.js');
-  const outPath = join(ROOT, 'runtime', 'bundle.js');
-  const rawBundle = await Bun.file(rawPath).text();
+    const result = await Bun.build({
+      entrypoints: [entryPath],
+      outdir: RUNTIME_DIR,
+      naming: 'raw-bundle.js',
+      target: 'browser',
+      format: 'cjs',
+      minify: true,
+    });
 
-  // Check for ESM leaks
-  const esmLines = rawBundle.split('\n').filter(l => /^export |^import /.test(l));
-  if (esmLines.length > 0) {
-    console.error('[build-runtime] ESM leak detected:', esmLines);
-    process.exit(1);
-  }
+    if (!result.success) {
+      console.error('[build-runtime] Build failed:', result.logs);
+      process.exit(1);
+    }
 
-  // Wrap in polyfills + Metro module system
-  const preamble = `(function(g) {
+    const rawBundle = await Bun.file(rawPath).text();
+
+    // Check for ESM leaks
+    const esmLines = rawBundle.split('\n').filter(l => /^export |^import /.test(l));
+    if (esmLines.length > 0) {
+      console.error('[build-runtime] ESM leak detected:', esmLines);
+      process.exit(1);
+    }
+
+    // Wrap in polyfills + Metro module system
+    const preamble = `(function(g) {
   if (!g.performance) g.performance = { now: function() { return Date.now(); } };
   if (typeof g.setTimeout === "undefined") { var _t=1; g.setTimeout = function(fn,ms) { var id=_t++; if(!ms||ms<=0){fn();return id;} return id; }; g.clearTimeout = function(){}; }
   if (typeof g.MessageChannel === "undefined") { g.MessageChannel = function() { var _c=null; this.port1={}; this.port2={postMessage:function(){if(_c){var f=_c;g.setTimeout(function(){f({data:undefined});},0);}}}; Object.defineProperty(this.port1,"onmessage",{set:function(v){_c=v;},get:function(){return _c;}}); }; }
@@ -54,17 +131,23 @@ async function build() {
 var __modules={};function __d(f,i,d){__modules[i]={factory:f,hasError:false,importedAll:false,exports:{}};}function __r(i){var m=__modules[i];if(!m)throw new Error("Module "+i+" not registered");if(!m.importedAll){m.importedAll=true;try{m.factory.call(m.exports,typeof globalThis!=="undefined"?globalThis:typeof self!=="undefined"?self:this,__r,null,m.exports,m,m.exports,null);}catch(e){m.hasError=true;if(typeof globalThis.nativeLoggingHook==="function"){globalThis.nativeLoggingHook("[ONLOOK] Module error: "+(e&&e.message),1);}throw e;}}return m.exports;}
 __d(function(global,require,_imports,_exports,module,exports,_dependencyMap){
 `;
-  const suffix = '\n}, 0, []);\n__r(0);\n';
+    const suffix = '\n}, 0, []);\n__r(0);\n';
 
-  await Bun.write(outPath, preamble + rawBundle + suffix);
+    await Bun.write(outPath, preamble + rawBundle + suffix);
 
-  // Clean up raw bundle
-  const fs = require('fs');
-  fs.unlinkSync(rawPath);
+    await rm(rawPath, { force: true });
 
-  const stats = await Bun.file(outPath).size;
-  console.log(`[build-runtime] Output: ${outPath} (${(stats / 1024).toFixed(1)} KB)`);
-  console.log('[build-runtime] Done.');
+    const stats = await Bun.file(outPath).size;
+    console.log(`[build-runtime] Output: ${outPath} (${(stats / 1024).toFixed(1)} KB)`);
+    console.log('[build-runtime] Done.');
+  } finally {
+    await rm(entryPath, { force: true });
+  }
 }
 
-build().catch(console.error);
+if (import.meta.main) {
+  build().catch(error => {
+    console.error(error);
+    process.exit(1);
+  });
+}
