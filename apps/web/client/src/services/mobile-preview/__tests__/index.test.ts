@@ -37,6 +37,22 @@ function makeFakeVfs(files: Record<string, string>): MobilePreviewVfs {
 }
 
 describe('buildMobilePreviewBundle', () => {
+    test('resolves package.json main values without an explicit extension', async () => {
+        const vfs = makeFakeVfs({
+            'package.json': JSON.stringify({ main: 'src/App' }),
+            'src/App.tsx': `
+                export default function App() {
+                    return null;
+                }
+            `,
+        });
+
+        const bundle = await buildMobilePreviewBundle(vfs);
+
+        expect(bundle.entryPath).toBe('src/App.tsx');
+        expect(bundle.moduleCount).toBe(1);
+    });
+
     test('builds an eval bundle for a local multi-file Expo app', async () => {
         const vfs = makeFakeVfs({
             'package.json': JSON.stringify({ main: 'App.tsx' }),
