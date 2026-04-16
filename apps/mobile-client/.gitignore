@@ -16,3 +16,10 @@ android/app/src/main/assets/onlook-runtime.meta.json
 # ONLOOK_RUNTIME_VERSION constant before every xcodebuild (MC2.12). Source
 # of truth is the TS constant; this file must never be committed.
 cpp/*.generated.h
+
+# Google Play Console service-account JSON — referenced by
+# submit.*.android.serviceAccountKeyPath in eas.json (MC6.6). CI writes
+# this file from the GOOGLE_PLAY_SERVICE_ACCOUNT_KEY secret at job start
+# and removes it on EXIT; local dev drops the file here manually. Never
+# commit — the JSON grants Release Manager permission on com.onlook.mobile.
+google-play-service-account.json
