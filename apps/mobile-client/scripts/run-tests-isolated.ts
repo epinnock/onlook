@@ -24,7 +24,14 @@ import { readdirSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dir, '..');
-const SRC = join(ROOT, 'src');
+// `ONLOOK_TEST_ROOT` lets us point the runner at an alternate directory
+// (absolute path) whose `*.test.ts` files should be discovered instead of
+// the default `src/`. Used by scripts/__tests__/run-tests-isolated.test.ts
+// to exercise the runner against fixture trees; production callers leave
+// it unset and the default `src/` behavior applies.
+const SRC = process.env.ONLOOK_TEST_ROOT
+    ? resolve(process.env.ONLOOK_TEST_ROOT)
+    : join(ROOT, 'src');
 
 function walk(dir: string, out: string[] = []): string[] {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
