@@ -471,7 +471,7 @@ Goal: fresh app launch → scan QR → load bundle from `cf-expo-relay` → moun
   - Deps: MC3.8, MC3.5
   - Validate: `bun run mobile:e2e:ios -- 14-recent-sessions.yaml`
 
-- **MC3.10** — Settings screen (relay host override, clear cache, toggle dev menu)
+- **MC3.10** — Settings screen (relay host override, clear cache, toggle dev menu) — **component authored 2026-04-16, maestro deferred**
   - Files: `apps/mobile-client/src/screens/SettingsScreen.tsx`
   - Deps: MC3.5
   - Validate: `bun run mobile:e2e:ios -- 15-settings.yaml`
@@ -506,7 +506,7 @@ Goal: fresh app launch → scan QR → load bundle from `cf-expo-relay` → moun
   - Deps: MCF7
   - Validate: `bun test apps/mobile-client/src/relay/__tests__/versionCheck.test.ts`
 
-- **MC3.17** — Generic error screen component
+- **MC3.17** — Generic error screen component — **Status: component authored 2026-04-16, maestro deferred**
   - Files: `apps/mobile-client/src/screens/ErrorScreen.tsx`
   - Deps: MC3.5
   - Validate: `bun run mobile:e2e:ios -- 18-error-screen.yaml`

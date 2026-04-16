@@ -1,0 +1,21 @@
+# 15-settings.yaml — Wave 3 task MC3.10 of plans/onlook-mobile-client-task-queue.md.
+#
+# Asserts the settings screen renders its key controls:
+#   1. "Relay host" — relay host override text input label
+#   2. "Clear recent sessions" — destructive button
+#   3. "Dev menu" — toggle switch label
+#
+# NOTE: This flow will timeout on the bare-scaffold app because
+# App.tsx doesn't yet route to SettingsScreen. The wiring lands in
+# MC3.20 (app router). The flow file is authored now so validate-task.ts
+# can locate it and the maestro YAML is ready when the router is in place.
+
+appId: com.onlook.mobile
+---
+- launchApp:
+    clearState: true
+- waitForAnimationToEnd:
+    timeout: 8000
+- assertVisible: "Relay host"
+- assertVisible: "Clear recent sessions"
+- assertVisible: "Dev menu"
