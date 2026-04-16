@@ -534,9 +534,10 @@ Goal: fresh app launch → scan QR → load bundle from `cf-expo-relay` → moun
   - Status: **shipped 2026-04-11** — Custom stack navigator (no react-navigation dep). 5 screens wired: launcher (initial), scan, settings, error, versionMismatch. NavigationContext provides `navigate()`, `goBack()`, `resetTo()` via React context. LauncherScreen and SettingsScreen updated with navigation callback props. App.tsx renders AppRouter. Maestro flow `19-navigation.yaml` authored. Typecheck passes.
 
 - **MC3.21** — QR-to-mount end-to-end flow (bundles MC3.3 + MC3.11 + MC3.12 + MC2.7 into one user-level action)
-  - Files: `apps/mobile-client/src/flows/scanToMount.ts`
+  - Files: `apps/mobile-client/src/flow/qrToMount.ts`, `apps/mobile-client/src/flow/index.ts`, `apps/mobile-client/src/flow/__tests__/qrToMount.test.ts`
   - Deps: MC3.4, MC3.11, MC3.12, MC2.7, MC3.20
   - Validate: `bun run mobile:e2e:ios -- 20-scan-to-mount.yaml` (local relay serves fixture bundle, Maestro simulates QR scan via deep link, asserts `Hello, Onlook!` rendered)
+  - Status: **shipped 2026-04-11** — `qrToMount(barcodeData)` drives the four-stage pipeline (parse → manifest → bundle → mount) and returns a discriminated-union `QrMountResult` tagged with the failing stage. On mount success the session is persisted via `addRecentSession` (MC3.8). When `globalThis.OnlookRuntime.runApplication` is absent (MC2.7 pending), the flow returns `{ ok: false, stage: 'mount', error: 'OnlookRuntime.runApplication not yet available (MC2.7 pending)' }`. 9 unit tests (parse fail, parse missing fields, manifest fail, bundle fail, mount missing, mount throws, happy path ok, happy path persists, non-fatal persistence rejection) pass; typecheck clean. Maestro flow `20-scan-to-mount.yaml` deferred until MC2.7 lands.
 
 - **MC3.22** — CI job: Wave 3 Maestro flow runs on both platforms
   - Files: `.github/workflows/mobile-client.yml` (append only — MCF10 reserved the slot)
