@@ -244,19 +244,9 @@ UIView* _Nullable findViewForReactTag(NSNumber* tag) {
   }
 #endif
 
-#if ONLOOK_HAS_LEGACY_UIMANAGER
-  // Legacy paper fallback — `RCTUIManager viewForReactTag:` needs the
-  // active RCTBridge. Under bridgeless mode the shared bridge is still
-  // vended through `-[RCTBridge currentBridge]` for compatibility.
-  RCTBridge* bridge = [RCTBridge currentBridge];
-  if (bridge) {
-    RCTUIManager* uiManager = [bridge moduleForClass:[RCTUIManager class]];
-    if ([uiManager respondsToSelector:@selector(viewForReactTag:)]) {
-      UIView* view = [uiManager viewForReactTag:tag];
-      if (view) return view;
-    }
-  }
-#endif
+// Legacy paper fallback removed — [RCTBridge currentBridge] is unavailable
+// in bridgeless mode (newArchEnabled: true). Fabric presenter + brute-force
+// scan cover all mounting states we target.
 
   // Last-ditch brute-force scan: walk the key window's view tree and
   // match on the `reactTag` property that RCTComponentView sets on every
