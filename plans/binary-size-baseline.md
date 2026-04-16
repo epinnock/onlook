@@ -50,14 +50,30 @@ dependency got pulled in by mistake.
 
 ## 2. Measured baseline
 
-Status: **pending first Mac-mini run.** When producing the baseline:
+Status: **pending first Mac-mini run.** The audit produces output on any host
+where the `.app` exists — but only the Mac mini runner (`spectra-macmini`)
+can produce the `.app` itself because `run-build.ts` shells out to
+`xcodebuild`. On Linux dev containers the `mobile:audit:size` wrapper skips
+the build step and runs the audit against whatever `.app` the caller points
+at with `--app`. When producing the baseline:
 
 ```bash
 # On the Mac mini runner, after a fresh prebuild + build:
-bun run mobile:build:ios
-./apps/mobile-client/scripts/binary-size-audit.sh > /tmp/baseline.json
+bun run mobile:audit:size > /tmp/baseline.json
 jq . /tmp/baseline.json
+
+# Re-run the audit without rebuilding (e.g. after a targeted tweak):
+bun run mobile:audit:size -- --no-build > /tmp/baseline.json
+
+# Audit a specific artifact (Linux / CI / unpacked IPA):
+bun run mobile:audit:size -- --no-build --app /path/to/OnlookMobileClient.app
 ```
+
+The `--no-build` flag skips the `mobile:build:ios` step so developers can
+re-run the audit against an existing `.app` without paying the full xcodebuild
+cost. On non-Darwin hosts the wrapper short-circuits the build step
+automatically (and prints a note to stderr) even if `--no-build` isn't passed,
+since `xcodebuild` is macOS-only.
 
 Paste the resulting JSON (minus `generatedAt` / `appPath` which are
 build-host-specific) into the "Measured baseline JSON" block below and
@@ -90,11 +106,14 @@ specifies:
 > agent adjusts to observed baseline + 10%.
 
 Until the measured baseline lands, use the following heuristic gates —
-the CI step parses the JSON and fails if any threshold is exceeded:
+the CI step parses the JSON and fails if any threshold is exceeded. The
+`mobile:audit:size` wrapper (see `apps/mobile-client/scripts/run-audit-size.ts`)
+enforces the `total.bytes` row; the remaining component-level rows are
+parsed from the JSON by CI for finer-grained gating.
 
 | Asserted value              | Threshold (initial) | Source          |
 |-----------------------------|---------------------|-----------------|
-| `total.bytes`               | ≤ 84 MB             | 80 MB upper expected-range bound × 1.05 slack |
+| `total.bytes` (IPA gate)    | ≤ 40 MB             | MCI.2 Validate line calibration value (tightened from the 84 MB heuristic to match the task-queue assertion). |
 | `components.mainBinary.bytes`   | ≤ 5 MB          | 4 MB × 1.25 slack |
 | `components.onlookRuntime.bytes`| ≤ 400 KB        | 300 KB × 1.33 (runtime churn during Wave 2–4) |
 | `components.mainJsBundle.bytes` | ≤ 4 MB          | 3 MB × 1.33 slack |
