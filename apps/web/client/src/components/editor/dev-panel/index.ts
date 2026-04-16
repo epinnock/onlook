@@ -8,10 +8,7 @@
  *
  * Populated so far:
  *   - MobileConsoleTab (MC5.16) — console stream rendering
- *
- * MC5.17 (`MobileNetworkTab`) adds its own line to this barrel when it
- * lands — kept intentionally out of this commit so the build doesn't
- * reference a file another agent may still be iterating on.
+ *   - MobileNetworkTab (MC5.17) — network stream rendering
  */
 
 export {
@@ -21,3 +18,13 @@ export {
     type MobileConsoleRowProps,
     type MobileConsoleTabProps,
 } from './MobileConsoleTab';
+
+export {
+    MobileNetworkRow,
+    MobileNetworkTab,
+    computeNextSelected,
+    filterNetworkMessages,
+    statusColorClass,
+    type MobileNetworkRowProps,
+    type MobileNetworkTabProps,
+} from './MobileNetworkTab';
