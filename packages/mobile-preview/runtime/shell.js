@@ -46,6 +46,38 @@
   }
 })();
 
+// MC4.1: register native OnlookInspector host object on globalThis. Lives
+// alongside the OnlookRuntime install above — same TurboModule pattern,
+// separate module name + global key. The install method lives in
+// `OnlookInspectorInstaller` (apps/mobile-client/cpp/OnlookInspectorInstaller.{h,cpp,mm}).
+// When invoked it calls `runtime.global().setProperty("OnlookInspector", …)`
+// with a `jsi::Object::createFromHostObject` wrapping an instance of
+// `onlook::OnlookInspector`. Any failure is logged via `nativeLoggingHook`
+// rather than thrown so a missing inspector doesn't take the runtime down
+// — the inspector is only exercised by the editor's relay-driven
+// tap-to-select / walk-tree / screenshot / highlight flows (MC4.2..MC4.5);
+// user bundles that never touch `globalThis.OnlookInspector` still run.
+(function() {
+  try {
+    var proxy = globalThis.__turboModuleProxy || globalThis.nativeModuleProxy;
+    var inspector = null;
+    if (typeof proxy === 'function') {
+      inspector = proxy('OnlookInspectorInstaller');
+    } else if (proxy && typeof proxy === 'object') {
+      inspector = proxy.OnlookInspectorInstaller || null;
+    }
+    if (inspector && typeof inspector.install === 'function') {
+      inspector.install();
+    } else if (typeof globalThis.nativeLoggingHook === 'function') {
+      globalThis.nativeLoggingHook('[onlook-inspector] OnlookInspectorInstaller not reachable — TurboModule proxy missing', 1);
+    }
+  } catch (err) {
+    if (typeof globalThis.nativeLoggingHook === 'function') {
+      globalThis.nativeLoggingHook('[onlook-inspector] OnlookInspectorInstaller.install threw: ' + (err && err.message), 1);
+    }
+  }
+})();
+
 // Scheduler polyfill — react-reconciler needs setTimeout/clearTimeout
 if (typeof globalThis.setTimeout === 'undefined') {
   // Use the native timer module if available

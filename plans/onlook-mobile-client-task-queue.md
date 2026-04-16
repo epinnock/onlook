@@ -554,10 +554,11 @@ Goal: click-to-edit on a physical phone. This is the single biggest user-facing 
 
 iOS and Android paths fan out in parallel — 4.1–4.6 are iOS, 4.7–4.11 are Android, 4.12–4.19 are cross-cutting JS/editor work.
 
-- **MC4.1** — iOS `OnlookInspector.swift` TurboModule registration
-  - Files: `apps/mobile-client/ios/OnlookMobile/OnlookInspector.swift`
-  - Deps: MCF8, MC2.5
-  - Validate: `bun run mobile:e2e:ios -- 21-inspector-global.yaml` (asserts `typeof global.OnlookInspector === 'object'`)
+- **MC4.1** — iOS `OnlookInspector` TurboModule registration
+  - Files: `apps/mobile-client/cpp/OnlookInspector.{h,cpp}`, `apps/mobile-client/cpp/OnlookInspectorInstaller.{h,cpp,mm}`, `packages/mobile-preview/runtime/shell.js`, `apps/mobile-client/ios/OnlookMobileClient.xcodeproj/project.pbxproj`
+  - Deps: MCF8b, MC2.3
+  - Validate: `bun run mobile:build:ios` (with log-scrape for `OnlookInspector installed on globalThis`; maestro `21-inspector-global.yaml` parked behind a renderable user bundle, same story as MC1.4 / MC2.3)
+  - Status: **iOS shipped 2026-04-11.** Pure-C++ `onlook::OnlookInspector` JSI host object + `onlook::OnlookInspectorInstaller` TurboModule following the MC2.3 template — the only differences are the host-object type (`OnlookInspector` vs. `OnlookRuntime`), the global property name, and the log prefix (`[onlook-inspector]`). Skeleton throws `jsi::JSError("OnlookInspector.<name>: not implemented (Wave 4 MC4.X)")` from every method (`captureTap`, `walkTree`, `captureScreenshot`, `highlightNode`) until MC4.2..MC4.5 land. `shell.js` gains a second install IIFE beside the runtime one; both resolve through `globalThis.__turboModuleProxy`. `OnlookInspector.o` + `OnlookInspectorInstaller.o` compile into the iOS target for both arm64 and x86_64. Android mirror re-uses the same C++ TUs (header + cpp) behind MCF8c.
 
 - **MC4.2** — iOS `captureTap(x, y)` — calls `findNodeAtPoint` on `nativeFabricUIManager`
   - Files: `apps/mobile-client/ios/OnlookMobile/OnlookInspector+captureTap.swift`
