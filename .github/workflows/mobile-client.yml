@@ -80,13 +80,14 @@ jobs:
 
   wave1-ios:
     name: Wave 1 — iOS simulator build
-    # macos-14 is pinned on purpose: it ships Xcode 15.x, which includes the
-    # iPhone 15 simulator our log-scrape validates were authored against.
-    # Pinning avoids Xcode version drift silently swapping in iPhone 16/17
-    # simulators and surprising the Validate lines below. The wrapper script
-    # `mobile:build:ios` uses `generic/platform=iOS Simulator` so it does
-    # NOT bake an iPhone model name into the build destination; the log-
-    # scrape scripts (validate-mc*.sh) pick up whichever device is booted.
+    # macos-14 is pinned on purpose: it ships Xcode 15.x, which keeps the
+    # iOS 17 simulator set our log-scrape validates were authored against
+    # stable across runs. Pinning avoids Xcode version drift silently
+    # swapping in newer iPhone models and surprising the Validate lines
+    # below. The wrapper script `mobile:build:ios` uses
+    # `generic/platform=iOS Simulator` so it does NOT bake an iPhone model
+    # name into the build destination; the log-scrape scripts
+    # (validate-mc*.sh) pick up whichever device is booted.
     runs-on: macos-14
     needs: [typecheck-and-unit]
     # Gate twofold:
@@ -106,7 +107,7 @@ jobs:
       - uses: maxim-lobanov/setup-xcode@v1
         with:
           # Pin an Xcode 15.x to match the macos-14 runner baseline and
-          # keep the iPhone 15 simulator set stable. `latest-stable` on
+          # keep the iOS 17 simulator set stable. `latest-stable` on
           # macos-14 today resolves to Xcode 15.4.
           xcode-version: '15.4'
       - name: Install native tooling
@@ -141,7 +142,7 @@ jobs:
         #   2. expo export:embed (bake main.jsbundle)
         #   3. xcodebuild with `-destination generic/platform=iOS Simulator`
         # This replaces the original hand-rolled xcodebuild invocation
-        # which used `-destination 'platform=iOS Simulator,name=iPhone 15'`
+        # which used `-destination generic/platform=iOS Simulator`
         # — the wrapper's generic destination sidesteps the iPhone-name
         # drift each Xcode bump introduces.
         run: bun run mobile:build:ios
@@ -228,7 +229,7 @@ jobs:
 
   wave4-ios:
     name: Wave 4 — inspector tap-to-cursor (iOS)
-    # macos-14 + Xcode 15.4: same pin as `wave1-ios`/`wave5` so the iPhone 15
+    # macos-14 + Xcode 15.4: same pin as `wave1-ios`/`wave5` so the iOS 17
     # simulator set stays stable and the validate-mc*.sh log-scrape predicates
     # don't drift across Xcode bumps.
     runs-on: macos-14
@@ -346,7 +347,7 @@ jobs:
 
   wave5:
     name: Wave 5 — debug surface
-    # macos-14 + Xcode 15.4: same pin as `wave1-ios` so the iPhone 15 sim
+    # macos-14 + Xcode 15.4: same pin as `wave1-ios` so the iOS 17 sim
     # set stays stable and the validate-mc*.sh log-scrape predicates don't
     # drift across Xcode bumps.
     runs-on: macos-14
