@@ -17,3 +17,6 @@ export { XhrPatch, xhrPatch } from './xhrPatch';
 
 export { ExceptionCatcher, exceptionCatcher } from './exceptionCatcher';
 export type { ExceptionEntry } from './exceptionCatcher';
+
+export { NetworkStreamer } from './networkStreamer';
+export type { NetworkStreamerSources, NetworkStreamerOptions } from './networkStreamer';

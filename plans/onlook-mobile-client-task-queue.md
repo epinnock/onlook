@@ -682,10 +682,11 @@ Goal: console relay, network inspector, error boundary, in-app dev menu. All flo
   - Validate: `bun test apps/mobile-client/src/debug/__tests__/xhrPatch.test.ts`
   - Status: Done — 14 tests pass, typecheck clean. Shares the `NetworkEntry` type with `fetchPatch` (MC5.3) but maintains a separate ring buffer + listener set for loose coupling; consumers merge feeds externally.
 
-- **MC5.5** — Network inspector: wire format + streamer
-  - Files: `apps/mobile-client/src/debug/networkStreamer.ts`
+- **MC5.5** — Network inspector: wire format + streamer ✅
+  - Files: `apps/mobile-client/src/debug/networkStreamer.ts`, `apps/mobile-client/src/debug/__tests__/networkStreamer.test.ts`, `apps/mobile-client/src/debug/index.ts`
   - Deps: MC5.3, MC5.4, MC3.13
-  - Validate: `bun test apps/mobile-client/src/debug/__tests__/networkStreamer.test.ts`
+  - Validate: `bun test apps/mobile-client/src/debug/__tests__/networkStreamer.test.ts && bun --filter @onlook/mobile-client typecheck`
+  - Status: **✅ Done** — `NetworkStreamer` class wires `FetchPatch` + `XhrPatch` into `OnlookRelayClient`. Each `NetworkEntry` is mapped to the protocol's `NetworkMessage` (`type: 'onlook:network'`) with `requestId`, `method`, `url`, optional `status`/`durationMs`, `phase` (`'error'` when the entry carries an error, otherwise `'end'` — patches emit only after terminal events), and a millisecond `timestamp` parsed from `endTime`/`startTime`. `sessionId` is supplied via constructor options or `setSessionId`. When `client.isConnected` is false (or `send` throws mid-race) messages queue locally (capped at 200, oldest-dropped) and drain on the next `start()` in arrival order. Sources default to the module singletons. 12 tests passing, typecheck clean.
 
 - **MC5.6** — Error boundary in runtime bundle (catches React errors)
   - Files: `apps/mobile-client/src/components/ErrorBoundary.tsx`, `apps/mobile-client/src/components/index.ts`
