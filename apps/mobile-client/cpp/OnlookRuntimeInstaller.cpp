@@ -66,6 +66,30 @@ jsi::Value OnlookRuntimeInstaller::installHostObject(
   auto hostObject = std::make_shared<OnlookRuntime>();
   auto jsObject = jsi::Object::createFromHostObject(rt, std::move(hostObject));
   rt.global().setProperty(rt, "OnlookRuntime", std::move(jsObject));
+  // MC2.3.1: lock globalThis.OnlookRuntime against user-code replacement
+  // (ADR follow-up from plans/adr/MC2.3-runtime-installer-hook.md). Calls
+  // Object.defineProperty through JSI with writable:false/configurable:false
+  // so `globalThis.OnlookRuntime = {}` or `delete globalThis.OnlookRuntime`
+  // in a user bundle silently no-ops (strict-mode throws) instead of
+  // clobbering the host object the inspector/runtime rely on. Runs after
+  // setProperty above so the descriptor's `value` pulls the just-installed
+  // host-object wrapper.
+  {
+    jsi::Object objectCtor = rt.global().getPropertyAsObject(rt, "Object");
+    jsi::Function defineProperty =
+        objectCtor.getPropertyAsFunction(rt, "defineProperty");
+    jsi::Object descriptor(rt);
+    descriptor.setProperty(
+        rt, "value", rt.global().getProperty(rt, "OnlookRuntime"));
+    descriptor.setProperty(rt, "writable", jsi::Value(false));
+    descriptor.setProperty(rt, "configurable", jsi::Value(false));
+    descriptor.setProperty(rt, "enumerable", jsi::Value(true));
+    defineProperty.call(
+        rt,
+        rt.global(),
+        jsi::String::createFromUtf8(rt, "OnlookRuntime"),
+        descriptor);
+  }
   logThroughHermes(rt, kInstalledLogLine);
   // MC2.15: pre-warm nativeFabricUIManager.findNodeAtPoint(-1, -1) so the
   // first real user tap doesn't pay the ~150ms cold-start. Runs AFTER the
