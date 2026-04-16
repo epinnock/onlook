@@ -132,6 +132,13 @@
       "validate_command": "bun test apps/mobile-client/src/__tests__/version.test.ts",
       "exit_code": 0,
       "stderr_tail": "\n 5 pass\n 0 fail\n 7 expect() calls\nRan 5 tests across 1 file. [155.00ms]\n"
+    },
+    "MC4.14": {
+      "state": "passed",
+      "validated_at": "2026-04-16T04:44:44.923Z",
+      "validate_command": "bun test apps/mobile-client/src/inspector/__tests__/tapHandler.test.ts",
+      "exit_code": 0,
+      "stderr_tail": "\n 13 pass\n 0 fail\n 37 expect() calls\nRan 13 tests across 1 file. [171.00ms]\n"
     }
   }
 }

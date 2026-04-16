@@ -621,10 +621,11 @@ iOS and Android paths fan out in parallel — 4.1–4.6 are iOS, 4.7–4.11 are 
   - Pipeline calls `transformWithJsxSource` (classic runtime + `__source` injection) when `target === 'onlook-client' && isDev`, then applies a second Sucrase pass for `imports` transform. Default (`expo-go`) path unchanged.
   - Validate: `bun test packages/browser-metro/` (6 new tests covering onlook-client dev/prod, expo-go, default, bare-import preservation, IIFE validity).
 
-- **MC4.14** — JS-side tap handler (reads `props.__source`, posts over WS)
-  - Files: `apps/mobile-client/src/runtime/inspectorTapHandler.ts`
+- **MC4.14** — JS-side tap handler (reads `props.__source`, posts over WS) — **Status: shipped 2026-04-11**
+  - Files: `apps/mobile-client/src/inspector/tapHandler.ts`, `apps/mobile-client/src/inspector/index.ts`
   - Deps: MC4.6, MC4.12, MCF5
-  - Validate: `bun test apps/mobile-client/src/runtime/__tests__/inspectorTapHandler.test.ts`
+  - `extractSource` type-guards `props.__source` and the `TapHandler` class builds a schema-valid `SelectMessage` (`type: 'onlook:select'`, `sessionId`, `reactTag`, nested `source`) before calling `client.send()`. Null sources log via an injectable `warn` hook; local `onTap` listeners fan out for dev overlays.
+  - Validate: `bun test apps/mobile-client/src/inspector/__tests__/tapHandler.test.ts`
 
 - **MC4.15** — Editor-side WS receiver for `onlook:select`
   - Files: `apps/web/client/src/server/api/routers/mobile-inspector.ts`
