@@ -355,6 +355,12 @@ Goal: replace Spike B's scraping path with a documented `global.OnlookRuntime.ru
   - Validate: `bun run mobile:build:android`
   - Status: **⏸ deferred** — Android toolchain not active yet. The .cpp itself is platform-neutral (only depends on `<jsi/jsi.h>` which Hermes provides on both platforms); CMake just needs to pick it up.
 
+- **MC2.2.1** — Audit cpp/ TUs for Android-readiness
+  - Files: `apps/mobile-client/cpp/README.md` (NEW)
+  - Deps: MC2.2, MC2.3, MC2.7, MC2.8, MC2.9, MC2.12, MC2.15, MC4.1
+  - Validate: `bun --filter @onlook/mobile-client typecheck`
+  - Status: **shipped 2026-04-11.** Read every `.cpp` under `apps/mobile-client/cpp/` (9 TUs: `OnlookRuntime.cpp`, `OnlookRuntime_runApplication.cpp`, `OnlookRuntime_reloadBundle.cpp`, `OnlookRuntime_dispatchEvent.cpp`, `OnlookRuntime_version.cpp`, `OnlookRuntimeInstaller.cpp`, `OnlookInspector.cpp`, `OnlookInspectorInstaller.cpp`, `InspectorPrewarm.cpp`); confirmed zero Foundation / UIKit / `<React/*>` includes, zero `NSString*` / `UIView*` types, zero Obj-C runtime calls. All 9 TUs depend only on `<jsi/jsi.h>` + RN CallInvoker/TurboModule + C++ stdlib — 9/9 clean, 0 need refactor. iOS-only Obj-C++ work is properly quarantined in sibling `.mm` files (`OnlookRuntimeInstaller.mm`, `OnlookInspectorInstaller.mm`, `OnlookInspector_highlight.mm`). README documents the per-TU audit result and the Android CMake pickup plan (compile the 9 `.cpp`, skip the 3 `.mm`) for when MCF8c activates the Android toolchain.
+
 - **MC2.3** — iOS installer TurboModule that registers `OnlookRuntime` on `globalThis`
   - Files: `apps/mobile-client/cpp/OnlookRuntimeInstaller.{h,cpp,mm}`, `packages/mobile-preview/runtime/shell.js`, `apps/mobile-client/scripts/validate-mc23.sh`, `apps/mobile-client/ios/OnlookMobileClient.xcodeproj/project.pbxproj`
   - Deps: MC2.2, MC1.4
