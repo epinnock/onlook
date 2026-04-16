@@ -574,6 +574,14 @@ Goal: fresh app launch → scan QR → load bundle from `cf-expo-relay` → moun
 
 **Wave 3 exit criterion:** Scanning an `onlook://launch?session=...` QR code rendered by a local editor loads and mounts the fixture bundle on a simulator, and pushing an update via the relay WebSocket triggers a live reload.
 
+### Wave 3 bug fixes
+
+- **MCF-BUG-QR-SUBSEQUENT** — Subsequent QR scans fail after first
+  - Files: `apps/mobile-client/src/flow/qrToMount.ts`, `apps/mobile-client/src/flow/__tests__/qrToMount.test.ts`, `apps/mobile-client/src/__tests__/full-pipeline.integration.test.ts`
+  - Deps: MC3.21, MC2.7, MC2.8
+  - Validate: `bun test apps/mobile-client/src/flow/__tests__/qrToMount.test.ts apps/mobile-client/src/__tests__/full-pipeline.integration.test.ts`
+  - Status: **shipped 2026-04-11** — Root cause: `qrToMount` always routed through `OnlookRuntime.runApplication`, which only handles the first mount (the MC2.7 C++ TU evaluates the bundle and calls `globalThis.onlookMount(props)` without tearing down any prior React tree). The second scan therefore left the first React root intact and stacked a second `onlookMount` call on top, producing a stale/broken UI that the user saw as a silent failure. Fix: added a module-level `hasMountedApplication` flag; scan #1 still uses `runApplication`, scans #2+ route through `OnlookRuntime.reloadBundle(bundleSource)` (MC2.8) which runs `globalThis.onlookUnmount()` before re-evaluating the bundle. Two regression tests added covering the happy-path second-scan and the reload-throws error surface; existing 9 tests still pass. Test-only `__resetQrToMountState()` helper added to let harnesses reset the flag between cases.
+
 ---
 
 ## Wave 4 — `OnlookInspector` (parallel; source plan Phase 4)

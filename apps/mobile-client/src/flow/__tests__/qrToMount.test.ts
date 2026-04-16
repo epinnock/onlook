@@ -70,7 +70,7 @@ mock.module('expo-secure-store', () => ({
 
 /* ── Import under test AFTER mocks are registered ───────────────────────── */
 
-const { qrToMount } = await import('../qrToMount');
+const { qrToMount, __resetQrToMountState } = await import('../qrToMount');
 
 /* ── Shared fixtures ────────────────────────────────────────────────────── */
 
@@ -119,6 +119,10 @@ beforeEach(() => {
     fetchManifestMock.mockClear();
     fetchBundleMock.mockClear();
     addRecentSessionMock.mockClear();
+
+    // Reset the module-level "already mounted" flag so each test sees a
+    // fresh first-mount condition (MCF-BUG-QR-SUBSEQUENT guard).
+    __resetQrToMountState();
 
     savedRuntime = (globalThis as GlobalWithRuntime).OnlookRuntime;
     delete (globalThis as GlobalWithRuntime).OnlookRuntime;
@@ -279,5 +283,75 @@ describe('qrToMount', () => {
         // Mount succeeded — persistence failure is non-fatal and only warned.
         expect(result).toEqual({ ok: true, sessionId: 'sess-42' });
         expect(warnSpy).toHaveBeenCalled();
+    });
+
+    // ── Regression: MCF-BUG-QR-SUBSEQUENT ───────────────────────────────────
+    //
+    // Before the fix the flow always called `runApplication` for every scan.
+    // The C++ binding (MC2.7) assumes a first-time mount and does not tear the
+    // React tree down, so the second scan either produced a stale UI or threw
+    // a bundle-eval error depending on the bundle contents — silently from the
+    // user's perspective because qrToMount swallowed the failure into a
+    // `stage: 'mount'` result that the UI didn't surface.
+    //
+    // The fix routes scan #1 through `runApplication` (first mount) and scans
+    // #2+ through `reloadBundle` (MC2.8 — tears down then re-runs). Both
+    // sequences return `{ ok: true }` and forward the fetched bundle source.
+    test('subsequent scan routes through reloadBundle instead of runApplication', async () => {
+        const runApplication = mock(() => {});
+        const reloadBundle = mock(() => {});
+        (globalThis as GlobalWithRuntime).OnlookRuntime = {
+            runApplication,
+            reloadBundle,
+        };
+
+        const first = await qrToMount(VALID_BARCODE);
+        const second = await qrToMount(VALID_BARCODE);
+
+        // Both scans must succeed end-to-end.
+        expect(first).toEqual({ ok: true, sessionId: 'sess-42' });
+        expect(second).toEqual({ ok: true, sessionId: 'sess-42' });
+
+        // Scan #1 mounts via runApplication exactly once.
+        expect(runApplication).toHaveBeenCalledTimes(1);
+        expect(runApplication.mock.calls[0]?.[0]).toBe(
+            OK_BUNDLE.ok ? OK_BUNDLE.source : '',
+        );
+        expect(runApplication.mock.calls[0]?.[1]).toEqual({ sessionId: 'sess-42' });
+
+        // Scan #2 must reload the bundle, NOT re-run the application.
+        expect(reloadBundle).toHaveBeenCalledTimes(1);
+        expect(reloadBundle.mock.calls[0]?.[0]).toBe(
+            OK_BUNDLE.ok ? OK_BUNDLE.source : '',
+        );
+
+        // Both scans persist to recents.
+        expect(addRecentSessionMock).toHaveBeenCalledTimes(2);
+    });
+
+    test('reload stage surfaces error when reloadBundle throws on subsequent scan', async () => {
+        const runApplication = mock(() => {});
+        const reloadBundle = mock(() => {
+            throw new Error('JSI teardown failed');
+        });
+        (globalThis as GlobalWithRuntime).OnlookRuntime = {
+            runApplication,
+            reloadBundle,
+        };
+
+        // First scan succeeds and arms the "already mounted" flag.
+        const first = await qrToMount(VALID_BARCODE);
+        expect(first.ok).toBe(true);
+
+        // Second scan attempts reloadBundle and must surface the error on
+        // the mount stage rather than silently swallowing it.
+        const second = await qrToMount(VALID_BARCODE);
+        expect(second.ok).toBe(false);
+        if (!second.ok) {
+            expect(second.stage).toBe('mount');
+            expect(second.error).toContain('JSI teardown failed');
+        }
+        expect(runApplication).toHaveBeenCalledTimes(1);
+        expect(reloadBundle).toHaveBeenCalledTimes(1);
     });
 });
