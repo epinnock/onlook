@@ -627,10 +627,11 @@ iOS and Android paths fan out in parallel — 4.1–4.6 are iOS, 4.7–4.11 are 
   - `extractSource` type-guards `props.__source` and the `TapHandler` class builds a schema-valid `SelectMessage` (`type: 'onlook:select'`, `sessionId`, `reactTag`, nested `source`) before calling `client.send()`. Null sources log via an injectable `warn` hook; local `onTap` listeners fan out for dev overlays.
   - Validate: `bun test apps/mobile-client/src/inspector/__tests__/tapHandler.test.ts`
 
-- **MC4.15** — Editor-side WS receiver for `onlook:select`
-  - Files: `apps/web/client/src/server/api/routers/mobile-inspector.ts`
-  - Deps: MCF5
-  - Validate: `bun test apps/web/client/src/server/api/routers/__tests__/mobile-inspector.test.ts`
+- **MC4.15** — Editor-side WS receiver for `onlook:select` — **Status: shipped 2026-04-11**
+  - Files: `apps/web/client/src/services/expo-relay/onlookSelectReceiver.ts`, `apps/web/client/src/services/expo-relay/__tests__/onlookSelectReceiver.test.ts`
+  - Deps: MCF5, MC4.14
+  - Editor had no WS subscription layer yet (dev-panel tabs consume `WsMessage[]` via props only). Shipped a minimal in-process pub-sub over `EventTarget`: `registerOnlookSelectHandler` / `dispatchOnlookSelect` / `normalizeOnlookSelect`, with a flat `OnlookSelectMessage` (`fileName`, `lineNumber`, `columnNumber`, ISO `timestamp`) and transparent wire-format (nested `source`) normalization so the eventual MC4.16 WS pump and MC4.17 Monaco jump can compose cleanly. Landed at `apps/web/client/src/services/expo-relay/` (co-located with the existing Expo relay helpers) rather than the originally-speculated `server/api/routers/` path — the router path is reserved for MC4.16.
+  - Validate: `bun test apps/web/client/src/services/expo-relay/__tests__/onlookSelectReceiver.test.ts` — 19 tests across normalization (flat/nested/missing-timestamp accept, 10 parametrized reject cases) and pub-sub (single-fire, fan-out order, scoped unsubscribe, idempotent unsubscribe, malformed-dispatch drop + `onInvalid` callback, flat-format dispatch).
 
 - **MC4.16** — Editor-side router registration in `src/server/api/root.ts`
   - Files: `apps/web/client/src/server/api/root.ts` — HOTSPOT. Assigned to this task, single owner.
