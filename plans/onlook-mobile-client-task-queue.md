@@ -660,10 +660,10 @@ iOS and Android paths fan out in parallel — 4.1–4.6 are iOS, 4.7–4.11 are 
 Goal: console relay, network inspector, error boundary, in-app dev menu. All flow over the same relay WebSocket the runtime already uses for `onlook:select`.
 
 - **MC5.1** — Console relay: intercept `console.log/warn/error` in the runtime bundle
-  - Files: `packages/mobile-preview/runtime/console-relay.js`
-  - Deps: MCF5
-  - Validate: `bun test packages/mobile-preview/runtime/__tests__/console-relay.test.js`
-  - Note: Lives in the runtime package because it ships baked into the binary. Phase F's runtime asset wiring picks it up automatically on next build.
+  - Files: `apps/mobile-client/src/debug/consoleRelay.ts`
+  - Deps: MCF1
+  - Validate: `bun test apps/mobile-client/src/debug/__tests__/consoleRelay.test.ts && bun --filter @onlook/mobile-client typecheck`
+  - Status: **shipped 2026-04-11** — `ConsoleRelay` class patches `console.log/warn/error/info/debug`, preserving originals. 200-entry ring buffer, `Set`-based listener pattern, safe serialization (try/catch for circular refs). Singleton `consoleRelay` exported from `src/debug/index.ts` barrel. 13 tests, typecheck clean.
 
 - **MC5.2** — Console relay: native streaming side (forwards log entries to the relay WS)
   - Files: `apps/mobile-client/src/debug/consoleStreamer.ts`
