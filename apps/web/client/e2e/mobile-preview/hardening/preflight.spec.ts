@@ -1,22 +1,21 @@
-import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
-import { expect, test, type Page } from '@playwright/test';
-import { createClient } from '@supabase/supabase-js';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
+import { seedExpoBrowserTestBranch } from '../../expo-browser/helpers/setup';
+import { EXPO_BROWSER_TEST_BRANCH } from '../../fixtures/test-branch';
+import {
+    ensureDevLoggedIn,
+    openVerificationProject as openSharedVerificationProject,
+    seedVerificationFixture,
+    VERIFICATION_BRANCH_ID,
+    VERIFICATION_PROJECT_ID,
+} from '../helpers/browser';
 import { MOBILE_PREVIEW_FIXTURE_SDK_VERSION } from '../helpers/fixture';
 
-const LOCAL_SUPABASE_URL = 'http://127.0.0.1:54321';
-const LOCAL_SUPABASE_SERVICE_KEY =
-    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU';
-const EXPO_PROJECT_STORAGE_BUCKET = 'expo-projects';
-
-const VERIFICATION_PROJECT_ID = '2bff33ae-7334-457e-a69e-93a5d90b18b3';
-const VERIFICATION_BRANCH_ID = 'fcebdee5-1010-4147-9748-823a27dc36a3';
-
-const PLAYWRIGHT_APP_BASE_URL =
-    process.env.PLAYWRIGHT_BASE_URL?.trim() || 'http://127.0.0.1:3000';
+const TARGET_PROJECT_ID = EXPO_BROWSER_TEST_BRANCH.projectId;
+const TARGET_BRANCH_ID = EXPO_BROWSER_TEST_BRANCH.branchId;
 const MOBILE_PREVIEW_SERVER_BASE_URL =
     process.env.NEXT_PUBLIC_MOBILE_PREVIEW_URL?.trim() || 'http://127.0.0.1:8787';
 
@@ -63,15 +62,6 @@ function resolveRepoRoot(): string {
     throw new Error(`Unable to resolve repo root from cwd: ${cwd}`);
 }
 
-function buildStorageKey(filePath: string): string {
-    const normalizedPath = filePath.replace(/^\/+/, '').replace(/^\.\//, '');
-    return `${VERIFICATION_PROJECT_ID}/${VERIFICATION_BRANCH_ID}/${normalizedPath}`;
-}
-
-function buildAppUrl(pathname: string): string {
-    return new URL(pathname, PLAYWRIGHT_APP_BASE_URL).toString();
-}
-
 function buildMobilePreviewStatusUrl(): string {
     const url = new URL(MOBILE_PREVIEW_SERVER_BASE_URL);
     url.pathname = '/status';
@@ -84,91 +74,26 @@ function escapeRegExp(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function runVerificationSetup(repoRoot: string): void {
-    const setupScriptPath = path.join(
+function seedAppOverride(repoRoot: string, appSource: string): void {
+    seedVerificationFixture(
         repoRoot,
-        'apps/web/client/verification/onlook-editor/setup.sh',
+        { 'App.tsx': appSource },
+        TARGET_PROJECT_ID,
+        TARGET_BRANCH_ID,
     );
-
-    try {
-        execFileSync('bash', [setupScriptPath], {
-            cwd: repoRoot,
-            encoding: 'utf8',
-            stdio: 'pipe',
-            timeout: 300_000,
-        });
-    } catch (error) {
-        const stdout =
-            error && typeof error === 'object' && 'stdout' in error
-                ? String(error.stdout)
-                : '';
-        const stderr =
-            error && typeof error === 'object' && 'stderr' in error
-                ? String(error.stderr)
-                : '';
-
-        throw new Error(
-            `verification setup failed.\nstdout:\n${stdout}\nstderr:\n${stderr}`,
-        );
-    }
 }
 
-async function uploadAppOverride(appSource: string): Promise<void> {
-    const supabase = createClient(LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_KEY, {
-        auth: {
-            autoRefreshToken: false,
-            persistSession: false,
-        },
-    });
-
-    const { error } = await supabase.storage
-        .from(EXPO_PROJECT_STORAGE_BUCKET)
-        .upload(buildStorageKey('App.tsx'), appSource, {
-            upsert: true,
-            contentType: 'text/plain; charset=utf-8',
-        });
-
-    if (error) {
-        throw new Error(`failed to upload App.tsx override: ${error.message}`);
-    }
+function restoreTargetFixture(repoRoot: string): void {
+    seedVerificationFixture(repoRoot, {}, TARGET_PROJECT_ID, TARGET_BRANCH_ID);
 }
 
-async function ensureLoggedIn(page: Page): Promise<void> {
-    const response = await page.goto(buildAppUrl('/login'));
-    if (response && response.status() >= 500) {
-        throw new Error(
-            `login page returned ${response.status()} at ${response.url()}`,
-        );
-    }
-
-    const devLoginButton = page.getByRole('button', {
-        name: /dev mode: sign in as demo user/i,
-    });
-
-    if (await devLoginButton.isVisible().catch(() => false)) {
-        await devLoginButton.click();
-    }
-
-    await page.waitForURL((url) => !url.pathname.startsWith('/login'), {
-        timeout: 60_000,
-    });
-}
-
-async function installDelayedInitialPush(page: Page): Promise<void> {
-    await page.addInitScript(() => {
-        const originalSetTimeout = globalThis.setTimeout.bind(globalThis);
-
-        Object.defineProperty(globalThis, '__mobilePreviewOriginalSetTimeout', {
-            value: originalSetTimeout,
-            configurable: true,
-        });
-
-        globalThis.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
-            const nextTimeout =
-                timeout === 150 ? 2_000 : timeout;
-            return originalSetTimeout(handler, nextTimeout, ...args);
-        }) as typeof globalThis.setTimeout;
-    });
+function restoreSharedVerificationFixture(repoRoot: string): void {
+    seedVerificationFixture(
+        repoRoot,
+        {},
+        VERIFICATION_PROJECT_ID,
+        VERIFICATION_BRANCH_ID,
+    );
 }
 
 async function stubMobilePreviewStatus(page: Page): Promise<void> {
@@ -189,34 +114,60 @@ async function stubMobilePreviewStatus(page: Page): Promise<void> {
 }
 
 async function openVerificationProject(page: Page): Promise<void> {
-    const editor = page
-        .locator('[data-testid="project-editor"], body[data-onlook-loaded="true"]')
-        .first();
     const previewButton = page.getByTestId('preview-on-device-button');
 
-    await page.goto(buildAppUrl(`/project/${VERIFICATION_PROJECT_ID}`), {
-        waitUntil: 'domcontentloaded',
-    });
-
-    await editor.waitFor({ state: 'attached', timeout: 60_000 });
+    await openSharedVerificationProject(page, TARGET_PROJECT_ID);
     await expect(previewButton).toBeVisible({ timeout: 60_000 });
+}
+
+async function triggerMobilePreviewBundlePush(page: Page): Promise<void> {
+    await page.evaluate(() => {
+        const channel = new BroadcastChannel('onlook-preview');
+        channel.postMessage({ type: 'bundle' });
+        channel.close();
+    });
 }
 
 async function expectPreflightFailure(
     page: Page,
     expectedMessage: RegExp,
-): Promise<void> {
+): Promise<Locator> {
     await page.getByTestId('preview-on-device-button').click();
 
-    const errorState = page.getByTestId('qr-status-error');
-    await expect(errorState).toBeVisible({ timeout: 20_000 });
-    await expect(errorState).toContainText(expectedMessage);
-    await expect(errorState).toContainText(/Failed to sync app to phone:/);
+    const modalError = page.getByTestId('qr-status-error');
+    const errorPanel = page.getByTestId('mobile-preview-error-panel');
+    await triggerMobilePreviewBundlePush(page);
+
+    if (await modalError.isVisible({ timeout: 500 }).catch(() => false)) {
+        await expect(modalError).toContainText(expectedMessage);
+        await expect(modalError).toContainText(/Failed to sync app to phone:/);
+        return modalError;
+    }
+
+    await expect(errorPanel).toBeVisible({ timeout: 30_000 });
+    await expect(errorPanel).toContainText(/Sync error/);
+    await expect(errorPanel).toContainText(expectedMessage);
+    return errorPanel;
 }
 
 test.describe.serial('Mobile preview preflight failures', () => {
-    test.beforeAll(async () => {
-        runVerificationSetup(resolveRepoRoot());
+    let repoRoot: string;
+
+    test.beforeAll(() => {
+        repoRoot = resolveRepoRoot();
+        seedExpoBrowserTestBranch();
+        restoreTargetFixture(repoRoot);
+        restoreSharedVerificationFixture(repoRoot);
+    });
+
+    test.afterEach(() => {
+        restoreTargetFixture(repoRoot);
+        restoreSharedVerificationFixture(repoRoot);
+    });
+
+    test.afterAll(() => {
+        restoreTargetFixture(repoRoot);
+        restoreSharedVerificationFixture(repoRoot);
     });
 
     test('surfaces unsupported package imports with an explicit preflight error', async ({
@@ -224,22 +175,17 @@ test.describe.serial('Mobile preview preflight failures', () => {
     }) => {
         test.setTimeout(180_000);
 
-        await uploadAppOverride(UNSUPPORTED_IMPORT_APP_TSX);
-        await installDelayedInitialPush(page);
+        seedAppOverride(repoRoot, UNSUPPORTED_IMPORT_APP_TSX);
         await stubMobilePreviewStatus(page);
-        await ensureLoggedIn(page);
+        await ensureDevLoggedIn(page, `/project/${TARGET_PROJECT_ID}`);
         await openVerificationProject(page);
 
-        await expectPreflightFailure(
+        const errorSurface = await expectPreflightFailure(
             page,
             /Mobile preview does not support these package imports yet:/,
         );
-        await expect(page.getByTestId('qr-status-error')).toContainText(
-            /react-native-mmkv/,
-        );
-        await expect(page.getByTestId('qr-status-error')).toContainText(
-            /App\.tsx/,
-        );
+        await expect(errorSurface).toContainText(/react-native-mmkv/);
+        await expect(errorSurface).toContainText(/App\.tsx/);
     });
 
     test('surfaces bundle hard-limit failures with an explicit budget error', async ({
@@ -247,14 +193,13 @@ test.describe.serial('Mobile preview preflight failures', () => {
     }) => {
         test.setTimeout(180_000);
 
-        await uploadAppOverride(HARD_LIMIT_APP_TSX);
-        await installDelayedInitialPush(page);
+        seedAppOverride(repoRoot, HARD_LIMIT_APP_TSX);
         await stubMobilePreviewStatus(page);
-        await ensureLoggedIn(page);
+        await ensureDevLoggedIn(page, `/project/${TARGET_PROJECT_ID}`);
         await openVerificationProject(page);
 
-        await expectPreflightFailure(page, /hard limit of 2 MB/);
-        await expect(page.getByTestId('qr-status-error')).toContainText(
+        const errorSurface = await expectPreflightFailure(page, /hard limit of 2 MB/);
+        await expect(errorSurface).toContainText(
             /Reduce the bundle size before pushing to a device\./,
         );
     });

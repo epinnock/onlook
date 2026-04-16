@@ -1,17 +1,17 @@
-import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
-import { expect, test, type Frame, type Page } from '@playwright/test';
+import { expect, test, type FrameLocator, type Page } from '@playwright/test';
 
+import { EXPO_BROWSER_TEST_BRANCH } from '../../fixtures/test-branch';
+import { seedExpoBrowserTestBranch } from '../../expo-browser/helpers/setup';
 import {
     ensureDevLoggedIn,
     openVerificationProject,
     seedVerificationFixture,
-    VERIFICATION_PROJECT_ID,
 } from '../helpers/browser';
 
-const PRESS_FIXTURE_APP_TSX = `import { useState } from 'react';
+const PRESS_FIXTURE_APP_TSX = `import React from 'react';
 import {
   Button,
   Pressable,
@@ -23,81 +23,117 @@ import {
   View,
 } from 'react-native';
 
-export default function App() {
-  const [pressableState, setPressableState] = useState('idle');
-  const [pressableSequence, setPressableSequence] = useState<string[]>([]);
-  const [opacityCount, setOpacityCount] = useState(0);
-  const [highlightCount, setHighlightCount] = useState(0);
-  const [withoutFeedbackCount, setWithoutFeedbackCount] = useState(0);
-  const [buttonCount, setButtonCount] = useState(0);
+interface PressFixtureState {
+  pressableState: string;
+  pressableSequence: string[];
+  opacityCount: number;
+  highlightCount: number;
+  withoutFeedbackCount: number;
+  buttonCount: number;
+}
 
-  const appendSequence = (value: string) => {
-    setPressableSequence((current) => [...current, value]);
+export default class App extends React.Component<Record<string, never>, PressFixtureState> {
+  state: PressFixtureState = {
+    pressableState: 'idle',
+    pressableSequence: [],
+    opacityCount: 0,
+    highlightCount: 0,
+    withoutFeedbackCount: 0,
+    buttonCount: 0,
   };
 
-  return (
-    <View style={styles.screen}>
-      <Text style={styles.heading}>Wave B press interactions</Text>
-      <Text style={styles.line}>pressableState:{pressableState}</Text>
-      <Text style={styles.line}>
-        pressableSequence:{pressableSequence.length > 0 ? pressableSequence.join('>') : 'idle'}
-      </Text>
-      <Text style={styles.line}>touchableOpacity:{opacityCount}</Text>
-      <Text style={styles.line}>touchableHighlight:{highlightCount}</Text>
-      <Text style={styles.line}>touchableWithoutFeedback:{withoutFeedbackCount}</Text>
-      <Text style={styles.line}>buttonPresses:{buttonCount}</Text>
+  appendSequence = (value: string) => {
+    this.setState((current) => ({
+      pressableSequence: [...current.pressableSequence, value],
+    }));
+  };
 
-      <Pressable
-        onPressIn={() => {
-          setPressableState('press-in');
-          appendSequence('in');
-        }}
-        onPressOut={() => {
-          setPressableState('press-out');
-          appendSequence('out');
-        }}
-        onPress={() => {
-          setPressableState('pressed');
-          appendSequence('press');
-        }}
-        style={styles.primaryTarget}
-      >
-        <Text style={styles.targetLabel}>Pressable target</Text>
-      </Pressable>
+  render() {
+    const {
+      pressableState,
+      pressableSequence,
+      opacityCount,
+      highlightCount,
+      withoutFeedbackCount,
+      buttonCount,
+    } = this.state;
 
-      <TouchableOpacity
-        onPress={() => setOpacityCount((count) => count + 1)}
-        style={styles.secondaryTarget}
-      >
-        <Text style={styles.targetLabel}>TouchableOpacity target</Text>
-      </TouchableOpacity>
+    return (
+      <View style={styles.screen}>
+        <Text style={styles.heading}>Wave B press interactions</Text>
+        <Text style={styles.line}>pressableState:{pressableState}</Text>
+        <Text style={styles.line}>
+          pressableSequence:{pressableSequence.length > 0 ? pressableSequence.join('>') : 'idle'}
+        </Text>
+        <Text style={styles.line}>touchableOpacity:{opacityCount}</Text>
+        <Text style={styles.line}>touchableHighlight:{highlightCount}</Text>
+        <Text style={styles.line}>touchableWithoutFeedback:{withoutFeedbackCount}</Text>
+        <Text style={styles.line}>buttonPresses:{buttonCount}</Text>
 
-      <TouchableHighlight
-        onPress={() => setHighlightCount((count) => count + 1)}
-        style={styles.secondaryTarget}
-        underlayColor="#334155"
-      >
-        <View>
-          <Text style={styles.targetLabel}>TouchableHighlight target</Text>
+        <Pressable
+          onPressIn={() => {
+            this.setState({ pressableState: 'press-in' });
+            this.appendSequence('in');
+          }}
+          onPressOut={() => {
+            this.setState({ pressableState: 'press-out' });
+            this.appendSequence('out');
+          }}
+          onPress={() => {
+            this.setState({ pressableState: 'pressed' });
+            this.appendSequence('press');
+          }}
+          style={styles.primaryTarget}
+        >
+          <Text style={styles.targetLabel}>Pressable target</Text>
+        </Pressable>
+
+        <TouchableOpacity
+          onPress={() =>
+            this.setState((current) => ({ opacityCount: current.opacityCount + 1 }))
+          }
+          style={styles.secondaryTarget}
+        >
+          <Text style={styles.targetLabel}>TouchableOpacity target</Text>
+        </TouchableOpacity>
+
+        <TouchableHighlight
+          onPress={() =>
+            this.setState((current) => ({
+              highlightCount: current.highlightCount + 1,
+            }))
+          }
+          style={styles.secondaryTarget}
+          underlayColor="#334155"
+        >
+          <View>
+            <Text style={styles.targetLabel}>TouchableHighlight target</Text>
+          </View>
+        </TouchableHighlight>
+
+        <TouchableWithoutFeedback
+          onPress={() =>
+            this.setState((current) => ({
+              withoutFeedbackCount: current.withoutFeedbackCount + 1,
+            }))
+          }
+        >
+          <View style={styles.secondaryTarget}>
+            <Text style={styles.targetLabel}>TouchableWithoutFeedback target</Text>
+          </View>
+        </TouchableWithoutFeedback>
+
+        <View style={styles.buttonWrap}>
+          <Button
+            title="Button target"
+            onPress={() =>
+              this.setState((current) => ({ buttonCount: current.buttonCount + 1 }))
+            }
+          />
         </View>
-      </TouchableHighlight>
-
-      <TouchableWithoutFeedback
-        onPress={() => setWithoutFeedbackCount((count) => count + 1)}
-      >
-        <View style={styles.secondaryTarget}>
-          <Text style={styles.targetLabel}>TouchableWithoutFeedback target</Text>
-        </View>
-      </TouchableWithoutFeedback>
-
-      <View style={styles.buttonWrap}>
-        <Button
-          title="Button target"
-          onPress={() => setButtonCount((count) => count + 1)}
-        />
       </View>
-    </View>
-  );
+    );
+  }
 }
 
 const styles = StyleSheet.create({
@@ -171,73 +207,54 @@ function resolveRepoRoot(): string {
     throw new Error(`Unable to resolve repo root from cwd: ${cwd}`);
 }
 
-function runVerificationSetup(repoRoot: string): void {
-    const setupScriptPath = path.join(
-        repoRoot,
-        'apps/web/client/verification/onlook-editor/setup.sh',
-    );
-
-    try {
-        execFileSync('bash', [setupScriptPath], {
-            cwd: repoRoot,
-            encoding: 'utf8',
-            stdio: 'pipe',
-            timeout: 300_000,
-        });
-    } catch (error) {
-        const stdout =
-            error && typeof error === 'object' && 'stdout' in error
-                ? String(error.stdout)
-                : '';
-        const stderr =
-            error && typeof error === 'object' && 'stderr' in error
-                ? String(error.stderr)
-                : '';
-
-        throw new Error(
-            `verification setup failed.\nstdout:\n${stdout}\nstderr:\n${stderr}`,
-        );
-    }
-}
-
 async function uploadPressFixture(): Promise<void> {
     const repoRoot = resolveRepoRoot();
-    seedVerificationFixture(repoRoot, { 'App.tsx': PRESS_FIXTURE_APP_TSX });
+    seedVerificationFixture(
+        repoRoot,
+        { 'App.tsx': PRESS_FIXTURE_APP_TSX },
+        EXPO_BROWSER_TEST_BRANCH.projectId,
+        EXPO_BROWSER_TEST_BRANCH.branchId,
+    );
 }
 
 async function ensureLoggedIn(page: Page): Promise<void> {
-    await ensureDevLoggedIn(page, `/project/${VERIFICATION_PROJECT_ID}`);
+    await ensureDevLoggedIn(page, `/project/${EXPO_BROWSER_TEST_BRANCH.projectId}`);
 }
 
-async function openPreviewFrame(page: Page): Promise<Frame> {
-    await openVerificationProject(page, VERIFICATION_PROJECT_ID);
+async function openPreviewFrame(page: Page): Promise<FrameLocator> {
+    await openVerificationProject(page, EXPO_BROWSER_TEST_BRANCH.projectId);
 
-    const editor = page
-        .locator('[data-testid="project-editor"], body[data-onlook-loaded="true"]')
-        .first();
-    await editor.waitFor({ state: 'attached', timeout: 90_000 });
+    await page
+        .getByText('Loading project...')
+        .waitFor({ state: 'hidden', timeout: 120_000 })
+        .catch(() => undefined);
+    await expect(page.getByTestId('preview-on-device-button')).toBeVisible({
+        timeout: 60_000,
+    });
 
     const previewFrameElement = page
         .locator('iframe[id^="frame-"], iframe[src*="/preview/"]')
         .first();
     await previewFrameElement.waitFor({ state: 'attached', timeout: 60_000 });
 
-    const frameHandle = await previewFrameElement.elementHandle();
-    const previewFrame = await frameHandle?.contentFrame();
+    return page
+        .frameLocator('iframe[id^="frame-"], iframe[src*="/preview/"]')
+        .first();
+}
 
-    if (!previewFrame) {
-        throw new Error('Expected the editor preview iframe to expose a frame.');
-    }
+async function enablePreviewInteractionMode(page: Page): Promise<void> {
+    const previewMode = page.getByRole('radio', { name: /^Preview$/ }).first();
 
-    return previewFrame;
+    await expect(previewMode).toBeVisible({ timeout: 30_000 });
+    await previewMode.click();
+    await expect(previewMode).toBeChecked({ timeout: 10_000 });
 }
 
 test.describe('Mobile preview press interactions', () => {
     test.describe.configure({ mode: 'serial' });
 
     test.beforeAll(async () => {
-        const repoRoot = resolveRepoRoot();
-        runVerificationSetup(repoRoot);
+        seedExpoBrowserTestBranch();
         await uploadPressFixture();
     });
 
@@ -249,6 +266,7 @@ test.describe('Mobile preview press interactions', () => {
         await ensureLoggedIn(page);
 
         const previewFrame = await openPreviewFrame(page);
+        await enablePreviewInteractionMode(page);
         await expect(previewFrame.locator('text=Wave B press interactions')).toBeVisible({
             timeout: 120_000,
         });

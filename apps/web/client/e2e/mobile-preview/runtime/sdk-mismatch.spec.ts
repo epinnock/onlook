@@ -1,11 +1,13 @@
 import { expect, test, type Page } from '@playwright/test';
+
+import { EXPO_BROWSER_TEST_BRANCH } from '../../fixtures/test-branch';
+import { seedExpoBrowserTestBranch } from '../../expo-browser/helpers/setup';
 import { MOBILE_PREVIEW_FIXTURE_SDK_VERSION } from '../helpers/fixture';
 
-const VERIFICATION_PROJECT_ID = '2bff33ae-7334-457e-a69e-93a5d90b18b3';
 const MISMATCHED_RUNTIME_SDK_VERSION = '53.0.0';
 
 const TARGET_PROJECT_ID =
-    process.env.ONLOOK_E2E_PROJECT_ID?.trim() || VERIFICATION_PROJECT_ID;
+    process.env.ONLOOK_E2E_PROJECT_ID?.trim() || EXPO_BROWSER_TEST_BRANCH.projectId;
 const USER_GET_INPUT = encodeURIComponent(
     JSON.stringify({
         0: {
@@ -162,6 +164,10 @@ async function openExpoBrowserProject(page: Page): Promise<void> {
 }
 
 test.describe('Mobile preview SDK mismatch', () => {
+    test.beforeAll(() => {
+        seedExpoBrowserTestBranch();
+    });
+
     test('preview open fails with a clear Expo SDK mismatch error', async ({
         page,
     }) => {

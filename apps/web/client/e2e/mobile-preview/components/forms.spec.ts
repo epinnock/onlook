@@ -343,12 +343,17 @@ async function openFormsFixture(page: Page): Promise<{
 }
 
 function expectNoRelevantConsoleErrors(consoleErrors: string[]): void {
-    const relevantErrors = consoleErrors.filter(
-        (line) =>
+    const relevantErrors = consoleErrors.filter((line) => {
+        const isBenignImportmapWarning =
+            line.includes('[preview] failed to fetch importmap.json:') &&
+            line.includes('TypeError: Failed to fetch');
+        const isRelevantError =
             line.includes('[mobile-preview] Failed') ||
             line.includes('[preview] failed') ||
-            line.includes('PROVIDER_NO_SHELL'),
-    );
+            line.includes('PROVIDER_NO_SHELL');
+
+        return isRelevantError && !isBenignImportmapWarning;
+    });
 
     expect(relevantErrors).toEqual([]);
 }

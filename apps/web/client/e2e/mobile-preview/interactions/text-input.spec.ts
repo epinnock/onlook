@@ -3,48 +3,59 @@ import path from 'node:path';
 
 import { expect, test, type FrameLocator, type Page } from '@playwright/test';
 
+import { EXPO_BROWSER_TEST_BRANCH } from '../../fixtures/test-branch';
+import { seedExpoBrowserTestBranch } from '../../expo-browser/helpers/setup';
 import {
     ensureDevLoggedIn,
     openVerificationProject,
     seedVerificationFixture,
-    VERIFICATION_PROJECT_ID,
 } from '../helpers/browser';
 
-const TEXT_INPUT_FIXTURE_APP_TSX = `import { useMemo, useState } from 'react';
+const TEXT_INPUT_FIXTURE_APP_TSX = `import React from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 const INITIAL_VALUE = 'seed value';
 
-export default function App() {
-  const [value, setValue] = useState(INITIAL_VALUE);
-  const derived = useMemo(() => value.toUpperCase(), [value]);
+interface TextInputFixtureState {
+  value: string;
+}
 
-  return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <View style={styles.card}>
-        <Text style={styles.heading}>Text input round-trip</Text>
-        <TextInput
-          accessibilityLabel="Fixture input"
-          autoCapitalize="none"
-          autoCorrect={false}
-          onChangeText={setValue}
-          placeholder="Type into the preview"
-          style={styles.input}
-          testID="text-input-field"
-          value={value}
-        />
-        <Text style={styles.line} testID="text-input-echo">
-          echo:{value}
-        </Text>
-        <Text style={styles.line} testID="text-input-length">
-          length:{String(value.length)}
-        </Text>
-        <Text style={styles.line} testID="text-input-derived">
-          derived:{derived}
-        </Text>
-      </View>
-    </ScrollView>
-  );
+export default class App extends React.Component<Record<string, never>, TextInputFixtureState> {
+  state: TextInputFixtureState = {
+    value: INITIAL_VALUE,
+  };
+
+  render() {
+    const { value } = this.state;
+    const derived = value.toUpperCase();
+
+    return (
+      <ScrollView contentContainerStyle={styles.container}>
+        <View style={styles.card}>
+          <Text style={styles.heading}>Text input round-trip</Text>
+          <TextInput
+            accessibilityLabel="Fixture input"
+            autoCapitalize="none"
+            autoCorrect={false}
+            onChangeText={(nextValue) => this.setState({ value: nextValue })}
+            placeholder="Type into the preview"
+            style={styles.input}
+            testID="text-input-field"
+            value={value}
+          />
+          <Text style={styles.line} testID="text-input-echo">
+            echo:{value}
+          </Text>
+          <Text style={styles.line} testID="text-input-length">
+            length:{String(value.length)}
+          </Text>
+          <Text style={styles.line} testID="text-input-derived">
+            derived:{derived}
+          </Text>
+        </View>
+      </ScrollView>
+    );
+  }
 }
 
 const styles = StyleSheet.create({
@@ -105,13 +116,16 @@ function resolveRepoRoot(): string {
 }
 
 async function openTextInputFixture(page: Page): Promise<FrameLocator> {
-    await ensureDevLoggedIn(page, `/project/${VERIFICATION_PROJECT_ID}`);
-    await openVerificationProject(page, VERIFICATION_PROJECT_ID);
+    await ensureDevLoggedIn(page, `/project/${EXPO_BROWSER_TEST_BRANCH.projectId}`);
+    await openVerificationProject(page, EXPO_BROWSER_TEST_BRANCH.projectId);
 
-    const editor = page
-        .locator('[data-testid="project-editor"], body[data-onlook-loaded="true"]')
-        .first();
-    await editor.waitFor({ state: 'attached', timeout: 60_000 });
+    await page
+        .getByText('Loading project...')
+        .waitFor({ state: 'hidden', timeout: 120_000 })
+        .catch(() => undefined);
+    await expect(page.getByTestId('preview-on-device-button')).toBeVisible({
+        timeout: 60_000,
+    });
 
     const previewFrame = page
         .locator('iframe[id^="frame-"], iframe[src*="/preview/"]')
@@ -129,13 +143,27 @@ async function openTextInputFixture(page: Page): Promise<FrameLocator> {
     return frame;
 }
 
+async function enablePreviewInteractionMode(page: Page): Promise<void> {
+    const previewMode = page.getByRole('radio', { name: /^Preview$/ }).first();
+
+    await expect(previewMode).toBeVisible({ timeout: 30_000 });
+    await previewMode.click();
+    await expect(previewMode).toBeChecked({ timeout: 10_000 });
+}
+
 test.describe('Mobile preview text input interactions', () => {
     test.beforeAll(async () => {
         const repoRoot = resolveRepoRoot();
 
-        seedVerificationFixture(repoRoot, {
-            'App.tsx': TEXT_INPUT_FIXTURE_APP_TSX,
-        });
+        seedExpoBrowserTestBranch();
+        seedVerificationFixture(
+            repoRoot,
+            {
+                'App.tsx': TEXT_INPUT_FIXTURE_APP_TSX,
+            },
+            EXPO_BROWSER_TEST_BRANCH.projectId,
+            EXPO_BROWSER_TEST_BRANCH.branchId,
+        );
     });
 
     test('round-trips typed text through the preview TextInput', async ({
@@ -145,6 +173,7 @@ test.describe('Mobile preview text input interactions', () => {
 
         const typedText = 'mobile preview round trip';
         const frame = await openTextInputFixture(page);
+        await enablePreviewInteractionMode(page);
         const input = frame.getByTestId('text-input-field');
 
         await expect(frame.getByTestId('text-input-echo')).toContainText(
