@@ -56,6 +56,24 @@ function main(): number {
         return 2;
     }
 
+    // MC2.12: regenerate OnlookRuntime_version.generated.h from
+    // @onlook/mobile-client-protocol's ONLOOK_RUNTIME_VERSION before the
+    // runtime bundle step so OnlookRuntime_version.cpp compiles against
+    // the current constant. The header is .gitignored — without this
+    // step a fresh clone wouldn't build and a stale copy would drift
+    // silently from the TS source of truth.
+    const versionHeaderPath = resolve(
+        import.meta.dir,
+        'generate-version-header.ts',
+    );
+    console.log(`[run-build] bun run ${versionHeaderPath}`);
+    const versionResult = spawnSync('bun', ['run', versionHeaderPath], {
+        stdio: 'inherit',
+    });
+    if (versionResult.status !== 0) {
+        return versionResult.status ?? 1;
+    }
+
     // Refresh the Onlook runtime asset before xcodebuild so the
     // OnlookMobileClient/Resources/onlook-runtime.js that Copy Bundle
     // Resources picks up matches packages/mobile-preview/runtime/bundle.js

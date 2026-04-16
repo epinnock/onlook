@@ -10,3 +10,9 @@ ios/OnlookMobileClient/Resources/main.jsbundle
 ios/OnlookMobileClient/Resources/assets/
 android/app/src/main/assets/onlook-runtime.js
 android/app/src/main/assets/onlook-runtime.meta.json
+
+# Generated C++ header for the runtime version — written by
+# scripts/generate-version-header.ts from @onlook/mobile-client-protocol's
+# ONLOOK_RUNTIME_VERSION constant before every xcodebuild (MC2.12). Source
+# of truth is the TS constant; this file must never be committed.
+cpp/*.generated.h

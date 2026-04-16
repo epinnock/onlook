@@ -65,6 +65,14 @@
 
 namespace onlook {
 
+/// Returns the build-time-baked `ONLOOK_RUNTIME_VERSION` string sourced from
+/// `@onlook/mobile-client-protocol` via the generated
+/// `OnlookRuntime_version.generated.h` header (written by
+/// apps/mobile-client/scripts/generate-version-header.ts before xcodebuild).
+/// Defined in OnlookRuntime_version.cpp so the version bump doesn't
+/// invalidate OnlookRuntime.cpp's object file. Wave 2 task MC2.12.
+std::string getRuntimeVersion();
+
 /// JSI host object exposing the OnlookRuntime API to JS. See file header
 /// for the public-API contract. Sits behind `globalThis.OnlookRuntime`
 /// once the platform installer has registered it.

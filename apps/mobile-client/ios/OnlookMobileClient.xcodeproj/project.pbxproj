@@ -13,6 +13,7 @@
 		5FCE3FAAF7C72C95A290B230 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD0EEBAEA629EA0B4A4A98FE /* ExpoModulesProvider.swift */; };
 		9A78FF78EE5F3DCB2E060C8E /* OnlookRuntimeInstaller.mm in Sources */ = {isa = PBXBuildFile; fileRef = DAEB2E8EEEADD1A86CC53822 /* OnlookRuntimeInstaller.mm */; };
 		9AA77EE9615F1F28B0460B8A /* HermesBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 751569567CF7839D697C2619 /* HermesBootstrap.swift */; };
+		9D125CFB192329F77F327B59 /* OnlookRuntime_version.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 71F9FC1DB09E06FE78D6C0CD /* OnlookRuntime_version.cpp */; };
 		A58D0EA15864227556AF31AB /* OnlookRuntimeInstaller.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E88BDC9667D6375490824DF1 /* OnlookRuntimeInstaller.cpp */; };
 		A97B3DB5E491B8B1F7B71D2D /* libPods-OnlookMobileClient.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A73E8FA38A23CD5C50605EA4 /* libPods-OnlookMobileClient.a */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
@@ -31,6 +32,7 @@
 		48E3EF96145B6BAC5F2AF4D9 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = OnlookMobileClient/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		4CCEB76AA8C8E65563C3D265 /* OnlookLogger.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = OnlookLogger.swift; path = OnlookMobileClient/OnlookLogger.swift; sourceTree = "<group>"; };
 		64E869267D63E50111AD93BD /* OnlookRuntime.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; name = OnlookRuntime.cpp; path = ../cpp/OnlookRuntime.cpp; sourceTree = "<group>"; };
+		71F9FC1DB09E06FE78D6C0CD /* OnlookRuntime_version.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; name = OnlookRuntime_version.cpp; path = ../cpp/OnlookRuntime_version.cpp; sourceTree = "<group>"; };
 		751569567CF7839D697C2619 /* HermesBootstrap.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HermesBootstrap.swift; path = OnlookMobileClient/HermesBootstrap.swift; sourceTree = "<group>"; };
 		89B0D449CECFEC04F71DBCDD /* main.jsbundle */ = {isa = PBXFileReference; includeInIndex = 1; name = main.jsbundle; path = OnlookMobileClient/Resources/main.jsbundle; sourceTree = "<group>"; };
 		8EB9D69A6F02685C021163CF /* OnlookRuntimeInstaller.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = OnlookRuntimeInstaller.h; path = ../cpp/OnlookRuntimeInstaller.h; sourceTree = "<group>"; };
@@ -79,6 +81,7 @@
 				8EB9D69A6F02685C021163CF /* OnlookRuntimeInstaller.h */,
 				E88BDC9667D6375490824DF1 /* OnlookRuntimeInstaller.cpp */,
 				DAEB2E8EEEADD1A86CC53822 /* OnlookRuntimeInstaller.mm */,
+				71F9FC1DB09E06FE78D6C0CD /* OnlookRuntime_version.cpp */,
 			);
 			name = OnlookMobileClient;
 			sourceTree = "<group>";
@@ -355,6 +358,7 @@
 				C5E502ECCC78ACE098F956AE /* OnlookRuntime.cpp in Sources */,
 				A58D0EA15864227556AF31AB /* OnlookRuntimeInstaller.cpp in Sources */,
 				9A78FF78EE5F3DCB2E060C8E /* OnlookRuntimeInstaller.mm in Sources */,
+				9D125CFB192329F77F327B59 /* OnlookRuntime_version.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

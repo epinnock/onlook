@@ -120,11 +120,12 @@ jsi::Value OnlookRuntime::dispatchEvent(
 }
 
 jsi::String OnlookRuntime::version(jsi::Runtime& rt) {
-  // Real value lands in MC2.12 (compile-time string sourced from
-  // ONLOOK_RUNTIME_VERSION). Returning the placeholder lets callers see
-  // a sentinel rather than `undefined`, which makes the relay's
-  // version-mismatch path easier to test in the meantime.
-  return jsi::String::createFromUtf8(rt, "0.0.0-mc2.2-skeleton");
+  // Sourced from `@onlook/mobile-client-protocol`'s ONLOOK_RUNTIME_VERSION
+  // via apps/mobile-client/scripts/generate-version-header.ts →
+  // OnlookRuntime_version.generated.h → OnlookRuntime_version.cpp. Keeping
+  // the macro indirection out of this TU means a version bump only
+  // recompiles OnlookRuntime_version.cpp. MC2.12.
+  return jsi::String::createFromUtf8(rt, getRuntimeVersion());
 }
 
 }  // namespace onlook
