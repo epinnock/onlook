@@ -19,9 +19,11 @@ import { rewriteBareImports } from './bare-import-rewriter';
 import { walkVfs } from './file-walker';
 import { resolveEntry } from './entry-resolver';
 import { wrapAsIIFE, type IIFEModule } from './iife-wrapper';
+import { transformWithJsxSource } from './sucrase-jsx-source';
 import {
     BundleError,
     type BrowserMetroOptions,
+    type BundleTarget,
     type BundleModule,
     type BundleResult,
     type Vfs,
@@ -31,6 +33,8 @@ export class BrowserMetro {
     private readonly vfs: Vfs;
     private readonly esmUrl: string;
     private readonly broadcastChannelName: string;
+    private readonly target: BundleTarget;
+    private readonly isDev: boolean;
     private readonly logger: BrowserMetroOptions['logger'];
     private channel: BroadcastChannel | null = null;
     private latestBundle: BundleResult | null = null;
@@ -39,6 +43,8 @@ export class BrowserMetro {
     constructor(options: BrowserMetroOptions) {
         this.vfs = options.vfs;
         this.esmUrl = options.esmUrl;
+        this.target = options.target ?? 'expo-go';
+        this.isDev = options.isDev !== false;
         this.broadcastChannelName = options.broadcastChannel ?? 'onlook-preview';
         this.logger = options.logger ?? {
             debug: (m) => console.debug('[browser-metro]', m),
@@ -120,6 +126,14 @@ export class BrowserMetro {
                 });
             };
 
+            // MC4.13: when targeting onlook-client in dev mode, use the
+            // jsx-source transform (MC4.12) so every React.createElement
+            // call carries __source metadata for the inspector. This swaps
+            // the JSX runtime from automatic to classic and adds a second
+            // Sucrase pass for the `imports` transform.
+            const useJsxSource =
+                this.target === 'onlook-client' && this.isDev;
+
             for (const file of walked) {
                 try {
                     const rewritten = rewriteBareImports(file.content, {
@@ -131,15 +145,37 @@ export class BrowserMetro {
                     for (const url of rewritten.bareImportUrls) {
                         allBareUrls.add(url);
                     }
-                    const transformed = transform(rewritten.code, {
-                        transforms: ['jsx', 'typescript', 'imports'],
-                        production: false,
-                        jsxRuntime: 'automatic',
-                        filePath: file.path,
-                    });
+
+                    let transpiled: string;
+                    if (useJsxSource) {
+                        // Step A: jsx + ts via classic runtime with __source
+                        // injection (MC4.12).
+                        const jsxResult = transformWithJsxSource(
+                            rewritten.code,
+                            file.path,
+                            { isDev: true },
+                        );
+                        // Step B: CJS module transform (import/export →
+                        // require/module.exports) so the IIFE wrapper's
+                        // require() runtime can resolve modules.
+                        const importsResult = transform(jsxResult.code, {
+                            transforms: ['imports'],
+                            filePath: file.path,
+                        });
+                        transpiled = importsResult.code;
+                    } else {
+                        const transformed = transform(rewritten.code, {
+                            transforms: ['jsx', 'typescript', 'imports'],
+                            production: false,
+                            jsxRuntime: 'automatic',
+                            filePath: file.path,
+                        });
+                        transpiled = transformed.code;
+                    }
+
                     // Post-sucrase rewrite: catch any require('bare-name')
                     // that the JSX runtime auto-injection added.
-                    const finalCode = rewritePostSucraseRequires(transformed.code);
+                    const finalCode = rewritePostSucraseRequires(transpiled);
                     modules[file.path] = {
                         path: file.path,
                         code: finalCode,

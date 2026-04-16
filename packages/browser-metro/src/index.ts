@@ -32,6 +32,7 @@ export { BrowserMetro } from './host/index';
 export type {
     BundleResult,
     BundleError,
+    BundleTarget,
     BrowserMetroOptions,
     Vfs,
 } from './host/types';
