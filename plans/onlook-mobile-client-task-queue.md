@@ -733,10 +733,11 @@ Goal: console relay, network inspector, error boundary, in-app dev menu. All flo
   - Validate: `bun test apps/mobile-client/src/actions/__tests__/toggleInspector.test.ts && bun --filter @onlook/mobile-client typecheck`
   - Status: **Done** — 7 tests pass, plain-object observable with Set-based listener pattern
 
-- **MC5.14** — Dev menu action: copy session ID
-  - Files: `packages/mobile-preview/runtime/dev-menu/actions/copySessionId.js`
+- **MC5.14** — Dev menu action: copy session ID ✅
+  - Files: `apps/mobile-client/src/actions/copySessionId.ts`, `apps/mobile-client/src/actions/index.ts`
   - Deps: MC5.9
-  - Validate: `bun test packages/mobile-preview/runtime/dev-menu/actions/__tests__/copySessionId.test.js`
+  - Validate: `bun test apps/mobile-client/src/actions/__tests__/copySessionId.test.ts && bun --filter @onlook/mobile-client typecheck`
+  - Status: **Done** — `createCopySessionIdAction(getSessionId)` returns DevMenuAction; `copySessionIdToClipboard()` standalone helper uses `Clipboard` from `react-native` with a console.log fallback when unavailable. Alerts "No active session" when getter yields null; "Session ID copied" on success; logs `[onlook-runtime] session ID copied: <id>`. 7 tests pass, typecheck clean.
 
 - **MC5.15** — Dev menu action: view recent logs
   - Files: `packages/mobile-preview/runtime/dev-menu/actions/viewLogs.js`

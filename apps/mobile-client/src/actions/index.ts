@@ -6,6 +6,11 @@
  */
 
 export { createClearStorageAction, clearAllStorage } from './clearStorage';
+export {
+    createCopySessionIdAction,
+    copySessionIdToClipboard,
+    type SessionIdGetter,
+} from './copySessionId';
 export { createReloadAction, reloadApp } from './reloadBundle';
 export {
     createToggleInspectorAction,
