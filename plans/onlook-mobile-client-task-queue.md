@@ -435,9 +435,10 @@ Goal: replace Spike B's scraping path with a documented `global.OnlookRuntime.ru
   - RESOLUTION: fold this into **MC2.1** directly. Removed from the queue, MC2.1 acceptance criterion updated to include doc block.
 
 - **MC2.14** — Error surface: Hermes exceptions from `runApplication` propagate to a JS error screen hook
-  - Files: `apps/mobile-client/cpp/OnlookRuntime_errorSurface.cpp`
+  - Files: `apps/mobile-client/cpp/OnlookRuntime_errorSurface.cpp`, `apps/mobile-client/cpp/OnlookRuntime.h` (declarations), `apps/mobile-client/ios/OnlookMobileClient.xcodeproj/project.pbxproj` (Sources/group registration — 4-UUID manual edit)
   - Deps: MC2.7
   - Validate: `bun run mobile:e2e:ios -- 10-bundle-throws.yaml` (loads a bundle that throws, asserts the error message surfaces through a `dispatchEvent('onlook:error', …)` callback)
+  - Status: **Helper landed 2026-04-11.** `reportRuntimeError(rt, kind, message, stack)` funnels `{kind, message, stack}` through `globalThis.OnlookRuntime.dispatchEvent('onlook:error', payload)` with a benign no-op when the runtime isn't installed yet; `captureAndReport(rt, fn)` wraps a callable and classifies throws as `"js"` (jsi::JSError, preserves stack), `"native"` (std::exception), or `"unknown"`. Wired into the iOS target via a 4-UUID manual pbxproj edit (F0B5D7E3C4A62D7F0A5B1E01/02). Runtime callers (MC2.7 runApplication, MC2.8 reloadBundle, MC2.9 dispatchEvent) still need to swap their raw try/catch blocks over to `captureAndReport` — tracked as follow-ups in those tasks. Mac mini xcodebuild validation + 10-bundle-throws.yaml e2e run pending.
 
 - **MC2.15** — Pre-warm `findNodeAtPoint(-1, -1)` after mount (risk mitigation from source plan)
   - Files: `apps/mobile-client/cpp/InspectorPrewarm.cpp` (NEW), `apps/mobile-client/cpp/OnlookRuntime.h` (declaration added), `apps/mobile-client/cpp/OnlookRuntimeInstaller.cpp` (call site), `apps/mobile-client/ios/OnlookMobileClient.xcodeproj/project.pbxproj` (Sources/group registration)
