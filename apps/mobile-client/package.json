@@ -25,7 +25,7 @@
         "eas:submit:preview:android": "bun x eas-cli submit --profile preview --platform android --non-interactive --track internal",
         "mobile:e2e:ios": "bun run scripts/run-e2e.ts",
         "mobile:e2e:android": "bun run scripts/run-e2e.ts",
-        "mobile:audit:bundle-size": "bun --cwd ../../packages/browser-metro run scripts/bundle-size-audit.ts --fixture=hello-onlook"
+        "mobile:audit:bundle-size": "bun --cwd ../../packages/browser-metro scripts/bundle-size-audit.ts --fixture=hello-onlook"
     },
     "dependencies": {
         "@onlook/mobile-client-protocol": "*",
