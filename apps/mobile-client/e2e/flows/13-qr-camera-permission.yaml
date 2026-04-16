@@ -1,0 +1,18 @@
+# 13-qr-camera-permission.yaml — Wave 3 task MC3.6 of plans/onlook-mobile-client-task-queue.md.
+#
+# Asserts the QR scanner screen requests camera permission and shows
+# the "Grant Permission" prompt when permission has not been granted.
+#
+# NOTE: This flow will timeout on the bare-scaffold app because
+# App.tsx doesn't yet route to ScanScreen. The wiring lands in MC3.20
+# (app router). The flow file is authored now so validate-task.ts can
+# locate it and the maestro YAML is ready when the router is in place.
+
+appId: com.onlook.mobile
+---
+- launchApp:
+    clearState: true
+- waitForAnimationToEnd:
+    timeout: 8000
+- assertVisible: "Camera permission required"
+- assertVisible: "Grant Permission"
