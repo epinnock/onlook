@@ -601,7 +601,7 @@ iOS and Android paths fan out in parallel — 4.1–4.6 are iOS, 4.7–4.11 are 
   - Validate: `bun run mobile:e2e:android -- 25-highlight.yaml && bun run mobile:e2e:android -- 26-tap-forwarded.yaml`
   - Note: Intentionally 1-task-2-flows because both features touch the same overlay surface on Android. Source plan's "Android-side `OnlookInspector` parity" cut line is honored — iOS is the blocker for v1 DoD, Android is best-effort.
 
-- **MC4.12** — Sucrase `jsx-source` mode in `@onlook/browser-metro`
+- **MC4.12** — Sucrase `jsx-source` mode in `@onlook/browser-metro` — **Status: shipped 2026-04-16**
   - Files: `packages/browser-metro/src/host/sucrase-jsx-source.ts`
   - Deps: MCF1
   - Validate: `bun test packages/browser-metro/src/host/__tests__/sucrase-jsx-source.test.ts` (asserts emitted JS contains `__source: { fileName, lineNumber, columnNumber }` on JSX calls, gated behind `process.env.NODE_ENV !== 'production'`)
