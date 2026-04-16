@@ -395,6 +395,7 @@ Goal: replace Spike B's scraping path with a documented `global.OnlookRuntime.ru
   - Deps: MCF3
   - Validate: `bun test packages/browser-metro/src/host/__tests__/iife-wrapper-no-export.test.ts`
   - Note: Addresses the Hermes parser constraint from source-plan Phase 2. Pure additive test in an existing package.
+  - Status: **shipped 2026-04-16** — asserts `wrapAsIIFE` output has zero lines matching `/^\s*(export|import)\b/`, covering empty/Metro-style/stray-comment bundles plus a self-check of the regex and a sabotage meta-test.
 
 - **MC2.12** — `OnlookRuntime.version` reports compiled binary version to JS
   - Files: `apps/mobile-client/cpp/OnlookRuntime_version.cpp`
