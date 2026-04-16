@@ -722,9 +722,10 @@ Goal: console relay, network inspector, error boundary, in-app dev menu. All flo
   - Status: Done — `createReloadAction()` returns DevMenuAction; `reloadApp()` standalone helper. Tries `globalThis.OnlookRuntime.reloadBundle()` first, falls back to RN `DevSettings.reload()`. 5 tests pass, typecheck clean.
 
 - **MC5.12** — Dev menu action: clear async storage
-  - Files: `packages/mobile-preview/runtime/dev-menu/actions/clearStorage.js`
+  - Files: `apps/mobile-client/src/actions/clearStorage.ts`, `apps/mobile-client/src/actions/index.ts`
   - Deps: MC5.9
-  - Validate: `bun test packages/mobile-preview/runtime/dev-menu/actions/__tests__/clearStorage.test.js`
+  - Validate: `bun test apps/mobile-client/src/actions/__tests__/clearStorage.test.ts && bun --filter @onlook/mobile-client typecheck`
+  - Status: Done — `createClearStorageAction()` returns destructive DevMenuAction; `clearAllStorage()` standalone helper wipes recent sessions (MC3.8 `clearRecentSessions`) plus `onlook_relay_host_override` and `onlook_dev_menu_enabled` (MC3.10 SettingsScreen keys) and logs `[onlook-runtime] storage cleared`. 5 tests pass, typecheck clean.
 
 - **MC5.13** — Dev menu action: toggle inspector overlay ✅
   - Files: `apps/mobile-client/src/actions/toggleInspector.ts`
