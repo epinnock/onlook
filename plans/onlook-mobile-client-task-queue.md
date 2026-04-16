@@ -927,6 +927,40 @@ Sequential. Runs with 1 agent after Wave 6 merges. This is where the source plan
 
 ---
 
+## Session of 2026-04-16 afternoon — first iPhone deploy + dual-React bug surfaces
+
+Origin advanced `bd3d3bb4` → `b16efccc` in this session. Eight commits landed, plus the first real-device install of the mobile client.
+
+**Commits landed:**
+
+- `55cee2de` feat(mobile-client): wire `startTapBridge` into app startup (MC2.5 follow-up — native tap forwarder now boots with the app)
+- `ec31e9b7` test(mobile-client): verify bundle-runtime `meta.json` matches copied bundle (catches stale bundle/meta drift at CI time)
+- `7bb9f6a9` fix(mobile-client): remove stale `onlook.highlight` overlay (leaked selection chrome from prior sessions)
+- `d39f5d73` docs(mobile-client): MCI.2 baseline numbers from first real build (unblocks the size-audit gate once wired)
+- `08f7dcf5` feat(mobile-client): add `mobile:install:device` npm script (one-shot `ios-deploy` wrapper, SSH-friendly)
+- `40e0f2ec` fix(mobile-preview): scope runtime `__d` / `__r` inside IIFE (prevents global Metro-runtime leakage into host page)
+- `bbd641c6` test(mobile-preview): regression test asserting `bundle.js` IIFE (locks in the 40e0f2ec fix)
+- `b16efccc` chore(ai): refresh prompt fixtures
+
+**Live-device validation findings:**
+
+- **First physical install succeeded** on iPhone 8 Plus (iOS 15.1) via `ios-deploy` over SSH from the box → Mac-mini → tethered device. Native runtime bootstrap is confirmed working end-to-end: Hermes + combined bundle (~1.5MB) + OnlookRuntime + B13 shell all come up.
+- **`errSecInternalComponent`** surfaced on first code-sign attempt — root cause is a locked login keychain on the Mac-mini over SSH. Documented pattern: `security unlock-keychain -p "$PW" login.keychain-db` before any `codesign` invocation in a non-interactive session.
+- **`ios-deploy --justlaunch` SIGKILL false-positive** pattern documented: the tool reports a SIGKILL exit even on a clean launch because it detaches via SIGKILL by design. Treat non-zero exit from `--justlaunch` as success if the app PID is alive post-detach.
+- **Dual-React bug surfaced:** `TypeError: Cannot read property 'useState' of null` thrown from `LauncherScreen` render. Two React copies are being loaded — one from the combined bundle, one from the B13 shell path. The null `dispatcher` is the classic signature.
+
+**In flight:**
+
+- Dual-React externalize fix in `apps/mobile-client/scripts/build-runtime.ts` — mark `react` / `react-native` as externals in the runtime bundle so the shell's copy wins, single dispatcher. Fix should unblock `LauncherScreen` actual render on device.
+
+**Still needs live-device verification (blocked on dual-React fix landing):**
+
+- Launch from iPhone home-screen tap with no lldb/debugger attached (current runs have all been `ios-deploy --debug` sessions).
+- `LauncherScreen` actually rendering pixels on device (currently red-screens at the `useState` throw).
+- `tapBridge` forwarding real finger taps from native → JS runtime end-to-end (wired per `55cee2de` but unverified because the JS side crashes before mount).
+
+---
+
 ## Session of 2026-04-16 cron-saturated close
 
 Origin advanced `ffe1fc93` → `d9f90113` in this session. Six commits landed from the cron dispatch:
