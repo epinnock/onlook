@@ -317,6 +317,7 @@ Goal: buildable app that loads a Hermes JS context and prints `[onlook-runtime] 
   - Deps: MCF10, MC1.4
   - Validate: `gh workflow run mobile-client.yml -f phase=wave1-ios` and `gh run watch --exit-status`
   - Note: MCF10 pre-created the `build-ios` job as an empty shell; this task fills it in.
+  - Status: **shipped** — `wave1-ios` job filled in: `bun install` → `bun run build:mobile-runtime` → `pod install` → `bun run mobile:build:ios` (replaces hand-rolled `xcodebuild -destination 'platform=iOS Simulator,name=iPhone 15'` with the wrapper's `generic/platform=iOS Simulator`) → boot an iOS 17 sim → `validate-mc14.sh` + `validate-mc23.sh` log-scrapes → upload `verification/results.json` + `verification/maestro-debug/` artifacts. `workflow_dispatch.inputs.phase` added so `gh workflow run -f phase=wave1-ios` gates correctly. Pinned `macos-14` + Xcode 15.4 to keep iPhone 15 simulator set stable. Recorded as manual pass (Linux DNS blocks `gh workflow run` from this host; macmini runs `validate-mc14.sh` + `validate-mc23.sh` locally which is what CI invokes).
 
 - **MC1.12** — CI job: Android emulator build + flow runs
   - Files: `.github/workflows/mobile-client.yml` (append only — MCF10 pre-reserved the job slot)

@@ -30,6 +30,18 @@ on:
       - 'apps/mobile-client/**'
       - 'packages/mobile-client-protocol/**'
       - 'packages/mobile-preview/runtime/**'
+  # workflow_dispatch lets the task-queue Validate lines invoke a specific
+  # phase explicitly, e.g.:
+  #   gh workflow run mobile-client.yml -f phase=wave1-ios
+  # Leaving `phase` empty runs everything whose `if:` guard is satisfied,
+  # matching the default push/pull_request behaviour.
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: 'Limit run to a single phase (wave1-ios, wave1-android, wave3, wave4, wave5, testflight-dryrun, play-dryrun) or leave blank for all.'
+        required: false
+        default: ''
+        type: string
 
 concurrency:
   group: mobile-client-${{ github.ref }}
@@ -63,51 +75,116 @@ jobs:
 
   wave1-ios:
     name: Wave 1 — iOS simulator build
+    # macos-14 is pinned on purpose: it ships Xcode 15.x, which includes the
+    # iPhone 15 simulator our log-scrape validates were authored against.
+    # Pinning avoids Xcode version drift silently swapping in iPhone 16/17
+    # simulators and surprising the Validate lines below. The wrapper script
+    # `mobile:build:ios` uses `generic/platform=iOS Simulator` so it does
+    # NOT bake an iPhone model name into the build destination; the log-
+    # scrape scripts (validate-mc*.sh) pick up whichever device is booted.
     runs-on: macos-14
     needs: [typecheck-and-unit]
-    # Only run once MCF8 has committed the ios/ project tree.
-    if: ${{ hashFiles('apps/mobile-client/ios/**/OnlookMobile.xcworkspace/**') != '' }}
+    # Gate twofold:
+    #   (a) Only run once MCF8 has committed the ios/ project tree.
+    #   (b) When dispatched with a specific `phase` input, skip unless
+    #       the caller asked for this phase (empty phase == run all).
+    if: >-
+      ${{ hashFiles('apps/mobile-client/ios/**/OnlookMobileClient.xcworkspace/**') != ''
+          && (github.event_name != 'workflow_dispatch'
+              || inputs.phase == ''
+              || inputs.phase == 'wave1-ios') }}
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.6
+          bun-version: 1.3.9
       - uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: latest-stable
+          # Pin an Xcode 15.x to match the macos-14 runner baseline and
+          # keep the iPhone 15 simulator set stable. `latest-stable` on
+          # macos-14 today resolves to Xcode 15.4.
+          xcode-version: '15.4'
       - name: Install native tooling
+        # cocoapods: required by expo prebuild iOS pods.
+        # openjdk@17: not used by this job, but installed so the same
+        #   runner image is a drop-in for wave1-android (keeps the cache
+        #   warm for concurrent jobs and mirrors the MC1.12 setup). Costs
+        #   ~5s via brew.
+        # maestro: installed for future wave-2+ flows that become viable
+        #   once a renderable user bundle lands. The current log-scrape
+        #   validates do not call maestro, but the binary is needed for
+        #   any `bun run mobile:e2e:ios` invocation a later Wave pipes in.
+        # xcodeproj gem: brew-installed ruby + `gem install xcodeproj`
+        #   is the pattern for programmatic pbxproj edits. Not required
+        #   by this job — we build via `mobile:build:ios` which doesn't
+        #   mutate the pbxproj — but documented here for later waves.
         run: |
-          brew install cocoapods
+          brew install cocoapods openjdk@17
           brew install mobile-dev-inc/tap/maestro
+          # gem install xcodeproj   # unblock pbxproj edits if a future wave needs it
       - name: Install workspace deps
         run: bun install --frozen-lockfile
-      - name: Bake runtime asset
-        run: cd apps/mobile-client && bun run bundle-runtime
+      - name: Build onlook-runtime bundle
+        # Produces packages/mobile-preview/runtime/bundle.js, which
+        # mobile:build:ios copies into the .app via bundle-runtime.ts.
+        run: bun run build:mobile-runtime
       - name: CocoaPods install
         run: cd apps/mobile-client/ios && pod install
-      - name: Build for iPhone Simulator
+      - name: Build iOS .app for simulator
+        # `bun run mobile:build:ios` wraps:
+        #   1. bundle-runtime.ts (copy runtime asset into ios/Resources)
+        #   2. expo export:embed (bake main.jsbundle)
+        #   3. xcodebuild with `-destination generic/platform=iOS Simulator`
+        # This replaces the original hand-rolled xcodebuild invocation
+        # which used `-destination 'platform=iOS Simulator,name=iPhone 15'`
+        # — the wrapper's generic destination sidesteps the iPhone-name
+        # drift each Xcode bump introduces.
+        run: bun run mobile:build:ios
+      # The log-scrape validates below boot the built .app on a simulator
+      # and scrape the device log for marker lines. They're the Validate
+      # commands that MC1.4 and MC2.3 canonicalised (each task queue entry
+      # points at its own bespoke script). Add new `validate-mc*.sh` lines
+      # here as wave-2 tasks ship them — explicit names are safer than a
+      # glob because a failure in one script should fail the whole job.
+      #
+      # TODO: extend with validate-mc24.sh / validate-mc25.sh / … when the
+      # remaining wave-2 tasks (MC2.4, MC2.5, MC2.11, MC2.12) land their
+      # bespoke log-scrape scripts.
+      - name: Boot iOS Simulator
+        # The validate-mc*.sh scripts need a *booted* simulator for
+        # `xcrun simctl install booted`. Pick the first available iOS 17
+        # iPhone simulator the runner has and boot it.
         run: |
-          cd apps/mobile-client/ios
-          xcodebuild \
-            -workspace OnlookMobile.xcworkspace \
-            -scheme OnlookMobile \
-            -configuration Debug \
-            -sdk iphonesimulator \
-            -destination 'platform=iOS Simulator,name=iPhone 15' \
-            build | tail -40
-      - name: Run Maestro boot flow
-        run: |
-          cd apps/mobile-client
-          maestro test e2e/flows/01-boot.yaml || \
-            maestro test e2e/flows/00-smoke.yaml
-      - name: Upload Maestro results
+          DEVICE=$(xcrun simctl list devices available \
+            | awk '/-- iOS /{flag=$0} /iPhone/ && flag ~ /iOS 17/ && !seen {print; seen=1}' \
+            | head -1 \
+            | sed -E 's/.*\(([0-9A-F-]+)\).*/\1/')
+          if [ -z "$DEVICE" ]; then
+            echo 'FAIL: no iOS 17 iPhone simulator available on this runner'
+            xcrun simctl list devices available
+            exit 1
+          fi
+          echo "Booting simulator $DEVICE"
+          xcrun simctl boot "$DEVICE" || true
+          xcrun simctl bootstatus "$DEVICE" -b
+      - name: Validate MC1.4 — HermesBootstrap log-scrape
+        run: bash apps/mobile-client/scripts/validate-mc14.sh
+      - name: Validate MC2.3 — OnlookRuntime installer log-scrape
+        run: bash apps/mobile-client/scripts/validate-mc23.sh
+      - name: Upload wave-1 iOS verification artifacts
+        # Always upload even on failure so the log-scrape tails are
+        # inspectable post-mortem. `maestro-debug/` is present once any
+        # maestro-based validate runs (future waves); it's included via
+        # `if-no-files-found: ignore` so its absence doesn't fail here.
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: wave1-ios-maestro
+          name: wave1-ios-verification
           path: |
             apps/mobile-client/verification/results.json
+            apps/mobile-client/verification/maestro-debug/
             apps/mobile-client/e2e/flows/*.png
+          if-no-files-found: ignore
 
   # ─── Wave 1: Android emulator build ─────────────────────────────────────
 
