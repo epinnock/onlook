@@ -1,3 +1,4 @@
+export { default as CrashScreen } from './CrashScreen';
 export { default as ErrorScreen } from './ErrorScreen';
 export { default as LauncherScreen } from './LauncherScreen';
 export { default as RecentSessionsList } from './RecentSessionsList';

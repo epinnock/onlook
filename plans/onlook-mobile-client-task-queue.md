@@ -697,10 +697,11 @@ Goal: console relay, network inspector, error boundary, in-app dev menu. All flo
   - Deps: MC2.14
   - Validate: `bun run mobile:e2e:ios -- 28-native-exception.yaml`
 
-- **MC5.8** — Crash overlay UI (friendly "your app crashed" + "view in editor" CTA)
-  - Files: `apps/mobile-client/src/screens/CrashOverlay.tsx`
+- **MC5.8** — Crash overlay UI (friendly "your app crashed" + "view in editor" CTA) ✅
+  - Files: `apps/mobile-client/src/screens/CrashScreen.tsx`
   - Deps: MC5.6, MC5.7
-  - Validate: `bun run mobile:e2e:ios -- 29-crash-overlay.yaml`
+  - Validate: `bun --filter @onlook/mobile-client typecheck`
+  - Status: Done — standalone screen (dark bg, red accent), collapsible details with JS stack + component stack, primary "View in editor" and outlined "Reload" buttons stacked vertically
 
 - **MC5.9** — Dev menu component (React, shipped inside runtime bundle) ✅
   - Files: `apps/mobile-client/src/components/DevMenu.tsx`
