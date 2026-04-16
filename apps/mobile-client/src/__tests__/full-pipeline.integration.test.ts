@@ -50,7 +50,7 @@ mock.module('expo-secure-store', () => ({
 
 // ── Imports under test (shipped modules only) ─────────────────────────────
 
-const { qrToMount } = await import('../flow/qrToMount');
+const { qrToMount, __resetQrToMountState } = await import('../flow/qrToMount');
 const { OnlookRelayClient } = await import('../relay/wsClient');
 const { LiveReloadDispatcher } = await import('../relay/liveReload');
 
@@ -254,6 +254,9 @@ beforeEach(() => {
     // Fresh OnlookRuntime stub per test so call counts don't leak.
     savedRuntime = (globalThis as GlobalWithRuntime).OnlookRuntime;
     (globalThis as GlobalWithRuntime).OnlookRuntime = makeRuntimeStub();
+    // Reset the qrToMount "already mounted" flag so each test starts in the
+    // fresh-first-mount state (MCF-BUG-QR-SUBSEQUENT guard).
+    __resetQrToMountState();
 });
 
 afterEach(() => {

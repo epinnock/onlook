@@ -42,10 +42,37 @@ type OnlookRuntimeWithRunApplication = {
         bundleSource: string,
         props: { sessionId: string },
     ) => void;
+    reloadBundle?: (bundleSource: string) => void;
 };
 
 /** Stage names used to tag failures in {@link QrMountResult}. */
 export type QrMountStage = 'parse' | 'manifest' | 'bundle' | 'mount';
+
+/**
+ * Module-level flag tracking whether `OnlookRuntime.runApplication` has
+ * already been invoked for the lifetime of this JS context.
+ *
+ * The C++ binding (MC2.7) assumes a first-time mount: it evaluates the
+ * bundle and calls `globalThis.onlookMount(props)` without tearing down any
+ * prior React tree. Calling it twice therefore produces a stale / broken
+ * UI and — depending on the bundle — can throw during `onlookMount`.
+ *
+ * MC2.8's `reloadBundle(bundleSource)` is the supported path for the
+ * second-and-later scan: it runs `globalThis.onlookUnmount()` then re-runs
+ * the bundle eval. We flip this flag on the first successful mount so every
+ * subsequent `qrToMount` call routes through the reload path.
+ *
+ * Exported only for tests — production code must not mutate it directly.
+ */
+let hasMountedApplication = false;
+
+/**
+ * @internal Test-only helper to reset the "already mounted" flag between
+ * harness runs. Not exported from the package barrel.
+ */
+export function __resetQrToMountState(): void {
+    hasMountedApplication = false;
+}
 
 /**
  * Discriminated-union result of the QR-to-mount pipeline. On success the
@@ -102,29 +129,63 @@ export async function qrToMount(barcodeData: string): Promise<QrMountResult> {
     }
 
     // ── Stage 4: mount ────────────────────────────────────────────────────
+    //
+    // First scan in this JS context → `runApplication` (fresh mount).
+    // Second-and-later scans    → `reloadBundle` (MC2.8 — tears down the
+    // existing React tree then re-runs the bundle eval). Calling
+    // `runApplication` a second time leaves the prior tree intact and
+    // silently produces a broken UI — see MCF-BUG-QR-SUBSEQUENT.
     const runtime = (globalThis as { OnlookRuntime?: OnlookRuntimeWithRunApplication })
         .OnlookRuntime;
-    const runApplication = runtime?.runApplication;
-    if (typeof runApplication !== 'function') {
-        console.log(
-            `${LOG_PREFIX} OnlookRuntime.runApplication not yet available (MC2.7 pending)`,
-        );
-        return {
-            ok: false,
-            stage: 'mount',
-            error: 'OnlookRuntime.runApplication not yet available (MC2.7 pending)',
-        };
-    }
 
-    try {
-        runApplication(bundleResult.source, { sessionId });
-    } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        return {
-            ok: false,
-            stage: 'mount',
-            error: `runApplication threw: ${message}`,
-        };
+    if (!hasMountedApplication) {
+        const runApplication = runtime?.runApplication;
+        if (typeof runApplication !== 'function') {
+            console.log(
+                `${LOG_PREFIX} OnlookRuntime.runApplication not yet available (MC2.7 pending)`,
+            );
+            return {
+                ok: false,
+                stage: 'mount',
+                error: 'OnlookRuntime.runApplication not yet available (MC2.7 pending)',
+            };
+        }
+
+        try {
+            runApplication(bundleResult.source, { sessionId });
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
+            return {
+                ok: false,
+                stage: 'mount',
+                error: `runApplication threw: ${message}`,
+            };
+        }
+
+        hasMountedApplication = true;
+    } else {
+        const reloadBundle = runtime?.reloadBundle;
+        if (typeof reloadBundle !== 'function') {
+            console.log(
+                `${LOG_PREFIX} OnlookRuntime.reloadBundle not yet available (MC2.8 pending)`,
+            );
+            return {
+                ok: false,
+                stage: 'mount',
+                error: 'OnlookRuntime.reloadBundle not yet available (MC2.8 pending)',
+            };
+        }
+
+        try {
+            reloadBundle(bundleResult.source);
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
+            return {
+                ok: false,
+                stage: 'mount',
+                error: `reloadBundle threw: ${message}`,
+            };
+        }
     }
 
     // ── Persist session on successful mount (MC3.8) ───────────────────────
