@@ -585,12 +585,6 @@ export function useMobilePreviewStatus(
             }, 150);
         };
 
-        // Prefer the BroadcastChannel signal the canvas iframe uses — it
-        // fires reliably on every successful rebundle (see
-        // packages/browser-metro/src/host/index.ts). The file-system
-        // watchDirectory signal fires during initial hydration but misses
-        // some subsequent writes (e.g. inline code edits), which is why
-        // auto-push previously stopped working after the first render.
         const stopWatching = fileSystem.watchDirectory('/', (event) => {
             if (!shouldSyncMobilePreviewPath(event.path)) {
                 return;
@@ -615,6 +609,17 @@ export function useMobilePreviewStatus(
             }
         }
 
+        // Same-window CustomEvent dispatched by SandboxManager.publish —
+        // synchronous and not subject to the BroadcastChannel close()
+        // delivery race. Acts as the primary in-window signal; the BC
+        // listener above stays as a redundant cross-context backup.
+        const onCustomEvent = () => {
+            schedulePush();
+        };
+        if (typeof window !== 'undefined') {
+            window.addEventListener('onlook-preview-bundle', onCustomEvent);
+        }
+
         schedulePush();
 
         return () => {
@@ -624,6 +629,9 @@ export function useMobilePreviewStatus(
             }
             stopWatching();
             bundleChannel?.close();
+            if (typeof window !== 'undefined') {
+                window.removeEventListener('onlook-preview-bundle', onCustomEvent);
+            }
         };
         // `isOpen` is intentionally read inside the effect (for the
         // error-surfacing guard) but omitted from the deps so toggling the
