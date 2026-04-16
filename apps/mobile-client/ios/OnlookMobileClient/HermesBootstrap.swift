@@ -66,15 +66,15 @@ enum HermesBootstrap {
         combined.append(runtime)
         combined.append(0x0A)  // '\n'
         combined.append(userData)
-        // Use os_log .error level (via OnlookLogger.error) rather than .info
+        // Use os_log .default level (via OnlookLogger.notice) rather than .info
         // because Apple's unified log filters .info messages out of
         // `log show` by default — we need this line to be persisted so the
         // orchestrator's `xcrun simctl spawn booted log show --predicate
         // 'eventMessage CONTAINS "[onlook-runtime] hermes ready"'` scrape
-        // (used by validate-task.ts MC1.4) reliably finds it. Semantically
-        // it's a notice/info event, not an error; consider switching to
-        // os_log .default once OnlookLogger gains a notice() method.
-        OnlookLogger.error("hermes ready")
+        // (used by validate-task.ts MC1.4) reliably finds it. .default is
+        // Apple's recommended level for notable non-error events and is
+        // persisted by `log show` without the `--info` flag, same as .error.
+        OnlookLogger.notice("hermes ready")
         return combined
     }
 }
