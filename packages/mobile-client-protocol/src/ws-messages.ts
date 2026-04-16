@@ -6,6 +6,7 @@
  *
  *   bundleUpdate    (relay → client) — editor saved, new bundle URL ready
  *   onlook:select   (client → relay) — device tap mapped to a source location
+ *   onlook:tap      (client → relay) — raw tap coordinates before source mapping
  *   onlook:console  (client → relay) — forwarded console.log/warn/error
  *   onlook:network  (client → relay) — forwarded fetch/XHR
  *   onlook:error    (client → relay) — runtime exception or React error boundary
@@ -45,6 +46,17 @@ export const SelectMessageSchema = z.object({
     source: SourceLocationSchema,
 });
 export type SelectMessage = z.infer<typeof SelectMessageSchema>;
+
+export const TapMessageSchema = z.object({
+    type: z.literal('onlook:tap'),
+    sessionId: z.string().min(1),
+    timestamp: z.number().int().nonnegative(),
+    x: z.number(),
+    y: z.number(),
+    /** Present when the inspector resolved a RN host component at the hit point. */
+    reactTag: z.number().int().optional(),
+});
+export type TapMessage = z.infer<typeof TapMessageSchema>;
 
 export const ConsoleLevelSchema = z.enum(['log', 'info', 'warn', 'error', 'debug']);
 export type ConsoleLevel = z.infer<typeof ConsoleLevelSchema>;
@@ -89,6 +101,7 @@ export type ErrorMessage = z.infer<typeof ErrorMessageSchema>;
 export const WsMessageSchema = z.discriminatedUnion('type', [
     BundleUpdateMessageSchema,
     SelectMessageSchema,
+    TapMessageSchema,
     ConsoleMessageSchema,
     NetworkMessageSchema,
     ErrorMessageSchema,

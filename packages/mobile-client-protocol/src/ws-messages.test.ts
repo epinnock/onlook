@@ -96,6 +96,8 @@ describe('WsMessageSchema', () => {
                     return 'update';
                 case 'onlook:select':
                     return 'select';
+                case 'onlook:tap':
+                    return 'tap';
                 case 'onlook:console':
                     return 'console';
                 case 'onlook:network':
