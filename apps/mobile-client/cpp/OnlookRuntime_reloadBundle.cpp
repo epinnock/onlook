@@ -33,40 +33,56 @@ jsi::Value reloadBundleImpl(
     jsi::Runtime& rt,
     const jsi::Value* args,
     size_t count) {
-  // Arg validation. The editor-side caller (MC3.14 liveReload.ts) sends
-  // only the bundle source — props are re-used from the previously-cached
-  // `runApplication` call site. Keep the error message aligned with
-  // MC2.7's format so relay-log triage can reuse the same regex.
-  if (count < 1 || !args[0].isString()) {
-    throw jsi::JSError(
-        rt, "OnlookRuntime.reloadBundle: expected (bundleSource: string)");
-  }
+  // MC2.14 follow-up: wrap the body in `captureAndReport` so the arg-
+  // validation throw surfaces via the `onlook:error` event. The inner
+  // `runApplicationImpl` call is ALREADY wrapped at its own call-site, so
+  // any throw from eval/mount is reported there (`kind: "js"` /
+  // `"native"`); `captureAndReport` catch-and-swallows, so the outer frame
+  // here will not double-report. The per-hook `onlookUnmount` try/catch is
+  // preserved unchanged — teardown failures remain non-fatal and are
+  // intentionally not reported to the error surface (they don't block
+  // re-mount).
+  jsi::Value result = jsi::Value::undefined();
+  captureAndReport(rt, [&]() {
+    // Arg validation. The editor-side caller (MC3.14 liveReload.ts) sends
+    // only the bundle source — props are re-used from the previously-cached
+    // `runApplication` call site. Keep the error message aligned with
+    // MC2.7's format so relay-log triage can reuse the same regex.
+    if (count < 1 || !args[0].isString()) {
+      throw jsi::JSError(
+          rt, "OnlookRuntime.reloadBundle: expected (bundleSource: string)");
+    }
 
-  // 1. Tear down the current React tree. Resolving `globalThis.onlookUnmount`
-  //    is best-effort — a bundle that never mounted (or one that uses a
-  //    different teardown convention) should not block the remount. Any
-  //    JSError raised by the hook itself is caught and discarded; the
-  //    subsequent `runApplicationImpl` call replaces the tree wholesale
-  //    via React's root-scoped Fabric commit.
-  jsi::Value unmountVal = rt.global().getProperty(rt, "onlookUnmount");
-  if (unmountVal.isObject()) {
-    jsi::Object unmountObj = unmountVal.getObject(rt);
-    if (unmountObj.isFunction(rt)) {
-      try {
-        unmountObj.getFunction(rt).call(rt);
-      } catch (const jsi::JSError&) {
-        // Teardown failure is non-fatal — the new mount will clobber the
-        // stale tree. Deferring error-surface plumbing to MC2.14.
+    // 1. Tear down the current React tree. Resolving `globalThis.onlookUnmount`
+    //    is best-effort — a bundle that never mounted (or one that uses a
+    //    different teardown convention) should not block the remount. Any
+    //    JSError raised by the hook itself is caught and discarded; the
+    //    subsequent `runApplicationImpl` call replaces the tree wholesale
+    //    via React's root-scoped Fabric commit.
+    jsi::Value unmountVal = rt.global().getProperty(rt, "onlookUnmount");
+    if (unmountVal.isObject()) {
+      jsi::Object unmountObj = unmountVal.getObject(rt);
+      if (unmountObj.isFunction(rt)) {
+        try {
+          unmountObj.getFunction(rt).call(rt);
+        } catch (const jsi::JSError&) {
+          // Teardown failure is non-fatal — the new mount will clobber the
+          // stale tree. Intentionally NOT funneled through captureAndReport:
+          // we don't want a stale-tree teardown glitch to surface as an
+          // observable `onlook:error` event to user code.
+        }
       }
     }
-  }
 
-  // 2. Re-mount via MC2.7's runApplicationImpl. Only the bundle source is
-  //    forwarded — props are left to default to an empty object inside
-  //    runApplicationImpl. Cached-props replay is tracked as an MC2.8
-  //    follow-up (uses `OnlookRuntime::mountedBundleSha_` + a future
-  //    `mountedProps_` jsi::Object field).
-  return runApplicationImpl(rt, args, count);
+    // 2. Re-mount via MC2.7's runApplicationImpl. Only the bundle source is
+    //    forwarded — props are left to default to an empty object inside
+    //    runApplicationImpl. Cached-props replay is tracked as an MC2.8
+    //    follow-up (uses `OnlookRuntime::mountedBundleSha_` + a future
+    //    `mountedProps_` jsi::Object field).
+    result = runApplicationImpl(rt, args, count);
+  });
+
+  return result;
 }
 
 }  // namespace onlook
