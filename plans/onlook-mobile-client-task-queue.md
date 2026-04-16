@@ -460,7 +460,7 @@ Goal: fresh app launch → scan QR → load bundle from `cf-expo-relay` → moun
   - Deps: MC3.3, MC3.6
   - Validate: `bun test apps/mobile-client/src/screens/__tests__/ScanScreenBarcodeHandler.test.ts`
 
-- **MC3.8** — Recent sessions store (`expo-secure-store`)
+- **MC3.8** — Recent sessions store (`expo-secure-store`) — **shipped 2026-04-16**
   - Files: `apps/mobile-client/src/storage/recentSessions.ts`
   - Deps: MCF1
   - Validate: `bun test apps/mobile-client/src/storage/__tests__/recentSessions.test.ts` (round-trip a fake session, assert it reads back)

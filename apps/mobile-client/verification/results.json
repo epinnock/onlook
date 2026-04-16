@@ -76,6 +76,13 @@
       "validate_command": "bun test apps/mobile-client/src/deepLink/parse.test.ts",
       "exit_code": 0,
       "stderr_tail": "\n 12 pass\n 0 fail\n 18 expect() calls\nRan 12 tests across 1 file. [205.00ms]\n"
+    },
+    "MC3.8": {
+      "state": "passed",
+      "validated_at": "2026-04-16T02:32:39.122Z",
+      "validate_command": "bun test apps/mobile-client/src/storage/__tests__/recentSessions.test.ts",
+      "exit_code": 0,
+      "stderr_tail": "\n 9 pass\n 0 fail\n 16 expect() calls\nRan 9 tests across 1 file. [223.00ms]\n"
     }
   }
 }
