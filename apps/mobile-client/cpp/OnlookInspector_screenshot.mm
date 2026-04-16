@@ -131,32 +131,40 @@ jsi::Value captureScreenshotImpl(jsi::Runtime& rt) {
       return;
     }
 
-    // Build a renderer sized to the window in its native scale so the
-    // capture matches on-screen pixel dimensions. Using the default
-    // `rendererFormat` picks up the screen's scale + color space.
-    UIGraphicsImageRendererFormat* format =
-        [UIGraphicsImageRendererFormat preferredFormat];
-    UIGraphicsImageRenderer* renderer =
-        [[UIGraphicsImageRenderer alloc] initWithSize:bounds.size
-                                               format:format];
-    UIImage* image = [renderer
-        imageWithActions:^(UIGraphicsImageRendererContext* _Nonnull ctx) {
-          (void)ctx;
-          // afterScreenUpdates:YES flushes any pending Fabric commits so
-          // the capture reflects the latest mount state, not a stale
-          // frame. This is slightly more expensive than NO but matches
-          // the editor's "what the user sees right now" contract.
-          [window drawViewHierarchyInRect:bounds afterScreenUpdates:YES];
-        }];
+    // Wrap the render + PNG encode in an autoreleasepool so the
+    // intermediate UIImage (and any autoreleased temporaries from
+    // drawViewHierarchyInRect:/UIImagePNGRepresentation) are released
+    // promptly rather than waiting for the main runloop to drain. The
+    // resulting NSData is retained by the __block pngData assignment so
+    // it survives past the pool scope.
+    @autoreleasepool {
+      // Build a renderer sized to the window in its native scale so the
+      // capture matches on-screen pixel dimensions. Using the default
+      // `rendererFormat` picks up the screen's scale + color space.
+      UIGraphicsImageRendererFormat* format =
+          [UIGraphicsImageRendererFormat preferredFormat];
+      UIGraphicsImageRenderer* renderer =
+          [[UIGraphicsImageRenderer alloc] initWithSize:bounds.size
+                                                 format:format];
+      UIImage* image = [renderer
+          imageWithActions:^(UIGraphicsImageRendererContext* _Nonnull ctx) {
+            (void)ctx;
+            // afterScreenUpdates:YES flushes any pending Fabric commits so
+            // the capture reflects the latest mount state, not a stale
+            // frame. This is slightly more expensive than NO but matches
+            // the editor's "what the user sees right now" contract.
+            [window drawViewHierarchyInRect:bounds afterScreenUpdates:YES];
+          }];
 
-    NSData* data = UIImagePNGRepresentation(image);
-    if (!data) {
-      errorMessage =
-          "OnlookInspector.captureScreenshot: PNG encode failed (empty "
-          "image?)";
-      return;
+      NSData* data = UIImagePNGRepresentation(image);
+      if (!data) {
+        errorMessage =
+            "OnlookInspector.captureScreenshot: PNG encode failed (empty "
+            "image?)";
+        return;
+      }
+      pngData = data;
     }
-    pngData = data;
   });
 
   if (!errorMessage.empty()) {
