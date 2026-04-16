@@ -457,10 +457,11 @@ Goal: fresh app launch → scan QR → load bundle from `cf-expo-relay` → moun
   - Validate: `bun run mobile:e2e:ios -- 13-qr-camera-permission.yaml` (permission dialog, grant, camera view mounts)
   - Status: **component authored 2026-04-11, maestro validate deferred (bare-scaffold app)** — ScanScreen.tsx exports default functional component with dark theme (#0A0A0A/#000 background). Uses `CameraView` and `useCameraPermissions` from expo-camera. Permission-denied state shows "Camera permission required" message with "Grant Permission" button. Permission-granted state renders fullscreen `CameraView` with `barcodeScannerSettings: { barcodeTypes: ['qr'] }`, dark overlay with clear center viewfinder square and corner accents, floating "Cancel" back button, and hint text. `onBarcodeScanned` callback delegates to `onScan(data)` prop with 3s debounce via `scanned` state boolean. Barrel export added to `src/screens/index.ts`. Maestro flow `13-qr-camera-permission.yaml` authored but will timeout until MC3.20 wires the screen into the app router.
 
-- **MC3.7** — QR barcode callback → deep link resolver
-  - Files: `apps/mobile-client/src/screens/ScanScreenBarcodeHandler.ts`
+- **MC3.7** — QR barcode callback → deep link resolver — **shipped 2026-04-11**
+  - Files: `apps/mobile-client/src/deepLink/qrResolver.ts`
   - Deps: MC3.3, MC3.6
-  - Validate: `bun test apps/mobile-client/src/screens/__tests__/ScanScreenBarcodeHandler.test.ts`
+  - Validate: `bun test apps/mobile-client/src/deepLink/__tests__/qrResolver.test.ts`
+  - Status: **shipped 2026-04-11** — `qrResolver.ts` exports `QrResolveResult` discriminated union, `resolveQrCode(barcodeData)` pure function, and `useQrResolver()` hook. Delegates to `parseOnlookDeepLink` (MC3.3); returns `{ ok: true, sessionId, relay }` on success or `{ ok: false, error }` with descriptive message for non-onlook URLs, missing session/relay, or malformed input. 9 tests (bun:test) all pass. Barrel re-exported from `src/deepLink/index.ts`. Typecheck clean.
 
 - **MC3.8** — Recent sessions store (`expo-secure-store`) — **shipped 2026-04-16**
   - Files: `apps/mobile-client/src/storage/recentSessions.ts`
