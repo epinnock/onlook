@@ -521,11 +521,11 @@ Goal: fresh app launch → scan QR → load bundle from `cf-expo-relay` → moun
   - Deps: MCF5, MCF7
   - Validate: `bun test apps/mobile-client/src/debug/__tests__/collect.test.ts`
 
-- **MC3.19** — Editor-side QR payload update (emit `onlook://` alongside `exp://`)
-  - Files: `apps/web/client/src/components/.../qr-modal/payload.ts` (exact path resolved by the agent via grep for `exp://launch`)
+- **MC3.19** — Editor-side QR payload update (emit `onlook://` alongside `exp://`) ✅ DONE
+  - Files: `apps/web/client/src/services/expo-relay/manifest-url.ts` (added `buildOnlookDeepLink`), `apps/web/client/src/components/ui/qr-modal/index.tsx` (added `onlookUrl` to ready state, onlook:// as primary URL), `apps/web/client/src/hooks/use-preview-on-device.tsx` (generates both URLs, QR encodes onlook://)
   - Deps: MCF1
-  - Validate: `bun test apps/web/client/src/components/**/__tests__/qr-modal.test.ts` (asserts both `exp://` and `onlook://` strings present in the rendered QR payload)
-  - Note: Single editor-side touchpoint. After this task, the editor emits QR codes the mobile client can scan.
+  - Validate: `bun test apps/web/client/src/services/expo-relay/__tests__/manifest-url.test.ts apps/web/client/src/components/ui/qr-modal/__tests__/qr-modal.test.tsx apps/web/client/src/hooks/__tests__/use-preview-on-device.test.tsx` — all pass (35 tests)
+  - Note: QR code now encodes `onlook://launch?session=<hash>&relay=<relayBaseUrl>`. The `exp://` manifest URL is preserved as a collapsible fallback in the modal UI.
 
 - **MC3.20** — App router (wires LauncherScreen / ScanScreen / SettingsScreen / ErrorScreen into a stack navigator)
   - Files: `apps/mobile-client/src/navigation/AppRouter.tsx`, `apps/mobile-client/src/navigation/NavigationContext.ts`, `apps/mobile-client/src/navigation/index.ts`, `apps/mobile-client/src/App.tsx`

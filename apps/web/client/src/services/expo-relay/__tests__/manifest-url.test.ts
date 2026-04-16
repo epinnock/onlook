@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'bun:test';
 
-import { buildManifestUrl, toExpoScheme, validateBundleHash } from '../manifest-url';
+import {
+    buildManifestUrl,
+    buildOnlookDeepLink,
+    toExpoScheme,
+    validateBundleHash,
+} from '../manifest-url';
 
 const VALID_HASH = 'a'.repeat(64);
 const VALID_HASH_MIXED = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
@@ -76,6 +81,50 @@ describe('toExpoScheme', () => {
     it("returns input unchanged when it has no http(s) prefix", () => {
         expect(toExpoScheme('exp://already-set:1234')).toBe('exp://already-set:1234');
         expect(toExpoScheme('//protocol-relative')).toBe('//protocol-relative');
+    });
+});
+
+describe('buildOnlookDeepLink', () => {
+    it('builds an onlook://launch deep link with session and relay params', () => {
+        const url = buildOnlookDeepLink(VALID_HASH_MIXED, {
+            relayBaseUrl: 'http://192.168.1.42:8787',
+        });
+        expect(url).toStartWith('onlook://launch?');
+        const parsed = new URL(url);
+        expect(parsed.protocol).toBe('onlook:');
+        expect(parsed.hostname).toBe('launch');
+        expect(parsed.searchParams.get('session')).toBe(VALID_HASH_MIXED);
+        expect(parsed.searchParams.get('relay')).toBe('http://192.168.1.42:8787');
+    });
+
+    it('URL-encodes the relay parameter', () => {
+        const url = buildOnlookDeepLink(VALID_HASH, {
+            relayBaseUrl: 'http://192.168.1.42:8787',
+        });
+        // The relay URL contains colons and slashes which must be encoded.
+        expect(url).toContain('relay=http%3A%2F%2F192.168.1.42%3A8787');
+    });
+
+    it('strips a trailing slash from relayBaseUrl', () => {
+        const url = buildOnlookDeepLink(VALID_HASH, {
+            relayBaseUrl: 'http://x:8787/',
+        });
+        const parsed = new URL(url);
+        expect(parsed.searchParams.get('relay')).toBe('http://x:8787');
+    });
+
+    it('works with https relay URLs', () => {
+        const url = buildOnlookDeepLink(VALID_HASH, {
+            relayBaseUrl: 'https://relay.example.com',
+        });
+        const parsed = new URL(url);
+        expect(parsed.searchParams.get('relay')).toBe('https://relay.example.com');
+    });
+
+    it('rejects an invalid hash', () => {
+        expect(() =>
+            buildOnlookDeepLink('bad-hash', { relayBaseUrl: 'http://x:8787' }),
+        ).toThrow(/invalid bundleHash/);
     });
 });
 

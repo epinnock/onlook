@@ -66,6 +66,8 @@ function makeDeps(orch: MockOrchestrator): UsePreviewOnDeviceDeps {
         createOrchestrator: () => orch,
         buildManifestUrl: (hash, opts) =>
             `${opts.relayBaseUrl}/manifest/${hash}`,
+        buildOnlookDeepLink: (hash, opts) =>
+            `onlook://launch?session=${hash}&relay=${encodeURIComponent(opts.relayBaseUrl)}`,
         renderQrSvg: async (url) => `<svg data-url="${url}"></svg>`,
     };
 }
@@ -99,8 +101,11 @@ describe('runPreviewOnDevice', () => {
         expect(final.manifestUrl).toBe(
             `http://relay.test/manifest/${VALID_HASH}`,
         );
+        expect(final.onlookUrl).toContain('onlook://launch');
+        expect(final.onlookUrl).toContain(VALID_HASH);
+        // The QR SVG now encodes the onlook:// deep link (MC3.19).
         expect(final.qrSvg).toContain('<svg');
-        expect(final.qrSvg).toContain(VALID_HASH);
+        expect(final.qrSvg).toContain('onlook://launch');
         expect(orch.buildCalls).toBe(1);
     });
 
@@ -127,6 +132,8 @@ describe('runPreviewOnDevice', () => {
         }
         const ready = finalStatus as QrModalStatus & { kind: 'ready' };
         expect(ready.manifestUrl.length).toBeGreaterThan(0);
+        expect(ready.onlookUrl.length).toBeGreaterThan(0);
+        expect(ready.onlookUrl).toContain('onlook://launch');
         expect(ready.qrSvg.length).toBeGreaterThan(0);
     });
 

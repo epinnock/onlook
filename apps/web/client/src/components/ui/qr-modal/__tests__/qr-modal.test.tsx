@@ -38,19 +38,32 @@ describe('QrModalBody', () => {
         expect(html).toContain('Bundling for Expo Go');
     });
 
-    test('status=ready renders QR svg, manifest URL, and copy button', () => {
+    test('status=ready renders QR svg, onlook URL, manifest URL, and copy button', () => {
         const svg = '<svg data-test-qr="1"><rect/></svg>';
         const manifestUrl =
             'https://cf-expo-relay.example.workers.dev/manifest/' +
             'a'.repeat(64);
-        const html = render({ kind: 'ready', manifestUrl, qrSvg: svg });
+        const onlookUrl =
+            'onlook://launch?session=' +
+            'a'.repeat(64) +
+            '&relay=http%3A%2F%2F192.168.1.42%3A8787';
+        const html = render({
+            kind: 'ready',
+            manifestUrl,
+            onlookUrl,
+            qrSvg: svg,
+        });
         expect(html).toContain('data-testid="qr-svg-wrapper"');
         // The svg should be inlined via dangerouslySetInnerHTML.
         expect(html).toContain('data-test-qr="1"');
+        // The onlook:// deep link is displayed as the primary URL.
+        expect(html).toContain('data-testid="qr-onlook-url"');
+        expect(html).toContain('onlook://launch');
+        // The exp:// manifest URL is still present as a fallback.
         expect(html).toContain('data-testid="qr-manifest-url"');
         expect(html).toContain(manifestUrl);
         expect(html).toContain('data-testid="qr-copy-btn"');
-        expect(html).toContain('Copy URL');
+        expect(html).toContain('Copy Onlook URL');
     });
 
     test('status=error with onRetry renders error + retry button', () => {
