@@ -709,10 +709,11 @@ Goal: console relay, network inspector, error boundary, in-app dev menu. All flo
   - Status: Done — modal overlay with slide-up animation, dark theme, action list with destructive support
 
 - **MC5.10** — Dev menu trigger: three-finger long-press gesture handler
-  - Files: `packages/mobile-preview/runtime/dev-menu/gesture.js`
+  - Files: `apps/mobile-client/src/components/DevMenuTrigger.tsx`
   - Deps: MC5.9
-  - Validate: `bun test packages/mobile-preview/runtime/dev-menu/__tests__/gesture.test.js`
+  - Validate: `bun --filter @onlook/mobile-client typecheck`
   - Note: Maestro can simulate multi-finger gestures on iOS Simulator. If the agent discovers it can't for Android, this task gets an Android `device-only` follow-up.
+  - Status: Done — PanResponder-based three-finger long-press (800ms) gesture handler, transparent wrapper component
 
 - **MC5.11** — Dev menu action: reload bundle
   - Files: `packages/mobile-preview/runtime/dev-menu/actions/reload.js`
