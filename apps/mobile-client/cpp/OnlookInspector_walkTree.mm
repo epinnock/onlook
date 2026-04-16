@@ -36,9 +36,28 @@
 
 #include <jsi/jsi.h>
 
+#include <unordered_set>
+
 namespace onlook {
 
 namespace jsi = facebook::jsi;
+
+namespace {
+// Guardrails against malformed Fabric trees: a self-referential reactTag or
+// an unexpectedly deep hierarchy would otherwise recurse unbounded and blow
+// the JS thread's native stack. MAX_DEPTH is generous — real app trees top
+// out well under this — but keeps a worst-case bound that the caller (editor
+// tree panel) can still render without choking.
+constexpr int MAX_DEPTH = 100;
+
+jsi::Object makeStub(jsi::Runtime& rt, int tag, const char* label) {
+  jsi::Object stub(rt);
+  stub.setProperty(rt, "reactTag", jsi::Value(tag));
+  stub.setProperty(rt, "componentName", jsi::String::createFromUtf8(rt, label));
+  stub.setProperty(rt, "children", jsi::Array(rt, 0));
+  return stub;
+}
+}  // namespace
 
 // Recursively walks globalThis.nativeFabricUIManager.getChildrenByTag(reactTag)
 // and returns `{ reactTag, componentName, children[] }` for each node. The
@@ -47,7 +66,20 @@ namespace jsi = facebook::jsi;
 // back to matching reactTag against its own source map. A follow-up task
 // (MC6.x) may thread componentName through once a portable accessor lands
 // upstream.
-static jsi::Object walkOne(jsi::Runtime& rt, jsi::Object& fab, int tag) {
+static jsi::Object walkOne(
+    jsi::Runtime& rt,
+    jsi::Object& fab,
+    int tag,
+    int depth,
+    std::unordered_set<int>& visited) {
+  if (depth > MAX_DEPTH) {
+    return makeStub(rt, tag, "truncated");
+  }
+  if (visited.count(tag) > 0) {
+    return makeStub(rt, tag, "cycle");
+  }
+  visited.insert(tag);
+
   jsi::Object result(rt);
   result.setProperty(rt, "reactTag", jsi::Value(tag));
 
@@ -81,7 +113,12 @@ static jsi::Object walkOne(jsi::Runtime& rt, jsi::Object& fab, int tag) {
       children.setValueAtIndex(
           rt,
           i,
-          walkOne(rt, fab, static_cast<int>(childTag.getNumber())));
+          walkOne(
+              rt,
+              fab,
+              static_cast<int>(childTag.getNumber()),
+              depth + 1,
+              visited));
     }
   }
 
@@ -104,7 +141,8 @@ jsi::Value walkTreeImpl(jsi::Runtime& rt, const jsi::Value* args, size_t count) 
         "OnlookInspector.walkTree: nativeFabricUIManager not installed");
   }
   jsi::Object fab = fabVal.getObject(rt);
-  return walkOne(rt, fab, tag);
+  std::unordered_set<int> visited;
+  return walkOne(rt, fab, tag, 0, visited);
 }
 
 }  // namespace onlook
