@@ -788,6 +788,7 @@ Goal: console relay, network inspector, error boundary, in-app dev menu. All flo
   - Deps: MCF4, MC6.1
   - Validate: `bun test apps/cf-expo-relay/src/__tests__/manifest-builder.test.ts`
   - Note: The only cf-expo-relay touchpoint in this entire queue. Hotspot ownership explicit.
+  - Status: **✅ Done 2026-04-11.** `buildManifest` now imports `ONLOOK_RUNTIME_VERSION` from `@onlook/mobile-client-protocol` and stamps it onto `extra.expoClient.onlookRuntimeVersion` for every manifest (iOS + Android). The protocol package is pulled in as a workspace dep on `apps/cf-expo-relay/package.json` so the relay never hardcodes a version — an MCF7/MC6.1 bump propagates automatically. `ExpoManifestExtra.expoClient` gained an explicit `onlookRuntimeVersion: string` field (no `any`, `import type` preserved elsewhere). Added `allowImportingTsExtensions: true` to the relay's `tsconfig.json` so it can consume the protocol package's `.ts` re-exports the same way `apps/mobile-client` and the web client already do. Added 2 new unit tests in `src/__tests__/manifest-builder.test.ts` asserting the field equals the protocol SSOT, matches `/^\d+\.\d+\.\d+$/`, and is present on both platform variants — suite is now green at 21/21 (was 19/19). `bun --filter @onlook/cf-expo-relay typecheck` passes; full relay suite 61/61. The HTTP route serving layer (`src/routes/manifest.ts`) is unchanged because it already delegates to `buildManifest`, so the new field flows through the multipart envelope with zero extra plumbing.
 
 - **MC6.3** — `@onlook/browser-metro` `target` flag (`expo-go` | `onlook-client`)
   - Files: `packages/browser-metro/src/host/target.ts`
@@ -842,9 +843,10 @@ Sequential. Runs with 1 agent after Wave 6 merges. This is where the source plan
   - Validate: `bun run mobile:e2e:ios -- 99-full-pipeline.yaml` (source-plan DoD steps 1–7 as a single Maestro flow: QR scan → mount → edit in editor → live reload → tap → editor cursor jump → dev menu → console visible)
 
 - **MCI.2** — Binary size audit
-  - Files: `apps/mobile-client/scripts/audit-binary-size.ts`
+  - Files: `apps/mobile-client/scripts/binary-size-audit.sh` + `apps/mobile-client/scripts/__tests__/binary-size-audit.sh.test.ts` + `plans/binary-size-baseline.md`
   - Deps: MC6.5, MC6.6
   - Validate: `bun run mobile:audit:size` (asserts iOS IPA ≤ 40MB, Android APK ≤ 35MB — calibration values; agent adjusts to observed baseline + 10%)
+  - Status: **script + tests + baseline scaffold shipped 2026-04-11** — `binary-size-audit.sh` takes `--app <path>` (defaults to newest DerivedData `OnlookMobileClient.app`), emits JSON-to-stdout / human-summary-to-stderr. JSON schema v1: `{schemaVersion, generatedAt, appPath, appName, total:{bytes,human}, components:{mainBinary,onlookRuntime,mainJsBundle,frameworks}, top10Files[]}`. 8 bun tests pass against a synthetic fixture (covers happy path, schema shape, all four components, top-10 ordering, missing-component branch, stderr summary, exit-2 on no-app, `--app=PATH` form). Auto-detects BSD vs GNU `stat`; runs on Linux CI and macOS. Deferred to Mac-mini: filling in the measured baseline numbers in `plans/binary-size-baseline.md` section 2 and wiring the `mobile:audit:size` npm script to chain `mobile:build:ios` + run the audit + gate on thresholds. Pathname is `binary-size-audit.sh` (not `audit-binary-size.ts` as originally listed) — bash script is the right shape for DerivedData discovery + `du`/`stat` patterns.
 
 - **MCI.3** — Bundle size audit (post target-flag)
   - Files: `apps/mobile-client/scripts/audit-bundle-size.ts`
