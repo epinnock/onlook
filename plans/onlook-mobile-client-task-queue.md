@@ -348,10 +348,11 @@ Goal: replace Spike B's scraping path with a documented `global.OnlookRuntime.ru
   - Validate: `bun run mobile:build:android`
   - Status: **⏸ deferred** — Android toolchain not active yet. The .cpp itself is platform-neutral (only depends on `<jsi/jsi.h>` which Hermes provides on both platforms); CMake just needs to pick it up.
 
-- **MC2.3** — iOS installer `.mm` that registers `OnlookRuntime` on `global`
-  - Files: `apps/mobile-client/ios/OnlookMobile/OnlookRuntimeInstaller.mm`
+- **MC2.3** — iOS installer TurboModule that registers `OnlookRuntime` on `globalThis`
+  - Files: `apps/mobile-client/cpp/OnlookRuntimeInstaller.{h,cpp,mm}`, `packages/mobile-preview/runtime/shell.js`, `apps/mobile-client/scripts/validate-mc23.sh`, `apps/mobile-client/ios/OnlookMobileClient.xcodeproj/project.pbxproj`
   - Deps: MC2.2, MC1.4
-  - Validate: `bun run mobile:e2e:ios -- 04-global-present.yaml` (evaluates `typeof global.OnlookRuntime === 'object'` via a debug JSI call, asserts true)
+  - Validate: `bash apps/mobile-client/scripts/validate-mc23.sh`
+  - Status: **iOS shipped 2026-04-16.** See `plans/adr/MC2.3-runtime-installer-hook.md` for the decision to implement via a pure-C++ TurboModule + Obj-C++ wrapper (`RCT_EXPORT_MODULE(OnlookRuntimeInstaller)` — reached by RN 0.81's `RCTTurboModuleManager._getModuleClassFromName` ObjC fallback, so no separate `RCTAppDependencyProvider` entry needed). `shell.js` calls `globalThis.__turboModuleProxy('OnlookRuntimeInstaller').install()` at the very top before any other runtime setup; the C++ `install()` emits `[onlook-runtime] OnlookRuntime installed on globalThis` via `nativeLoggingHook` so the validate script can log-scrape for the confirmation (maestro `04-global-present.yaml` left in the repo for when a renderable user bundle exists, same deal as MC1.4). Android mirror (MC2.4) re-uses the same C++ TUs (header + cpp) with a JNI wrapper instead of the Obj-C++ wrapper when MCF8c lands.
 
 - **MC2.4** — Android JNI installer that registers `OnlookRuntime` on `global`
   - Files: `apps/mobile-client/android/app/src/main/cpp/onlook_runtime_installer.cpp`

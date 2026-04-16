@@ -13,6 +13,39 @@
  *   renderApp(React.createElement(View, {style:{flex:1}}, ...))
  */
 
+// MC2.3: register native OnlookRuntime host object on globalThis. Must run
+// before any other runtime setup so user code never observes a moment
+// where OnlookRuntime is undefined. The install method lives in the
+// native TurboModule `OnlookRuntimeInstaller`
+// (apps/mobile-client/cpp/OnlookRuntimeInstaller.{h,cpp,mm}); when
+// invoked it calls `runtime.global().setProperty("OnlookRuntime", …)`
+// with a `jsi::Object::createFromHostObject` wrapping an instance of
+// `onlook::OnlookRuntime`. Any failure is logged via
+// `nativeLoggingHook` so it's visible in `xcrun simctl spawn booted
+// log stream`; we do NOT throw because a missing installer should not
+// take the whole runtime down — it's a hard dependency for user code
+// calling into the runtime API but not for Spike B's render path.
+(function() {
+  try {
+    var proxy = globalThis.__turboModuleProxy || globalThis.nativeModuleProxy;
+    var installer = null;
+    if (typeof proxy === 'function') {
+      installer = proxy('OnlookRuntimeInstaller');
+    } else if (proxy && typeof proxy === 'object') {
+      installer = proxy.OnlookRuntimeInstaller || null;
+    }
+    if (installer && typeof installer.install === 'function') {
+      installer.install();
+    } else if (typeof globalThis.nativeLoggingHook === 'function') {
+      globalThis.nativeLoggingHook('[onlook-runtime] OnlookRuntimeInstaller not reachable — TurboModule proxy missing', 1);
+    }
+  } catch (err) {
+    if (typeof globalThis.nativeLoggingHook === 'function') {
+      globalThis.nativeLoggingHook('[onlook-runtime] OnlookRuntimeInstaller.install threw: ' + (err && err.message), 1);
+    }
+  }
+})();
+
 // Scheduler polyfill — react-reconciler needs setTimeout/clearTimeout
 if (typeof globalThis.setTimeout === 'undefined') {
   // Use the native timer module if available

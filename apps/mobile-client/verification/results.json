@@ -41,6 +41,13 @@
       "validate_command": "bun run mobile:build:ios",
       "exit_code": 0,
       "stderr_tail": "$ cd apps/mobile-client && bun run mobile:build:ios\n$ bun run scripts/run-build.ts\n"
+    },
+    "MC2.3": {
+      "state": "passed",
+      "validated_at": "2026-04-16T00:41:42.652Z",
+      "validate_command": "bash apps/mobile-client/scripts/validate-mc23.sh",
+      "exit_code": 0,
+      "stderr_tail": "$ cd packages/mobile-preview && bun run build:runtime\n$ bun run server/build-runtime.ts\n$ cd apps/mobile-client && bun run mobile:build:ios\n$ bun run scripts/run-build.ts\n"
     }
   }
 }
