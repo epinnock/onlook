@@ -73,6 +73,15 @@ namespace onlook {
 /// invalidate OnlookRuntime.cpp's object file. Wave 2 task MC2.12.
 std::string getRuntimeVersion();
 
+/// `runApplication(bundleSource, props)` implementation, isolated into
+/// OnlookRuntime_runApplication.cpp so Wave 2 MC2.7 changes don't invalidate
+/// OnlookRuntime.cpp's object file. Mirrors the MC4.2 captureTap template —
+/// OnlookRuntime::runApplication is a 1-line delegate that forwards here.
+facebook::jsi::Value runApplicationImpl(
+    facebook::jsi::Runtime& rt,
+    const facebook::jsi::Value* args,
+    size_t count);
+
 /// JSI host object exposing the OnlookRuntime API to JS. See file header
 /// for the public-API contract. Sits behind `globalThis.OnlookRuntime`
 /// once the platform installer has registered it.

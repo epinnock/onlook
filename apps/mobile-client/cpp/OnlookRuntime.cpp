@@ -97,10 +97,9 @@ std::vector<jsi::PropNameID> OnlookRuntime::getPropertyNames(jsi::Runtime& rt) {
 
 jsi::Value OnlookRuntime::runApplication(
     jsi::Runtime& rt,
-    const jsi::Value* /*args*/,
-    size_t /*count*/) {
-  throw jsi::JSError(
-      rt, "OnlookRuntime.runApplication: not implemented (Wave 2 MC2.7)");
+    const jsi::Value* args,
+    size_t count) {
+  return runApplicationImpl(rt, args, count);
 }
 
 jsi::Value OnlookRuntime::reloadBundle(
