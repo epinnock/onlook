@@ -750,10 +750,11 @@ Goal: console relay, network inspector, error boundary, in-app dev menu. All flo
   - Validate: `bun --filter @onlook/mobile-client typecheck`
   - Status: **Done** — `createViewLogsAction(setVisible)` returns DevMenuAction `{ label: 'View Recent Logs', onPress: () => setVisible(true) }`; modal visibility is owned by the app root so the modal persists after the dev menu closes. `RecentLogsModal` reads `consoleRelay.getBuffer()` on open, renders a dark bottom-sheet (matching DevMenu composition) with a FlatList of entries (timestamp + color-coded level badge + monospace message). Level→color: log=#FFFFFF, info=#3B82F6, warn=#FACC15, error=#EF4444, debug=#9CA3AF. Footer "Clear" button calls `consoleRelay.clearBuffer()` and closes. Typecheck clean.
 
-- **MC5.16** — Editor-side dev panel: console stream rendering
-  - Files: `apps/web/client/src/components/editor/dev-panel/MobileConsoleTab.tsx`
+- **MC5.16** — Editor-side dev panel: console stream rendering ✅
+  - Files: `apps/web/client/src/components/editor/dev-panel/MobileConsoleTab.tsx`, `apps/web/client/src/components/editor/dev-panel/index.ts`, `apps/web/client/src/components/editor/dev-panel/__tests__/MobileConsoleTab.test.tsx`, `apps/web/client/package.json`
   - Deps: MC5.2, MC4.15
   - Validate: `bun test apps/web/client/src/components/editor/dev-panel/__tests__/MobileConsoleTab.test.tsx`
+  - Status: **Done** — `MobileConsoleTab` takes a raw `WsMessage[]` prop (no editor-side WS context exists yet; this keeps the component compose-friendly with whatever ingest mechanism MC5.17+ eventually lands) and filters internally via the exported pure `filterConsoleMessages(messages, sessionId?)` helper. Rows render `HH:MM:SS.mmm` (UTC — matches mobile `RecentLogsModal` regardless of laptop timezone) + a colour-coded level badge (log/info/warn/error/debug mirroring the MC5.15 palette) + monospace message text joined from the protocol's pre-stringified args. Empty-state centred placeholder ("No console output") on `bg-neutral-950`. Auto-scroll pins to the bottom on new entries; user scroll-up past a 16px threshold pauses auto-scroll until they scroll back. Raw `<span>` badges (not `@onlook/ui/badge`) to avoid the React-18-vs-19 cross-version conflict documented in `QrModalBody`. Added `@onlook/mobile-client-protocol` to `@onlook/web-client` workspace deps. 9 tests pass (filter + empty + populated + per-level + sessionId filter); typecheck on the new files is clean (unrelated pre-existing errors in `sandbox/`, `code-provider/`, etc. remain).
 
 - **MC5.17** — Editor-side dev panel: network stream rendering
   - Files: `apps/web/client/src/components/editor/dev-panel/MobileNetworkTab.tsx`

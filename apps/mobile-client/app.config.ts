@@ -16,11 +16,17 @@
  *     (landed by Wave 1 task MC1.9) for the enforcement story.
  */
 import type { ExpoConfig } from 'expo/config';
+import { ONLOOK_RUNTIME_VERSION } from '@onlook/mobile-client-protocol';
 
 const config: ExpoConfig = {
     name: 'Onlook Mobile Client',
     slug: 'onlook-mobile-client',
-    version: '0.1.0',
+    // Single source of truth: MC6.1 routes Expo's binary version
+    // (→ iOS CFBundleShortVersionString, Android versionName on prebuild)
+    // through the same `ONLOOK_RUNTIME_VERSION` constant that the wire
+    // protocol and C++ runtime header already read, so the store-facing
+    // label can never drift from the runtime compatibility version.
+    version: ONLOOK_RUNTIME_VERSION,
     orientation: 'portrait',
     scheme: 'onlook',
     userInterfaceStyle: 'automatic',
@@ -64,7 +70,7 @@ const config: ExpoConfig = {
     // Runtime version is pinned to the @onlook/mobile-client-protocol constant
     // so the relay manifest's extra.expoClient.onlookRuntimeVersion field
     // (MC6.2) stays in sync with the binary.
-    runtimeVersion: '0.1.0',
+    runtimeVersion: ONLOOK_RUNTIME_VERSION,
     extra: {
         eas: {
             // Project ID lands in MC6.5 when TestFlight config is wired up.

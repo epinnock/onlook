@@ -23,10 +23,10 @@ import {
 } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { clearRecentSessions } from '../storage';
+import { APP_VERSION } from '../version';
 
 const RELAY_HOST_KEY = 'onlook_relay_host_override';
 const DEV_MENU_KEY = 'onlook_dev_menu_enabled';
-const PLACEHOLDER_VERSION = '0.0.0-dev';
 
 interface SettingsScreenProps {
     /** Called when the user taps the back button. */
@@ -160,7 +160,7 @@ export default function SettingsScreen({ onGoBack }: SettingsScreenProps) {
             <View style={styles.section}>
                 <View style={styles.row}>
                     <Text style={styles.label}>Version</Text>
-                    <Text style={styles.valueText}>{PLACEHOLDER_VERSION}</Text>
+                    <Text style={styles.valueText}>{APP_VERSION}</Text>
                 </View>
             </View>
         </SafeAreaView>
