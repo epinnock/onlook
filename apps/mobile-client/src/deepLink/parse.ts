@@ -76,6 +76,15 @@ export function parseOnlookDeepLink(url: string): ParsedDeepLink | null {
     const sessionId = parsed.searchParams.get('session') ?? undefined;
     const relay = parsed.searchParams.get('relay') ?? undefined;
 
+    // Reject sessionId containing C0 control characters (e.g. NUL, \r, \n).
+    // The URL parser strips \n and \r from raw input but decoded query values
+    // may still contain them (and NUL is preserved). Control chars in the
+    // sessionId indicate malformed or malicious input and must not be passed
+    // through to downstream consumers (JSI bindings, relay URLs).
+    if (sessionId !== undefined && /[\u0000-\u001f\u007f]/.test(sessionId)) {
+        return null;
+    }
+
     const candidate = {
         action,
         ...(sessionId !== undefined && { sessionId }),
