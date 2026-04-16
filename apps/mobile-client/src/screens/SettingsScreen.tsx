@@ -28,7 +28,12 @@ const RELAY_HOST_KEY = 'onlook_relay_host_override';
 const DEV_MENU_KEY = 'onlook_dev_menu_enabled';
 const PLACEHOLDER_VERSION = '0.0.0-dev';
 
-export default function SettingsScreen() {
+interface SettingsScreenProps {
+    /** Called when the user taps the back button. */
+    onGoBack?: () => void;
+}
+
+export default function SettingsScreen({ onGoBack }: SettingsScreenProps) {
     const [relayHost, setRelayHost] = useState('');
     const [devMenuEnabled, setDevMenuEnabled] = useState(false);
 
@@ -88,6 +93,16 @@ export default function SettingsScreen() {
         <SafeAreaView style={styles.root}>
             {/* ── Header ── */}
             <View style={styles.header}>
+                {onGoBack !== undefined && (
+                    <Pressable
+                        style={styles.backButton}
+                        onPress={onGoBack}
+                        accessibilityRole="button"
+                        accessibilityLabel="Go back"
+                    >
+                        <Text style={styles.backText}>Back</Text>
+                    </Pressable>
+                )}
                 <Text style={styles.title}>Settings</Text>
             </View>
 
@@ -161,6 +176,19 @@ const styles = StyleSheet.create({
         paddingTop: 24,
         paddingBottom: 16,
         alignItems: 'center',
+    },
+    backButton: {
+        position: 'absolute',
+        left: 16,
+        top: 28,
+        paddingVertical: 4,
+        paddingHorizontal: 8,
+        zIndex: 1,
+    },
+    backText: {
+        fontSize: 17,
+        fontWeight: '500',
+        color: '#FFFFFF',
     },
     title: {
         fontSize: 28,

@@ -528,9 +528,10 @@ Goal: fresh app launch → scan QR → load bundle from `cf-expo-relay` → moun
   - Note: Single editor-side touchpoint. After this task, the editor emits QR codes the mobile client can scan.
 
 - **MC3.20** — App router (wires LauncherScreen / ScanScreen / SettingsScreen / ErrorScreen into a stack navigator)
-  - Files: `apps/mobile-client/src/App.tsx`
+  - Files: `apps/mobile-client/src/navigation/AppRouter.tsx`, `apps/mobile-client/src/navigation/NavigationContext.ts`, `apps/mobile-client/src/navigation/index.ts`, `apps/mobile-client/src/App.tsx`
   - Deps: MC3.5, MC3.6, MC3.10, MC3.17
   - Validate: `bun run mobile:e2e:ios -- 19-navigation.yaml` (launcher → scan → back → settings → back)
+  - Status: **shipped 2026-04-11** — Custom stack navigator (no react-navigation dep). 5 screens wired: launcher (initial), scan, settings, error, versionMismatch. NavigationContext provides `navigate()`, `goBack()`, `resetTo()` via React context. LauncherScreen and SettingsScreen updated with navigation callback props. App.tsx renders AppRouter. Maestro flow `19-navigation.yaml` authored. Typecheck passes.
 
 - **MC3.21** — QR-to-mount end-to-end flow (bundles MC3.3 + MC3.11 + MC3.12 + MC2.7 into one user-level action)
   - Files: `apps/mobile-client/src/flows/scanToMount.ts`

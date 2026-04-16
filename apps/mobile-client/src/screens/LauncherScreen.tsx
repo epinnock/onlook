@@ -15,7 +15,14 @@
 import React from 'react';
 import { Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 
-export default function LauncherScreen() {
+interface LauncherScreenProps {
+    /** Called when the user taps "Scan QR". */
+    onScanPress?: () => void;
+    /** Called when the user taps "Settings". */
+    onSettingsPress?: () => void;
+}
+
+export default function LauncherScreen({ onScanPress, onSettingsPress }: LauncherScreenProps) {
     return (
         <SafeAreaView style={styles.root}>
             {/* ── Branding header ── */}
@@ -30,6 +37,7 @@ export default function LauncherScreen() {
                         styles.scanButton,
                         pressed && styles.scanButtonPressed,
                     ]}
+                    onPress={onScanPress}
                     accessibilityRole="button"
                     accessibilityLabel="Scan QR"
                 >
@@ -51,6 +59,7 @@ export default function LauncherScreen() {
                         styles.settingsButton,
                         pressed && styles.settingsButtonPressed,
                     ]}
+                    onPress={onSettingsPress}
                     accessibilityRole="button"
                     accessibilityLabel="Settings"
                 >
