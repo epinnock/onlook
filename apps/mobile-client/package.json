@@ -16,6 +16,9 @@
         "clean": "rm -rf node_modules",
         "bundle-runtime": "bun run scripts/bundle-runtime.ts",
         "mobile:build:ios": "bun run scripts/run-build.ts",
+        "mobile:build:testflight": "bash scripts/build-testflight.sh",
+        "eas:build:preview": "bun x eas-cli build --profile preview --platform ios --non-interactive",
+        "eas:submit:preview": "bun x eas-cli submit --profile preview --platform ios --non-interactive",
         "mobile:e2e:ios": "bun run scripts/run-e2e.ts",
         "mobile:e2e:android": "bun run scripts/run-e2e.ts"
     },
