@@ -465,7 +465,7 @@ Goal: fresh app launch → scan QR → load bundle from `cf-expo-relay` → moun
   - Deps: MCF1
   - Validate: `bun test apps/mobile-client/src/storage/__tests__/recentSessions.test.ts` (round-trip a fake session, assert it reads back)
 
-- **MC3.9** — Recent sessions UI list
+- **MC3.9** — Recent sessions UI list — **component authored 2026-04-16, maestro deferred**
   - Files: `apps/mobile-client/src/screens/RecentSessionsList.tsx`
   - Deps: MC3.8, MC3.5
   - Validate: `bun run mobile:e2e:ios -- 14-recent-sessions.yaml`
