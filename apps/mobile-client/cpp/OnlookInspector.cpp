@@ -103,10 +103,74 @@ std::vector<jsi::PropNameID> OnlookInspector::getPropertyNames(
 
 jsi::Value OnlookInspector::captureTap(
     jsi::Runtime& rt,
-    const jsi::Value* /*args*/,
-    size_t /*count*/) {
-  throw jsi::JSError(
-      rt, "OnlookInspector.captureTap: not implemented (Wave 4 MC4.2)");
+    const jsi::Value* args,
+    size_t count) {
+  // Arg validation: the editor-side caller (see
+  // packages/browser-metro/src/host coordinate translation + the relay
+  // dispatch that fans taps into the client) always sends exactly two
+  // numeric screen-space coordinates. Anything else is a protocol bug we
+  // want to surface loudly at the JSI boundary rather than let silently
+  // coerce inside Fabric.
+  if (count < 2) {
+    throw jsi::JSError(
+        rt,
+        "OnlookInspector.captureTap: expected (x, y) — got " +
+            std::to_string(count) + " argument(s)");
+  }
+  if (!args[0].isNumber() || !args[1].isNumber()) {
+    throw jsi::JSError(
+        rt,
+        "OnlookInspector.captureTap: expected (x: number, y: number)");
+  }
+
+  const double x = args[0].asNumber();
+  const double y = args[1].asNumber();
+
+  // Resolve `globalThis.nativeFabricUIManager.findNodeAtPoint` and invoke
+  // it. Any failure along this chain (missing Fabric UI manager, wrong
+  // shape, host-side throw) is rewrapped into a JSError with a descriptive
+  // prefix so callers in the editor see an attributable stack when they
+  // observe it in the relay log. See OnlookInspector.h for the public
+  // contract (MC4.2).
+  try {
+    jsi::Value fabricValue =
+        rt.global().getProperty(rt, "nativeFabricUIManager");
+    if (!fabricValue.isObject()) {
+      throw jsi::JSError(
+          rt,
+          "OnlookInspector.captureTap: globalThis.nativeFabricUIManager is "
+          "not available — Fabric may not be initialized yet");
+    }
+    jsi::Object fabric = fabricValue.asObject(rt);
+
+    jsi::Value findNodeValue = fabric.getProperty(rt, "findNodeAtPoint");
+    if (!findNodeValue.isObject() ||
+        !findNodeValue.asObject(rt).isFunction(rt)) {
+      throw jsi::JSError(
+          rt,
+          "OnlookInspector.captureTap: "
+          "nativeFabricUIManager.findNodeAtPoint is not a function");
+    }
+    jsi::Function findNodeAtPoint =
+        findNodeValue.asObject(rt).asFunction(rt);
+
+    // Result shape is whatever Fabric's UI manager returns — typically a
+    // numeric reactTag for the topmost hit, or an object containing
+    // `reactTag` + a rect. We pass it through verbatim; the editor-side
+    // receiver normalizes. Nothing here is allowed to allocate a string /
+    // object on the error path except the JSError message itself.
+    return findNodeAtPoint.call(rt, jsi::Value(x), jsi::Value(y));
+  } catch (const jsi::JSError&) {
+    // Already a JSError with our prefix — rethrow untouched to avoid
+    // doubling the "OnlookInspector.captureTap:" prefix.
+    throw;
+  } catch (const std::exception& e) {
+    throw jsi::JSError(
+        rt,
+        std::string(
+            "OnlookInspector.captureTap: findNodeAtPoint threw: ") +
+            e.what());
+  }
 }
 
 jsi::Value OnlookInspector::walkTree(
