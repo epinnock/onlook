@@ -686,9 +686,10 @@ Goal: console relay, network inspector, error boundary, in-app dev menu. All flo
   - Validate: `bun test apps/mobile-client/src/debug/__tests__/networkStreamer.test.ts`
 
 - **MC5.6** — Error boundary in runtime bundle (catches React errors)
-  - Files: `packages/mobile-preview/runtime/error-boundary.js`
+  - Files: `apps/mobile-client/src/components/ErrorBoundary.tsx`, `apps/mobile-client/src/components/index.ts`
   - Deps: MCF5
-  - Validate: `bun test packages/mobile-preview/runtime/__tests__/error-boundary.test.js`
+  - Validate: `bun --filter @onlook/mobile-client typecheck`
+  - Status: **✅ Done** — React class component wrapping `getDerivedStateFromError` + `componentDidCatch`. Default fallback renders `ErrorScreen` (MC3.17) with error message, component stack, and retry button. Supports optional `fallback` prop for custom UI and `onError` callback for external reporting. Barrel-exported from `src/components/index.ts`.
 
 - **MC5.7** — Native JS exception catcher (Hermes exceptions from `runApplication`)
   - Files: `apps/mobile-client/cpp/OnlookRuntime_exceptionCatcher.cpp`
