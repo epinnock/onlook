@@ -925,6 +925,28 @@ Sequential. Runs with 1 agent after Wave 6 merges. This is where the source plan
 
 ---
 
+## Session of 2026-04-16 cron-saturated close
+
+Origin advanced `ffe1fc93` → `d9f90113` in this session. Six commits landed from the cron dispatch:
+
+- `d9f90113` feat(mobile-client): MC4.17 — Monaco cursor jump from `onlook:select` (editor side)
+- `ad45cdf3` feat(mobile-client): MC4.3 — iOS `walkTree` Fabric shadow-tree walker
+- `aa7317c9` feat(mobile-client): MC1.8 — Expo module allowlist (ESLint half; Metro resolver still deferred)
+- `d679c405` test(mobile-client): MCI.3 — bundle size audit + baseline
+- `08122dc3` feat(mobile-client): MC3.18 — debug info collector with capped log buffer
+- `d40537d5` feat(mobile-client): MC5.2 — console streamer forwards entries to the relay WS
+
+Plus `ff7c85c0` feat(web-client): MC5.17 — editor-side mobile network panel, which was already on origin at pull time and is captured in the MC5.17 Status line.
+
+**iOS side functionally complete** — every iOS-path Wave 1/2/3/4/5 task that gates Wave I integration has shipped. Android remains deferred behind MCF8c (Android prebuild + Gradle) per the source-plan cut line; MC1.7 / MC1.10a / MC1.12 / MC4.7–MC4.11 / MC5.2-android remain parked until MCF8c activates.
+
+**Residual follow-ups in flight:**
+- MC2.14 → MC2.7 / MC2.8 / MC2.9 wiring (runtime-side runApplication + reloadBundle + teardown composition still being stitched in the mobile-client entry path)
+- MCI.2 / MCI.3 npm script polish (`mobile:audit:size` + `mobile:audit:bundle-size` wiring + `Hello, Onlook!` fixture + CI gates — deferred to Mac-mini per their respective Status lines)
+- iPhone 15 CI simulator unpin (MC1.11 / MC4.19 / MC5.18 all pin `macos-14` + Xcode 15.4 to keep the iPhone 15 simulator set stable; revisit once a newer pin is validated)
+
+---
+
 ## Dead letter policy
 
 Tasks that hit any of these conditions flip to dead-letter and surface to a human:
