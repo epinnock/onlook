@@ -121,7 +121,14 @@ export async function buildRuntime() {
       naming: 'raw-bundle.js',
       target: 'browser',
       format: 'cjs',
-      minify: true,
+      // Hermes inside Expo Go SDK 54 throws `Property 'X' doesn't exist`
+      // for some minified back-to-back class declarations (e.g. the
+      // `class File {...}class Directory {...}` pair in
+      // shims/expo/expo-file-system.js after Bun's minifier collapses
+      // whitespace). Keeping the build unminified keeps the per-class
+      // identifiers stable and avoids the parser regression. The cost is
+      // bundle size — ~+1MB but still under the 2MB ceiling.
+      minify: false,
     });
 
     if (!result.success) {

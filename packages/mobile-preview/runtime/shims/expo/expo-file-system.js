@@ -539,7 +539,13 @@ function createSharedFileSystemExports(target = globalThis) {
 function createExpoFileSystemModule(target = globalThis) {
   const sharedExports = createSharedFileSystemExports(target);
 
-  class File {
+  // Use a class expression assigned to const instead of `class File {}`.
+  // Hermes inside Expo Go SDK 54 fails to bind the function-scoped class
+  // declaration in time for the moduleExports object literal below,
+  // throwing `ReferenceError: Property 'File' doesn't exist`. Class
+  // expressions sidestep the bug because the binding is established by
+  // the const assignment statement, not the class declaration's hoisting.
+  const File = class File {
     constructor(...parts) {
       this.uri = resolveJoinedUri(parts);
     }
@@ -605,9 +611,10 @@ function createExpoFileSystemModule(target = globalThis) {
 
       return new File(nextUri);
     }
-  }
+  };
 
-  class Directory {
+  // Same Hermes scoping workaround as `File` above.
+  const Directory = class Directory {
     constructor(...parts) {
       this.uri = resolveJoinedUri(parts, { directory: true });
     }
@@ -662,7 +669,7 @@ function createExpoFileSystemModule(target = globalThis) {
       this.uri = nextUri;
       return this;
     }
-  }
+  };
 
   const moduleExports = {
     ...sharedExports,
