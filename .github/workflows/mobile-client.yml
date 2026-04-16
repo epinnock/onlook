@@ -38,10 +38,15 @@ on:
   workflow_dispatch:
     inputs:
       phase:
-        description: 'Limit run to a single phase (wave1-ios, wave1-android, wave3, wave4-ios, wave5, testflight-dryrun, play-dryrun) or leave blank for all.'
+        description: 'Limit run to a single phase (wave1-ios, wave1-android, wave3, wave4-ios, wave5, testflight-dryrun, testflight-upload, play-dryrun, play-store-upload) or leave blank for all.'
         required: false
         default: ''
         type: string
+      upload:
+        description: 'When true, the testflight-upload / play-store-upload jobs perform a real EAS build + submit. When false (default), those jobs run in --dry-run mode only. Gated additionally on per-platform secrets (EXPO_TOKEN for iOS, GOOGLE_PLAY_SERVICE_ACCOUNT_KEY for Android); without the relevant secret the job is skipped regardless of this input.'
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: mobile-client-${{ github.ref }}
@@ -468,6 +473,118 @@ jobs:
     steps:
       - run: echo "TestFlight dry-run slot — filled by MC6.7 append"
 
+  # ─── Wave 6: TestFlight upload (manual-only, dry-run-by-default) ────────
+  #
+  # MC6.7 — A dispatch-only job that exercises the `eas build`/`eas submit`
+  # invocation contract MC6.5 set up. Two gates keep this from ever running
+  # by accident:
+  #
+  #   (1) Trigger gate — `on.workflow_dispatch` only. Push and pull_request
+  #       events never reach this job; the `if:` below also hard-asserts
+  #       `github.event_name == 'workflow_dispatch'` as belt-and-braces so an
+  #       accidental future `schedule:` trigger addition cannot kick this
+  #       off silently.
+  #
+  #   (2) Secret gate — `secrets.EXPO_TOKEN != ''`. The token is required
+  #       by eas-cli for any cloud build or submit. Without it the job is
+  #       SKIPPED (green, not failed) so a maintainer running `workflow_dispatch`
+  #       on a fork that doesn't carry the secret gets an unambiguous "skipped"
+  #       badge rather than a confusing red run. Evaluating a repo secret in
+  #       a job-level `if:` requires threading it through `env:` — GitHub
+  #       does not expose `secrets.*` inside `if:` directly.
+  #
+  # The `upload` boolean input controls the MODE, not the gate:
+  #   - upload == false (DEFAULT) → `eas build … --dry-run` only. No artifact
+  #     is produced and no submit runs. This is the normal "is the config
+  #     still valid?" health check a maintainer runs on demand.
+  #   - upload == true            → real `eas build` (cloud, non-local) followed
+  #     by `eas submit` to TestFlight. Used only when cutting a real release.
+  #
+  # The `phase` input from MC1.11/MC5.x is respected identically to the other
+  # wave jobs so a maintainer can invoke JUST this job with
+  #   gh workflow run mobile-client.yml -f phase=testflight-upload -f upload=true
+  # without wave1-ios / wave4-ios / wave5 also trying to run on the same
+  # dispatch.
+  testflight-upload:
+    name: Wave 6 — TestFlight upload (dispatch-only)
+    runs-on: macos-14
+    needs: [typecheck-and-unit]
+    # Belt-and-braces: three independent conditions must ALL hold.
+    #   a) The eas.json config MC6.5 introduced must exist (guards against
+    #      the job running before MC6.5 merges on a branch that somehow
+    #      re-ordered the merges).
+    #   b) The invocation must be a manual dispatch, and if a specific phase
+    #      was named it must be this one (empty phase still runs this job —
+    #      matches the other waves' semantics).
+    #   c) The EXPO_TOKEN secret must be present. `secrets.EXPO_TOKEN` is
+    #      not directly available in `if:` expressions, so we thread it
+    #      through an env var (`HAS_EXPO_TOKEN`) set at the job level.
+    if: >-
+      ${{ hashFiles('apps/mobile-client/eas.json') != ''
+          && github.event_name == 'workflow_dispatch'
+          && (inputs.phase == '' || inputs.phase == 'testflight-upload')
+          && env.HAS_EXPO_TOKEN == 'true' }}
+    env:
+      # Populated to the literal string 'true' when the secret is non-empty,
+      # empty string otherwise. The `if:` above compares to 'true' so a
+      # missing secret (empty string) cleanly evaluates to skip. This pattern
+      # is the GitHub-recommended workaround for gating jobs on a secret's
+      # presence without leaking the secret value into the condition.
+      HAS_EXPO_TOKEN: ${{ secrets.EXPO_TOKEN != '' && 'true' || 'false' }}
+      # The token itself is exposed to the eas-cli step only. Keeping it at
+      # job-level env means any future step added here picks it up without
+      # having to remember to re-export it.
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.9
+      - name: Install workspace deps
+        # Full install (no --frozen-lockfile omission here) because eas-cli
+        # is a dev-dep in the workspace; the lockfile must match so a future
+        # drift fails loudly rather than silently pulling a different cli.
+        run: bun install --frozen-lockfile
+      - name: EAS build — TestFlight (dry-run or real submit)
+        # Branch on the dispatch input:
+        #   - inputs.upload == 'true' → cloud build + submit to TestFlight.
+        #     `--local=false` forces eas to build on EAS cloud runners
+        #     (required for real signing) rather than this macOS runner.
+        #     A successful build is followed by `eas submit` which uploads
+        #     the .ipa to TestFlight using the submit.preview profile
+        #     from eas.json (MC6.5).
+        #   - inputs.upload == 'false' (DEFAULT) → `--dry-run` only. EAS
+        #     validates the profile and credentials without producing a
+        #     build or submitting anything. This is the low-cost health
+        #     check path.
+        #
+        # `bun x eas-cli` invokes the workspace-pinned version; this matches
+        # the MC6.5 wrapper script's invocation style so the CI and local
+        # dry-runs stay in lockstep.
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.upload }}" = "true" ]; then
+            echo '[testflight-upload] REAL upload requested — running eas build + submit'
+            bun x eas-cli build \
+              --profile preview \
+              --platform ios \
+              --non-interactive \
+              --local=false
+            bun x eas-cli submit \
+              --profile preview \
+              --platform ios \
+              --non-interactive \
+              --latest
+          else
+            echo '[testflight-upload] dry-run (default) — no build, no submit'
+            bun x eas-cli build \
+              --profile preview \
+              --platform ios \
+              --non-interactive \
+              --dry-run
+          fi
+
   play-dryrun:
     name: Wave 6 — Play internal dry-run
     runs-on: macos-14
@@ -475,3 +592,112 @@ jobs:
     if: ${{ hashFiles('apps/mobile-client/scripts/build-play-internal.sh') != '' && github.event_name == 'push' && github.ref == 'refs/heads/feat/mobile-client' }}
     steps:
       - run: echo "Play dry-run slot — filled by MC6.8 append"
+
+  # ─── Wave 6: Play Store upload (manual-only, dry-run-by-default) ────────
+  #
+  # MC6.8 — Android mirror of the MC6.7 `testflight-upload` job. Same gating
+  # shape (trigger gate + secret gate + `phase`/`upload` inputs), but swapped
+  # for Android tooling:
+  #
+  #   - `runs-on: ubuntu-latest`. Android builds don't need macOS — Gradle +
+  #     the Android SDK run happily on Linux and Linux runners are ~10× cheaper
+  #     than macOS runners. The real build runs on EAS cloud regardless
+  #     (`--local=false` in the upload path), so the host OS here only needs
+  #     to host bun + eas-cli for the dry-run/config-validation path.
+  #   - `setup-java@v4` with Temurin 17. eas-cli shells out to Gradle during
+  #     Android build planning even in `--dry-run` mode; Temurin 17 is the
+  #     baseline AGP 8.x requires and matches `wave1-android`.
+  #   - `GOOGLE_PLAY_SERVICE_ACCOUNT_KEY` takes the place MC6.7 gives
+  #     `EXPO_TOKEN`. The secret is the JSON service-account key used by
+  #     `eas submit` to upload the .aab to the Play Console internal track.
+  #     Same env-var indirection pattern (`HAS_GOOGLE_PLAY_KEY` set at job
+  #     level) because repo secrets can't be compared directly in `if:`.
+  #
+  # The `upload` boolean input shares semantics with MC6.7:
+  #   - upload == false (DEFAULT) → `eas build … --dry-run` only. No artifact,
+  #     no submit. Validates the `preview` profile + Android credentials shape.
+  #   - upload == true            → real `eas build` (cloud) followed by
+  #     `eas submit` to the Play internal track (submit.preview.android from
+  #     eas.json).
+  #
+  # Invocation examples:
+  #   gh workflow run mobile-client.yml -f phase=play-store-upload             # dry-run
+  #   gh workflow run mobile-client.yml -f phase=play-store-upload -f upload=true
+  play-store-upload:
+    name: Wave 6 — Play Store upload (dispatch-only)
+    runs-on: ubuntu-latest
+    needs: [typecheck-and-unit]
+    # Belt-and-braces: three independent conditions must ALL hold.
+    #   a) The eas.json config MC6.5 introduced must exist.
+    #   b) The invocation must be a manual dispatch, and if a specific phase
+    #      was named it must be this one.
+    #   c) The GOOGLE_PLAY_SERVICE_ACCOUNT_KEY secret must be present (threaded
+    #      through `env.HAS_GOOGLE_PLAY_KEY` because repo secrets are not
+    #      available directly inside `if:` expressions).
+    if: >-
+      ${{ hashFiles('apps/mobile-client/eas.json') != ''
+          && github.event_name == 'workflow_dispatch'
+          && (inputs.phase == '' || inputs.phase == 'play-store-upload')
+          && env.HAS_GOOGLE_PLAY_KEY == 'true' }}
+    env:
+      # 'true' iff the secret is non-empty; empty string otherwise. Matches
+      # the MC6.7 HAS_EXPO_TOKEN pattern exactly.
+      HAS_GOOGLE_PLAY_KEY: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_KEY != '' && 'true' || 'false' }}
+      # The service-account JSON is exposed to the eas-cli step only. eas
+      # submit reads the key path from submit.preview.android.serviceAccountKeyPath
+      # in eas.json; we materialise the secret to that path below.
+      GOOGLE_PLAY_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_KEY }}
+      # EXPO_TOKEN is still required by eas-cli for any cloud build/submit.
+      # If absent, the `upload == true` branch will fail fast; the default
+      # dry-run branch does not need it.
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.9
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install workspace deps
+        # --frozen-lockfile so any drift in eas-cli version is caught loudly
+        # rather than silently pulling a different cli (mirrors MC6.7).
+        run: bun install --frozen-lockfile
+      - name: EAS build — Play Store (dry-run or real submit)
+        # Branch on the dispatch input:
+        #   - inputs.upload == 'true'  → cloud build + submit to Play internal.
+        #     `--local=false` forces eas to build on EAS cloud runners (needed
+        #     for signed-release .aab). A successful build is followed by
+        #     `eas submit` which uploads the .aab using submit.preview.android
+        #     from eas.json (MC6.5).
+        #   - inputs.upload == 'false' (DEFAULT) → `--dry-run` only. EAS
+        #     validates the profile + credentials shape without producing a
+        #     build or submitting anything. This is the low-cost health check.
+        #
+        # `bun x eas-cli` invokes the workspace-pinned version to match the
+        # MC6.5 wrapper script invocation style so CI and local dry-runs stay
+        # in lockstep.
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.upload }}" = "true" ]; then
+            echo '[play-store-upload] REAL upload requested — running eas build + submit'
+            bun x eas-cli build \
+              --profile preview \
+              --platform android \
+              --non-interactive \
+              --local=false
+            bun x eas-cli submit \
+              --profile preview \
+              --platform android \
+              --non-interactive \
+              --latest
+          else
+            echo '[play-store-upload] dry-run (default) — no build, no submit'
+            bun x eas-cli build \
+              --profile preview \
+              --platform android \
+              --non-interactive \
+              --dry-run
+          fi
