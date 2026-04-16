@@ -7,3 +7,6 @@
 
 export { qrToMount } from './qrToMount';
 export type { QrMountResult, QrMountStage } from './qrToMount';
+
+export { wireInspectorFlow } from './inspectorFlow';
+export type { InspectorFlowHandle } from './inspectorFlow';
