@@ -1,0 +1,7 @@
+{
+    "type": "onlook:console",
+    "level": "log",
+    "args": ["hi"],
+    "timestamp": 1744800000000,
+    "sessionId": "s1"
+}

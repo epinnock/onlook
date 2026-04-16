@@ -900,9 +900,10 @@ Sequential. Runs with 1 agent after Wave 6 merges. This is where the source plan
   - Validate: `bun run mobile:audit:bundle-size` (asserts `target: 'onlook-client'` bundle for the `Hello, Onlook!` fixture ≤ 20KB)
 
 - **MCI.4** — Protocol drift test (N-1 compatibility for 30 days)
-  - Files: `packages/mobile-client-protocol/src/__tests__/protocol-drift.test.ts`
+  - Files: `packages/mobile-client-protocol/src/__tests__/drift.test.ts` + `fixtures/`
   - Deps: MCF5
-  - Validate: `bun test packages/mobile-client-protocol/src/__tests__/protocol-drift.test.ts`
+  - Validate: `bun test packages/mobile-client-protocol/src/__tests__/drift.test.ts`
+  - Status: **shipped 2026-04-11** — drift harness loads every `*.json` under `fixtures/` and re-parses against current `WsMessageSchema` / `ManifestSchema`. Seeded with 4 baseline fixtures (`ws-console.json`, `ws-network.json`, `ws-select.json`, `manifest-minimal.json`) derived directly from the Zod schemas; console fixture corrected from template (`args: string[]` + numeric `timestamp`, not `message` + ISO string). Plus a version sanity test asserting `ONLOOK_RUNTIME_VERSION` matches semver. All 5 tests green. Replace fixtures with genuine N-1 payloads on next protocol bump.
 
 - **MCI.5** — **`device-only`** physical iPhone walk of DoD steps 1–7
   - Files: `apps/mobile-client/verification/device-walks/01-dod-full.md`
