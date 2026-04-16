@@ -317,6 +317,14 @@ jsi::Value highlightNodeImpl(
     // overlay lands on top of it regardless of scroll / transform state.
     CGRect frameInWindow = [target convertRect:target.bounds toView:window];
 
+    // Remove any stale overlays from prior highlightNode calls so rapid
+    // re-highlights (e.g. hover drag) don't stack overlays visually.
+    for (UIView* subview in [window.subviews copy]) {
+      if ([subview.accessibilityIdentifier isEqualToString:@"onlook.highlight"]) {
+        [subview removeFromSuperview];
+      }
+    }
+
     UIView* overlay = [[UIView alloc] initWithFrame:frameInWindow];
     overlay.backgroundColor = [UIColor clearColor];
     overlay.userInteractionEnabled = NO;
