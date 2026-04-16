@@ -33,10 +33,17 @@
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 
-// iOS IPA calibration threshold per MCI.2 Validate line. Once the first
-// Mac-mini-measured baseline lands in `plans/binary-size-baseline.md`, we'll
-// tighten this to `observed × 1.10` (see that file's section 3).
-const MAX_TOTAL_BYTES = 40 * 1024 * 1024;
+// Total-size gate. The MCI.2 Validate line targets ≤ 40 MB, but that number is
+// calibrated for a stripped Release IPA — Debug-iphoneos builds ship
+// `React.framework/React` uncompressed (~52.8 MB on the 2026-04-16 baseline)
+// plus a `OnlookMobileClient.debug.dylib` split dylib (~10.5 MB) that is
+// absent from Release, so the measured Debug `.app` is ~75 MB. We gate on
+// that Debug observation × 1.20 slack (90 MB) for now. When a Release IPA
+// audit lands (end of Wave 4 / pre-TestFlight), retighten this to
+// `release_total × 1.10` per `plans/binary-size-baseline.md` section 3 — and
+// expect to approach the 40 MB MCI.2 target at that point. See the 2026-04-16
+// entry in that file's changelog for the full reasoning.
+const MAX_TOTAL_BYTES = 90 * 1024 * 1024;
 
 function main(): number {
     const argv = process.argv.slice(2);
