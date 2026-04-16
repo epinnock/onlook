@@ -6,3 +6,6 @@
 
 export { fetchManifest } from './manifestFetcher';
 export type { ManifestResult } from './manifestFetcher';
+
+export { checkVersionCompatibility, useVersionCheck } from './versionCheck';
+export type { VersionCheckResult } from './versionCheck';

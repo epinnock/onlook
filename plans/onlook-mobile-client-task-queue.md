@@ -487,22 +487,23 @@ Goal: fresh app launch → scan QR → load bundle from `cf-expo-relay` → moun
   - Validate: `bun test apps/mobile-client/src/relay/__tests__/bundleFetcher.test.ts`
   - Status: **shipped 2026-04-16**
 
-- **MC3.13** — WebSocket client (relay upgrade path)
-  - Files: `apps/mobile-client/src/relay/websocket.ts`
+- **MC3.13** — WebSocket client (relay upgrade path) — **shipped 2026-04-16**
+  - Files: `apps/mobile-client/src/relay/wsClient.ts`
   - Deps: MCF5
-  - Validate: `bun test apps/mobile-client/src/relay/__tests__/websocket.test.ts` (spins up a local WS echo server, asserts `onlook:console` round-trip)
+  - Validate: `bun test apps/mobile-client/src/relay/__tests__/wsClient.test.ts && bun --filter @onlook/mobile-client typecheck`
+  - Status: **shipped 2026-04-16** — `OnlookRelayClient` class with typed `WsMessageSchema` dispatch, `Set`-based listener pattern, exponential backoff reconnect (1s/2s/4s...30s cap). 10 tests.
 
 - **MC3.14** — Live reload dispatcher (`bundleUpdate` → `OnlookRuntime.reloadBundle`)
   - Files: `apps/mobile-client/src/relay/liveReload.ts`
   - Deps: MC3.12, MC3.13, MC2.8
   - Validate: `bun run mobile:e2e:ios -- 16-live-reload.yaml` (local relay serves red square, pushes update, asserts screen turns blue)
 
-- **MC3.15** — Manifest version mismatch screen
+- **MC3.15** — Manifest version mismatch screen — **Status: component authored 2026-04-16, maestro deferred**
   - Files: `apps/mobile-client/src/screens/VersionMismatchScreen.tsx`
   - Deps: MCF7, MC3.5
   - Validate: `bun run mobile:e2e:ios -- 17-version-mismatch.yaml` (mock relay serves mismatched runtime version, asserts friendly screen + upgrade CTA)
 
-- **MC3.16** — Version compatibility check hook
+- **MC3.16** — Version compatibility check hook — **Status: shipped 2026-04-16**
   - Files: `apps/mobile-client/src/relay/versionCheck.ts`
   - Deps: MCF7
   - Validate: `bun test apps/mobile-client/src/relay/__tests__/versionCheck.test.ts`
@@ -609,9 +610,11 @@ iOS and Android paths fan out in parallel — 4.1–4.6 are iOS, 4.7–4.11 are 
   - Deps: MCF1
   - Validate: `bun test packages/browser-metro/src/host/__tests__/sucrase-jsx-source.test.ts` (asserts emitted JS contains `__source: { fileName, lineNumber, columnNumber }` on JSX calls, gated behind `process.env.NODE_ENV !== 'production'`)
 
-- **MC4.13** — Wire `jsx-source` into `@onlook/browser-metro`'s bundler pipeline
-  - Files: `packages/browser-metro/src/host/index.ts` — HOTSPOT: owned by MC4.12 (merged into MC4.12)
-  - RESOLUTION: folded into MC4.12 — the test above exercises the wired pipeline end-to-end. Removed from queue.
+- **MC4.13** — Wire `jsx-source` into `@onlook/browser-metro`'s bundler pipeline — **Status: shipped 2026-04-16**
+  - Files: `packages/browser-metro/src/host/index.ts`, `packages/browser-metro/src/host/types.ts`
+  - Added `BundleTarget = 'expo-go' | 'onlook-client'` type and `target`/`isDev` options to `BrowserMetroOptions`.
+  - Pipeline calls `transformWithJsxSource` (classic runtime + `__source` injection) when `target === 'onlook-client' && isDev`, then applies a second Sucrase pass for `imports` transform. Default (`expo-go`) path unchanged.
+  - Validate: `bun test packages/browser-metro/` (6 new tests covering onlook-client dev/prod, expo-go, default, bare-import preservation, IIFE validity).
 
 - **MC4.14** — JS-side tap handler (reads `props.__source`, posts over WS)
   - Files: `apps/mobile-client/src/runtime/inspectorTapHandler.ts`

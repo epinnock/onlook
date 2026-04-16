@@ -104,6 +104,20 @@
       "validate_command": "bun test apps/mobile-client/src/relay/__tests__/bundleFetcher.test.ts",
       "exit_code": 0,
       "stderr_tail": "\n 11 pass\n 0 fail\n 30 expect() calls\nRan 11 tests across 1 file. [169.00ms]\n"
+    },
+    "MC3.16": {
+      "state": "passed",
+      "validated_at": "2026-04-16T02:51:58.976Z",
+      "validate_command": "bun test apps/mobile-client/src/relay/__tests__/versionCheck.test.ts",
+      "exit_code": 0,
+      "stderr_tail": "\n 8 pass\n 0 fail\n 26 expect() calls\nRan 8 tests across 1 file. [210.00ms]\n"
+    },
+    "MC3.13": {
+      "state": "passed",
+      "validated_at": "2026-04-16T02:52:01.504Z",
+      "validate_command": "bun test apps/mobile-client/src/relay/__tests__/wsClient.test.ts && bun --filter @onlook/mobile-client typecheck",
+      "exit_code": 0,
+      "stderr_tail": "\n 11 pass\n 0 fail\n 23 expect() calls\nRan 11 tests across 1 file. [2.57s]\n"
     }
   }
 }
