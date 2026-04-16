@@ -149,15 +149,14 @@ facebook::jsi::Value highlightNodeImpl(
 /// before handing off.
 facebook::jsi::Value captureScreenshotImpl(facebook::jsi::Runtime& rt);
 
-/// MC4.3 — return a plain JS `ReactNodeDescriptor` snapshot of the Fabric
-/// shadow subtree rooted at `reactTag`: `{ reactTag, componentName,
-/// children[] }`. Defined in OnlookInspector_walkTree.mm (iOS); Android
-/// mirror lands behind MCF8c. Placeholder body until MC4.2 stabilizes the
-/// fabric-handle lookup path — returns a single-level stub so editor-side
-/// consumers (MC4.14-MC4.18) get a valid shape. `OnlookInspector::walkTree`
-/// in OnlookInspector.cpp is the thin delegator that forwards the JSI
-/// args pointer after shape validation; the impl re-checks the arg shape
-/// so JSError messages stay attributable if another TU calls in directly.
+/// MC4.3 — recursively walk `globalThis.nativeFabricUIManager` starting
+/// from `args[0]` (a numeric reactTag) and return a plain JS subtree
+/// `{ reactTag, componentName, children[] }` for the editor's element
+/// tree panel. Throws `jsi::JSError` if the Fabric UI manager is not
+/// installed or the argument shape is wrong. Defined in
+/// OnlookInspector_walkTree.mm. The `OnlookInspector::walkTree` delegator
+/// in OnlookInspector.cpp forwards raw args/count so this function owns
+/// arg validation alongside the traversal.
 facebook::jsi::Value walkTreeImpl(
     facebook::jsi::Runtime& rt,
     const facebook::jsi::Value* args,

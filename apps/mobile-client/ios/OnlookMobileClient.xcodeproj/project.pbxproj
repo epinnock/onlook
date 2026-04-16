@@ -16,6 +16,7 @@
 		27698B7609D7DA4A53B360FF /* OnlookInspectorInstaller.mm in Sources */ = {isa = PBXBuildFile; fileRef = A3792952804A3839A0DF131C /* OnlookInspectorInstaller.mm */; };
 		A4F58B1CD2E90734C16A5501 /* OnlookInspector_highlight.mm in Sources */ = {isa = PBXBuildFile; fileRef = B7C39D48E1F05082A84C6612 /* OnlookInspector_highlight.mm */; };
 		A4F58B1CD2E90734C16A5502 /* OnlookInspector_screenshot.mm in Sources */ = {isa = PBXBuildFile; fileRef = B7C39D48E1F05082A84C6613 /* OnlookInspector_screenshot.mm */; };
+		C4F58B1CD2E90734C16A5503 /* OnlookInspector_walkTree.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7C39D48E1F05082A84C6614 /* OnlookInspector_walkTree.mm */; };
 		6B5441152D0DC84F4FE4C4B4 /* OnlookInspector.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 38AD43BCD60F61B17E5BB688 /* OnlookInspector.cpp */; };
 		D1E7A2F40AB91C58B7C3E215 /* InspectorPrewarm.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D1E7A2F40AB91C58B7C3E216 /* InspectorPrewarm.cpp */; };
 		9A78FF78EE5F3DCB2E060C8E /* OnlookRuntimeInstaller.mm in Sources */ = {isa = PBXBuildFile; fileRef = DAEB2E8EEEADD1A86CC53822 /* OnlookRuntimeInstaller.mm */; };
@@ -62,6 +63,7 @@
 		A3792952804A3839A0DF131C /* OnlookInspectorInstaller.mm */ = {isa = PBXFileReference; includeInIndex = 1; name = OnlookInspectorInstaller.mm; path = ../cpp/OnlookInspectorInstaller.mm; sourceTree = "<group>"; };
 		B7C39D48E1F05082A84C6612 /* OnlookInspector_highlight.mm */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.objcpp; name = OnlookInspector_highlight.mm; path = ../cpp/OnlookInspector_highlight.mm; sourceTree = "<group>"; };
 		B7C39D48E1F05082A84C6613 /* OnlookInspector_screenshot.mm */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.objcpp; name = OnlookInspector_screenshot.mm; path = ../cpp/OnlookInspector_screenshot.mm; sourceTree = "<group>"; };
+		C7C39D48E1F05082A84C6614 /* OnlookInspector_walkTree.mm */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.objcpp; name = OnlookInspector_walkTree.mm; path = ../cpp/OnlookInspector_walkTree.mm; sourceTree = "<group>"; };
 		A73E8FA38A23CD5C50605EA4 /* libPods-OnlookMobileClient.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-OnlookMobileClient.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = OnlookMobileClient/SplashScreen.storyboard; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
@@ -123,6 +125,7 @@
 				A3792952804A3839A0DF131C /* OnlookInspectorInstaller.mm */,
 				B7C39D48E1F05082A84C6612 /* OnlookInspector_highlight.mm */,
 				B7C39D48E1F05082A84C6613 /* OnlookInspector_screenshot.mm */,
+				C7C39D48E1F05082A84C6614 /* OnlookInspector_walkTree.mm */,
 				D1E7A2F40AB91C58B7C3E216 /* InspectorPrewarm.cpp */,
 			);
 			name = OnlookMobileClient;
@@ -412,6 +415,7 @@
 				27698B7609D7DA4A53B360FF /* OnlookInspectorInstaller.mm in Sources */,
 				A4F58B1CD2E90734C16A5501 /* OnlookInspector_highlight.mm in Sources */,
 				A4F58B1CD2E90734C16A5502 /* OnlookInspector_screenshot.mm in Sources */,
+				C4F58B1CD2E90734C16A5503 /* OnlookInspector_walkTree.mm in Sources */,
 				D1E7A2F40AB91C58B7C3E215 /* InspectorPrewarm.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

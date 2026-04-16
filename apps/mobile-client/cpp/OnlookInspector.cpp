@@ -175,10 +175,14 @@ jsi::Value OnlookInspector::captureTap(
 
 jsi::Value OnlookInspector::walkTree(
     jsi::Runtime& rt,
-    const jsi::Value* /*args*/,
-    size_t /*count*/) {
-  throw jsi::JSError(
-      rt, "OnlookInspector.walkTree: not implemented (Wave 4 MC4.3)");
+    const jsi::Value* args,
+    size_t count) {
+  // Fabric-tree traversal lives in OnlookInspector_walkTree.mm (MC4.3)
+  // behind the `walkTreeImpl` free function declared in OnlookInspector.h.
+  // Arg validation is co-located with the traversal there so the two
+  // pieces stay visible in a single TU — unlike captureTap/highlightNode
+  // where the UIKit side required splitting arg-check from the work.
+  return walkTreeImpl(rt, args, count);
 }
 
 jsi::Value OnlookInspector::captureScreenshot(
