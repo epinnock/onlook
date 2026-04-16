@@ -83,6 +83,20 @@
       "validate_command": "bun test apps/mobile-client/src/storage/__tests__/recentSessions.test.ts",
       "exit_code": 0,
       "stderr_tail": "\n 9 pass\n 0 fail\n 16 expect() calls\nRan 9 tests across 1 file. [223.00ms]\n"
+    },
+    "MC3.11": {
+      "state": "failed",
+      "validated_at": "2026-04-16T02:44:18.762Z",
+      "validate_command": "bun test apps/mobile-client/src/relay/__tests__/fetchManifest.test.ts",
+      "exit_code": 1,
+      "stderr_tail": "The following filters did not match any test files in --cwd=\"/home/boxuser/onlook\":\n apps/mobile-client/src/relay/__tests__/fetchManifest.test.ts\n2674 files were searched [119.00ms]\n\nnote: Tests need \".test\", \"_test_\", \".spec\" or \"_spec_\" in the filename (ex: \"MyApp.test.ts\")\nnote: To treat the \"apps/mobile-client/src/relay/__tests__/fetchManifest.test.ts\" filter as a path, run \"bun test ./apps/mobile-client/src/relay/__tests__/fetchManifest.test.ts\"\n\n"
+    },
+    "MC3.4": {
+      "state": "passed",
+      "validated_at": "2026-04-16T02:44:39.415Z",
+      "validate_command": "bun test apps/mobile-client/src/deepLink/handler.test.ts",
+      "exit_code": 0,
+      "stderr_tail": "\n 8 pass\n 0 fail\n 18 expect() calls\nRan 8 tests across 1 file. [209.00ms]\n"
     }
   }
 }

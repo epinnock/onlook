@@ -443,6 +443,7 @@ Goal: fresh app launch → scan QR → load bundle from `cf-expo-relay` → moun
   - Files: `apps/mobile-client/src/deepLink/handler.ts`
   - Deps: MC3.3
   - Validate: `bun test apps/mobile-client/src/deepLink/handler.test.ts`
+  - Status: shipped 2026-04-16
 
 - **MC3.5** — Launcher screen component
   - Files: `apps/mobile-client/src/screens/LauncherScreen.tsx`
