@@ -180,15 +180,11 @@ function createDimensionsModule() {
 }
 
 function createAppRegistry(target) {
-  let appRegistered = false;
-
   return {
     registerComponent(appKey, componentProvider) {
-      if (appKey !== 'main' || appRegistered) {
+      if (appKey !== 'main') {
         return;
       }
-
-      appRegistered = true;
 
       const Comp = typeof componentProvider === 'function' ? componentProvider() : null;
       if (!Comp) {

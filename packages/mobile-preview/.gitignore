@@ -1,4 +1,5 @@
 node_modules/
 runtime/bundle.js
+runtime/bundle.meta.json
 runtime/raw-bundle.js
 bun.lock
