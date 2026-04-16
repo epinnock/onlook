@@ -497,6 +497,7 @@ Goal: fresh app launch → scan QR → load bundle from `cf-expo-relay` → moun
   - Files: `apps/mobile-client/src/relay/liveReload.ts`
   - Deps: MC3.12, MC3.13, MC2.8
   - Validate: `bun run mobile:e2e:ios -- 16-live-reload.yaml` (local relay serves red square, pushes update, asserts screen turns blue)
+  - Status: **shipped 2026-04-11** — `LiveReloadDispatcher` class filters `bundleUpdate` WS messages, exposes `bundleUrl` to Set-based reload listeners. Does not call JSI directly (deferred to MC3.21 app wiring). 7 tests, typecheck clean.
 
 - **MC3.15** — Manifest version mismatch screen — **Status: component authored 2026-04-16, maestro deferred**
   - Files: `apps/mobile-client/src/screens/VersionMismatchScreen.tsx`
