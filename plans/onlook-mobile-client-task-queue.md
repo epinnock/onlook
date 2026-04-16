@@ -447,6 +447,7 @@ Goal: fresh app launch → scan QR → load bundle from `cf-expo-relay` → moun
   - Files: `apps/mobile-client/src/screens/LauncherScreen.tsx`
   - Deps: MCF1
   - Validate: `bun run mobile:e2e:ios -- 12-launcher-visible.yaml` (asserts "Scan QR" button, "Recent sessions", "Settings" visible)
+  - Status: **component authored 2026-04-16, maestro validate deferred (bare-scaffold app)** — LauncherScreen.tsx exports default functional component with dark theme (#0A0A0A background), "Onlook" branding header, "Scan QR" primary CTA, "Recent sessions" section placeholder, and "Settings" touchable. Barrel export in `src/screens/index.ts`. Maestro flow `12-launcher-visible.yaml` authored but will timeout until MC3.20 wires the screen into the app router.
 
 - **MC3.6** — QR scanner screen using `expo-camera`
   - Files: `apps/mobile-client/src/screens/ScanScreen.tsx`
