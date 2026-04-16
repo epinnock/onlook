@@ -58,6 +58,19 @@ export interface BrowserMetroOptions {
     };
 }
 
+/**
+ * Per-bundle options for `BrowserMetro.bundle()`.
+ *
+ * - `projectDependencies`: if provided, the bundler runs `checkReactVersions`
+ *   (MC6.4) before transpiling and throws a `BundleError` on mismatch. Pass
+ *   the combined `dependencies` + `devDependencies` map from the project's
+ *   `package.json`. Omitting it skips the check — back-compat path for callers
+ *   that don't have access to the project manifest.
+ */
+export interface BundleOptions {
+    projectDependencies?: Record<string, string>;
+}
+
 export interface BundleModule {
     /** Source file path (e.g. 'App.tsx'). */
     path: string;

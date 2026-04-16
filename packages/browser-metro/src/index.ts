@@ -29,9 +29,19 @@
  */
 
 export { BrowserMetro } from './host/index';
+export {
+    checkReactVersions,
+    REQUIRED_REACT_VERSION,
+    REQUIRED_RECONCILER_VERSION,
+} from './host/react-version-guard';
+export type {
+    ReactVersionCheckResult,
+    ReactVersionDeps,
+} from './host/react-version-guard';
 export type {
     BundleResult,
     BundleError,
+    BundleOptions,
     BundleTarget,
     BrowserMetroOptions,
     Vfs,

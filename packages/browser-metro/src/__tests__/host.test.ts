@@ -280,6 +280,59 @@ describe('BrowserMetro', () => {
         metro.dispose();
     });
 
+    // ------------------------------------------------------------------
+    // MC6.4 — React version guard wired into bundle()
+    // ------------------------------------------------------------------
+
+    it('bundle(projectDependencies) with matching React + reconciler succeeds (MC6.4)', async () => {
+        const metro = new BrowserMetro({
+            vfs: makeFakeVfs({
+                'App.tsx': 'export default function App() { return null; }',
+            }),
+            esmUrl: 'https://esm.sh',
+        });
+        const result = await metro.bundle({
+            projectDependencies: {
+                react: '19.1.0',
+                'react-reconciler': '0.32.0',
+            },
+        });
+        expect(result.entry).toBe('App.tsx');
+        metro.dispose();
+    });
+
+    it('bundle(projectDependencies) with wrong React version throws BundleError (MC6.4)', async () => {
+        const metro = new BrowserMetro({
+            vfs: makeFakeVfs({
+                'App.tsx': 'export default function App() { return null; }',
+            }),
+            esmUrl: 'https://esm.sh',
+        });
+        await expect(
+            metro.bundle({
+                projectDependencies: {
+                    react: '18.2.0',
+                    'react-reconciler': '0.32.0',
+                },
+            }),
+        ).rejects.toThrow(/React version guard failed/);
+        metro.dispose();
+    });
+
+    it('bundle() without projectDependencies skips the guard (back-compat, MC6.4)', async () => {
+        const metro = new BrowserMetro({
+            vfs: makeFakeVfs({
+                'App.tsx': 'export default function App() { return null; }',
+            }),
+            esmUrl: 'https://esm.sh',
+        });
+        // No projectDependencies option — should succeed regardless of what
+        // the surrounding project's package.json says.
+        const result = await metro.bundle();
+        expect(result.entry).toBe('App.tsx');
+        metro.dispose();
+    });
+
     it('wires file-walker + entry-resolver + bare-import-rewriter + iife-wrapper (R2 roundtrip)', async () => {
         const metro = new BrowserMetro({
             vfs: makeFakeVfs({

@@ -19,10 +19,12 @@ import { rewriteBareImports } from './bare-import-rewriter';
 import { walkVfs } from './file-walker';
 import { resolveEntry } from './entry-resolver';
 import { wrapAsIIFE, type IIFEModule } from './iife-wrapper';
+import { checkReactVersions } from './react-version-guard';
 import { transformWithJsxSource } from './sucrase-jsx-source';
 import {
     BundleError,
     type BrowserMetroOptions,
+    type BundleOptions,
     type BundleTarget,
     type BundleModule,
     type BundleResult,
@@ -79,10 +81,31 @@ export class BrowserMetro {
      * Walk the Vfs, rewrite bare imports, transpile each file, resolve the
      * entry, and wrap everything in a self-contained IIFE.
      * Throws BundleError on transpile failure.
+     *
+     * When `options.projectDependencies` is provided, the bundler first runs
+     * the MC6.4 React version guard and throws a `BundleError` on mismatch
+     * before any transpile work. Omitting the option preserves back-compat
+     * for callers without access to the project's `package.json`.
      */
-    async bundle(): Promise<BundleResult> {
+    async bundle(options: BundleOptions = {}): Promise<BundleResult> {
         const start = performance.now();
         try {
+            // 0. MC6.4: bundle-time React version guard. Only runs when the
+            // caller supplies the project's dependency map; otherwise we skip
+            // silently for back-compat with existing callers (e.g. the TR4.1
+            // file-watcher loop and the legacy host tests).
+            if (options.projectDependencies) {
+                const guard = checkReactVersions({
+                    react: options.projectDependencies.react,
+                    'react-reconciler': options.projectDependencies['react-reconciler'],
+                });
+                if (!guard.ok) {
+                    throw new BundleError(
+                        `React version guard failed:\n  - ${guard.errors.join('\n  - ')}`,
+                    );
+                }
+            }
+
             // 1. Walk the Vfs.
             const walked = await walkVfs(this.vfs);
 
@@ -233,9 +256,13 @@ export class BrowserMetro {
     /**
      * Re-run the bundle. Used by BrowserTask.restart() and the
      * file-watcher debounce in the Wave H integration.
+     *
+     * Accepts the same `BundleOptions` as `bundle()` so callers can re-run
+     * with a fresh `projectDependencies` snapshot (e.g. after the user edits
+     * `package.json`).
      */
-    async invalidate(): Promise<void> {
-        await this.bundle();
+    async invalidate(options: BundleOptions = {}): Promise<void> {
+        await this.bundle(options);
     }
 
     /** Tear down the BroadcastChannel and clear listeners. */
