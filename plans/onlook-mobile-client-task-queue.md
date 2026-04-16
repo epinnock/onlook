@@ -676,10 +676,11 @@ Goal: console relay, network inspector, error boundary, in-app dev menu. All flo
   - Validate: `bun test apps/mobile-client/src/debug/__tests__/fetchPatch.test.ts`
   - Status: Done — 12 tests pass, typecheck clean
 
-- **MC5.4** — Network inspector: `XMLHttpRequest` patch in runtime bundle
-  - Files: `packages/mobile-preview/runtime/network-xhr-patch.js`
-  - Deps: MCF5
-  - Validate: `bun test packages/mobile-preview/runtime/__tests__/network-xhr-patch.test.js`
+- **MC5.4** — Network inspector: `XMLHttpRequest` patch in runtime bundle ✅
+  - Files: `apps/mobile-client/src/debug/xhrPatch.ts`, `apps/mobile-client/src/debug/__tests__/xhrPatch.test.ts`, `apps/mobile-client/src/debug/index.ts`
+  - Deps: MCF1, MC5.3
+  - Validate: `bun test apps/mobile-client/src/debug/__tests__/xhrPatch.test.ts`
+  - Status: Done — 14 tests pass, typecheck clean. Shares the `NetworkEntry` type with `fetchPatch` (MC5.3) but maintains a separate ring buffer + listener set for loose coupling; consumers merge feeds externally.
 
 - **MC5.5** — Network inspector: wire format + streamer
   - Files: `apps/mobile-client/src/debug/networkStreamer.ts`
