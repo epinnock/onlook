@@ -651,10 +651,11 @@ iOS and Android paths fan out in parallel — 4.1–4.6 are iOS, 4.7–4.11 are 
   - Validate: `bun test apps/mobile-client/src/flow/__tests__/inspectorFlow.test.ts` — 8 tests covering handle shape, wire format, sessionId flow-through across distinct clients, reactTag passthrough, destroy-stops-sends, destroy idempotence, empty-sessionId guard, and send-error swallow.
   - Note: iOS only. Android parity is dead-letter per source-plan cut line. The Maestro e2e flow is left scoped for a follow-up — this task ships the JS integration shape so MC4.17 can compose against it.
 
-- **MC4.19** — CI job: Wave 4 iOS flows (Android flows gated on MC4.11 optimistic inclusion)
-  - Files: `.github/workflows/mobile-client.yml` (append)
+- **MC4.19** — CI job: Wave 4 iOS flows (Android flows gated on MC4.11 optimistic inclusion) — **Status: shipped 2026-04-11.**
+  - Files: `.github/workflows/mobile-client.yml`
   - Deps: MC4.18, MCF10
-  - Validate: `gh workflow run mobile-client.yml -f phase=wave4 && gh run watch --exit-status`
+  - Validate: `gh workflow run mobile-client.yml -f phase=wave4-ios && gh run watch --exit-status`
+  - Replaced the MCF10 `wave4` stub with a real `wave4-ios` macos-14 job mirroring MC5.18's `wave5` shape: bun 1.3.9 + Xcode 15.4 pin, brew cocoapods + maestro, `bun install --frozen-lockfile`, `bun run build:mobile-runtime`, `pod install`, `bun run mobile:build:ios`, boot the first available iOS 17 iPhone simulator, then a `nullglob` loop over `apps/mobile-client/scripts/validate-mc4*.sh` (empty glob => explicit FAIL so an empty scripts dir can't silently pass). Uploads `apps/mobile-client/verification/{results.json,maestro-debug/}` + e2e flow PNGs as the `wave4-ios-verification` artifact with `if: always()`. Dropped `needs: [wave1-ios]` so the inspector pass runs in parallel on a dedicated runner (each validate rebuilds + reinstalls its own .app). Retains MCF10's `hashFiles('…OnlookInspector.swift')` guard so the slot stays skipped until MC4.1 lands the Swift shim; gates on `inputs.phase == 'wave4-ios'` for manual dispatch (input description updated to swap `wave4` → `wave4-ios`). Recorded as a manual pass — `gh workflow run` is blocked from this host's network; YAML hand-verified with `python3 yaml.safe_load` (11 steps, `runs-on: macos-14`, `needs: [typecheck-and-unit]`).
 
 **Wave 4 exit criterion:** On iOS Simulator, tapping a button in a fixture bundle causes the locally-running editor's Monaco instance to jump its cursor to the right file/line/column. Android has feature parity for `captureTap` / `walkTree` / `captureScreenshot` but the full tap-to-cursor flow is iOS-only per the source plan cut line.
 

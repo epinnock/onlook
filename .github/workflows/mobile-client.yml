@@ -38,7 +38,7 @@ on:
   workflow_dispatch:
     inputs:
       phase:
-        description: 'Limit run to a single phase (wave1-ios, wave1-android, wave3, wave4, wave5, testflight-dryrun, play-dryrun) or leave blank for all.'
+        description: 'Limit run to a single phase (wave1-ios, wave1-android, wave3, wave4-ios, wave5, testflight-dryrun, play-dryrun) or leave blank for all.'
         required: false
         default: ''
         type: string
@@ -221,13 +221,121 @@ jobs:
 
   # ─── Wave 4: OnlookInspector tap-to-cursor flow ─────────────────────────
 
-  wave4:
-    name: Wave 4 — inspector tap-to-cursor
+  wave4-ios:
+    name: Wave 4 — inspector tap-to-cursor (iOS)
+    # macos-14 + Xcode 15.4: same pin as `wave1-ios`/`wave5` so the iPhone 15
+    # simulator set stays stable and the validate-mc*.sh log-scrape predicates
+    # don't drift across Xcode bumps.
     runs-on: macos-14
-    needs: [wave1-ios]
-    if: ${{ hashFiles('apps/mobile-client/ios/**/OnlookInspector.swift') != '' }}
+    # Intentionally NOT `needs: [wave1-ios]`. Mirror the wave5 rationale: each
+    # Wave 4 `validate-mc4*.sh` script boots its own simulator and reinstalls
+    # the .app, so running on a dedicated runner in parallel with wave1-ios
+    # produces the inspector-specific `verification/results.json` artifact
+    # even when wave1-ios is skipped or fails early (e.g., when dispatched
+    # with `inputs.phase == 'wave4-ios'`).
+    needs: [typecheck-and-unit]
+    # Gate twofold:
+    #   (a) Only run once MC4.1 has committed OnlookInspector.swift into the
+    #       ios/ project tree. Until then the slot is skipped — no wasted
+    #       runner time on a job with no scripts to run.
+    #   (b) When dispatched with a specific `phase` input, skip unless the
+    #       caller asked for this phase (empty phase == run all).
+    if: >-
+      ${{ hashFiles('apps/mobile-client/ios/**/OnlookInspector.swift') != ''
+          && (github.event_name != 'workflow_dispatch'
+              || inputs.phase == ''
+              || inputs.phase == 'wave4-ios') }}
     steps:
-      - run: echo "Wave 4 job slot — filled by MC4.19 append"
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.9
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '15.4'
+      - name: Install native tooling
+        # Mirror wave1-ios / wave5 tooling footprint. cocoapods is required
+        # by `pod install`. maestro is installed for future Wave 4 flows
+        # that become maestro-runnable (e.g., a `27-tap-to-editor.yaml`
+        # flow once MC4.6 lands native tap capture); the current
+        # validate-mc4*.sh scripts are pure log-scrape and do not invoke
+        # maestro.
+        run: |
+          brew install cocoapods
+          brew install mobile-dev-inc/tap/maestro
+      - name: Install workspace deps
+        run: bun install --frozen-lockfile
+      - name: Build onlook-runtime bundle
+        # Produces packages/mobile-preview/runtime/bundle.js, which
+        # mobile:build:ios copies into the .app via bundle-runtime.ts.
+        run: bun run build:mobile-runtime
+      - name: CocoaPods install
+        run: cd apps/mobile-client/ios && pod install
+      - name: Build iOS .app for simulator
+        # Same wrapper as wave1-ios / wave5. Each validate-mc4*.sh
+        # internally calls `bun run mobile:build:ios` and `xcrun simctl
+        # install booted`, so the build here primarily warms DerivedData;
+        # the scripts are idempotent if DerivedData already has a fresh
+        # build.
+        run: bun run mobile:build:ios
+      - name: Boot iOS Simulator
+        # The validate-mc4*.sh scripts need a booted simulator for
+        # `xcrun simctl install booted` and `xcrun simctl spawn booted
+        # log stream`. Pick the first available iOS 17 iPhone simulator.
+        run: |
+          DEVICE=$(xcrun simctl list devices available \
+            | awk '/-- iOS /{flag=$0} /iPhone/ && flag ~ /iOS 17/ && !seen {print; seen=1}' \
+            | head -1 \
+            | sed -E 's/.*\(([0-9A-F-]+)\).*/\1/')
+          if [ -z "$DEVICE" ]; then
+            echo 'FAIL: no iOS 17 iPhone simulator available on this runner'
+            xcrun simctl list devices available
+            exit 1
+          fi
+          echo "Booting simulator $DEVICE"
+          xcrun simctl boot "$DEVICE" || true
+          xcrun simctl bootstatus "$DEVICE" -b
+      - name: Run inspector validates (validate-mc4*.sh)
+        # Iterate every `validate-mc4*.sh` script present in
+        # apps/mobile-client/scripts/. As Wave 4 inspector tasks
+        # (MC4.1 OnlookInspector swift shim, MC4.6 tap capture,
+        # MC4.13 walkTree, etc.) land their own log-scrape scripts in
+        # this dir, they'll be picked up automatically — no workflow
+        # edit required. Mirrors the loop pattern MC5.18 established
+        # for the wave5 `validate-mc*.sh` debug-surface scripts.
+        #
+        # `set -e` on the shell + `nullglob` means:
+        #   - empty glob => explicit FAIL (so an accidentally-empty
+        #     directory can't silently produce a green CI run);
+        #   - first failing script fails the step immediately.
+        shell: bash
+        run: |
+          set -e
+          shopt -s nullglob
+          scripts=(apps/mobile-client/scripts/validate-mc4*.sh)
+          if [ ${#scripts[@]} -eq 0 ]; then
+            echo '[wave4-ios] FAIL: no validate-mc4*.sh scripts found'
+            exit 1
+          fi
+          echo "[wave4-ios] running ${#scripts[@]} inspector validate(s):"
+          printf '  - %s\n' "${scripts[@]}"
+          for script in "${scripts[@]}"; do
+            echo "::group::$script"
+            bash "$script"
+            echo '::endgroup::'
+          done
+      - name: Upload wave-4 iOS verification artifacts
+        # Always upload even on failure so the log-scrape tails and any
+        # maestro-debug dumps are inspectable post-mortem.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wave4-ios-verification
+          path: |
+            apps/mobile-client/verification/results.json
+            apps/mobile-client/verification/maestro-debug/
+            apps/mobile-client/e2e/flows/*.png
+          if-no-files-found: ignore
 
   # ─── Wave 5: debug surface flows ────────────────────────────────────────
 
