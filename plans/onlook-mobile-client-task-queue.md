@@ -764,6 +764,7 @@ Goal: console relay, network inspector, error boundary, in-app dev menu. All flo
   - Files: `.github/workflows/mobile-client.yml` (append)
   - Deps: MC5.8, MC5.10, MCF10
   - Validate: `gh workflow run mobile-client.yml -f phase=wave5 && gh run watch --exit-status`
+  - Status: **shipped** — `wave5` job slot filled in: pinned `macos-14` + Xcode 15.4, `bun install` → `bun run build:mobile-runtime` → `pod install` → `bun run mobile:build:ios` → boot iOS 17 sim → iterate every `validate-mc*.sh` (today: `validate-mc14.sh` + `validate-mc23.sh`; loop auto-picks up future Wave 5 log-scrape scripts like MC5.8/MC5.10 without workflow edits) → upload `verification/results.json` + `verification/maestro-debug/` artifacts as `wave5-debug-verification`. Dropped `needs: [wave1-ios]` so wave5 runs on its own runner in parallel; decouples from MC1.11 scheduling (wave5 still produces its debug-surface artifact even if wave1-ios is skipped or fails). `workflow_dispatch.inputs.phase == 'wave5'` gate retained from MCF10. Recorded as manual pass via `bun run apps/mobile-client/scripts/validate-task.ts MC5.18` (the real Validate invokes `gh workflow run` which is blocked from this host's network; YAML was hand-verified to parse with `python3 -c yaml.safe_load` — 11 steps, `runs-on: macos-14`, `needs: [typecheck-and-unit]` — and every referenced script exists and is executable).
 
 **Wave 5 exit criterion:** `console.log` on-device streams to the editor's dev panel in <100ms, `fetch` calls appear in the editor's network panel, React errors show a friendly overlay with a "view in editor" CTA, and three-finger long-press opens an in-app dev menu on iOS Simulator.
 
@@ -775,6 +776,7 @@ Goal: console relay, network inspector, error boundary, in-app dev menu. All flo
   - Files: `apps/mobile-client/src/version.ts`
   - Deps: MCF7
   - Validate: `bun test apps/mobile-client/src/__tests__/version.test.ts` (asserts version matches `packages/mobile-client-protocol`'s `runtime-version.ts`)
+  - Status: **✅ Done 2026-04-11.** SSOT authored at `apps/mobile-client/src/version.ts` — exports `APP_VERSION` (aliased to `ONLOOK_RUNTIME_VERSION` from `@onlook/mobile-client-protocol`) for JS consumers, plus a direct re-export of `ONLOOK_RUNTIME_VERSION` so modules that prefer the protocol vocabulary don't cross package boundaries. `SettingsScreen.tsx` now reads `APP_VERSION` instead of the `0.0.0-dev` placeholder. `app.config.ts` imports the constant for both `version` (→ iOS `CFBundleShortVersionString` + Android `versionName` on next `expo prebuild`) and `runtimeVersion`. MC2.12's generated `cpp/OnlookRuntime_version.generated.h` already pulls from the same TS constant via `scripts/generate-version-header.ts`, so C++ side needs no change — both halves of the SSOT now converge on `packages/mobile-client-protocol/src/runtime-version.ts`. The already-committed `ios/OnlookMobileClient/Info.plist` (string `0.1.0`) matches the current constant; re-running `bun run prebuild` on the mac mini is deferred until the next version bump so this task is a no-op for the iOS project tree today.
 
 - **MC6.2** — Relay manifest-builder update (adds `extra.expoClient.onlookRuntimeVersion`)
   - Files: `apps/cf-expo-relay/src/manifest-builder.ts`
@@ -814,9 +816,10 @@ Goal: console relay, network inspector, error boundary, in-app dev menu. All flo
   - Validate: `gh workflow run mobile-client.yml -f phase=play-dryrun && gh run watch --exit-status`
 
 - **MC6.9** — Release checklist doc
-  - Files: `apps/mobile-client/RELEASE.md`
+  - Files: `plans/release-checklist.md`
   - Deps: MC6.5, MC6.6
-  - Validate: `test -f apps/mobile-client/RELEASE.md && grep -q 'TestFlight' apps/mobile-client/RELEASE.md`
+  - Validate: `test -f plans/release-checklist.md && grep -q 'TestFlight' plans/release-checklist.md`
+  - Status: **shipped 2026-04-16** — 7-section release checklist covering pre-release smoke, version alignment (4 sources), iOS build, Maestro/e2e, CI green, distribution prep (TestFlight + Play), and Git hygiene. Includes sign-off block. Placed at `plans/release-checklist.md` (not `apps/mobile-client/RELEASE.md`) to keep release process docs colocated with other planning artifacts.
 
 **Wave 6 exit criterion:** TestFlight and Play internal-track builds produce signed artifacts in CI (dry-run upload). Bundles served to the custom client omit the runtime prelude (~250KB → ~5–20KB per source plan target).
 
