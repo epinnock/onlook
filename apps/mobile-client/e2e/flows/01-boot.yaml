@@ -1,24 +1,26 @@
 # 01-boot.yaml — Wave 1 task MC1.1 of plans/onlook-mobile-client-task-queue.md.
 #
-# Asserts the app launches and its native side emits the
-# `[onlook-runtime] hermes ready` log line before returning control to the
-# user. `assertVisible` with a timeout is the most portable way to express
-# "the app started without crashing" — Maestro will keep the app in the
-# foreground for 5s, during which any crash, red-box RN error, or native
-# assertion would have torn it down.
+# Asserts the app launches without crashing. Prior to 2026-04-16 this flow
+# only used `waitForAnimationToEnd` as a soft launch signal because App.tsx
+# rendered nothing visible (bare scaffold); `waitForAnimationToEnd` would
+# hang indefinitely on the empty root view. Now that LauncherScreen is
+# wired into App.tsx via the screens barrel + AppRouter (MC3.20), we can
+# assert on real rendered text as proof the RN root mounted and the JS
+# bundle ran through the first render pass.
 #
-# Log-line scraping is done via Maestro's `assertVisible` on the OS log
-# panel (Console/log stream) — for now we use a soft `waitForAnimationToEnd`
-# as the launch signal. MC1.4 lands the native-side log emission; a later
-# refinement swaps this for `assertLogContains` once we've confirmed that
-# Maestro's log-assertion DSL actually runs against the device log on the
-# simulator (it's flaky on iOS 18 per upstream issue mobile-dev-inc/maestro#…).
+# We assert on the "Onlook" branding header because it's the topmost,
+# always-visible element on LauncherScreen — if that's on-screen, the app
+# booted, Hermes evaled the bundle, React mounted, and no red-box error
+# took over the window.
+#
+# Log-line scraping (MC1.4 `[onlook-runtime] hermes ready`) remains the job
+# of validate-task.ts's post-check; see 03-hermes-eval.yaml for the
+# companion flow.
 
 appId: com.onlook.mobile
 ---
 - launchApp:
     clearState: true
-- waitForAnimationToEnd:
-    timeout: 5000
-- assertTrue:
-    condition: ${true}
+- assertVisible:
+    text: "Onlook"
+    timeout: 8000

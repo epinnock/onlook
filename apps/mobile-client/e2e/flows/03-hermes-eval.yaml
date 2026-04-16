@@ -1,28 +1,40 @@
 # 03-hermes-eval.yaml — Wave 1 task MC1.4 of plans/onlook-mobile-client-task-queue.md.
 #
-# Asserts that HermesBootstrap has evaled `onlook-runtime.js` into the Hermes
-# `jsi::Runtime` and emitted `[onlook-runtime] hermes ready` to the device
-# log. This flow differs from 01-boot.yaml only in the log-contains check
-# below — 01-boot passes as long as the app launched, 03-hermes-eval
-# additionally requires that the runtime eval completed and the native
-# side logged the ready line.
+# Asserts that HermesBootstrap has evaled `onlook-runtime.js` into the
+# Hermes `jsi::Runtime` and the JS bundle reached first render. This flow
+# differs from 01-boot.yaml in that it waits longer (Hermes bundle eval +
+# React mount can take measurably longer than a bare launch) and asserts
+# on the full LauncherScreen chrome rather than just the branding header.
 #
-# Implementation note: Maestro doesn't have a first-class `assertLogContains`
-# for iOS Simulator device logs — the workaround is to scrape
-# `xcrun simctl spawn booted log show --predicate 'subsystem ==
-# "com.onlook.mobile"' --last 30s` from the orchestrator after the flow
-# runs, and fail the task if the line is absent. That scrape lives in
-# validate-task.ts's post-check for MC1.4 (added when the task lands).
+# Historical note: prior to 2026-04-16 this flow used
+# `waitForAnimationToEnd` against a bare-scaffold App.tsx that rendered
+# nothing visible, which caused Maestro to hang until the 8s timeout on
+# every run. Now that LauncherScreen is mounted via the screens barrel +
+# AppRouter (MC3.20), we can positively assert that the three key
+# launcher affordances rendered: the branding header, "Scan QR" CTA,
+# "Recent sessions" section, and "Settings" entry. If any of those are
+# missing, either the bundle eval didn't complete or React crashed
+# mid-render — both of which are the failure modes MC1.4 guards against.
 #
-# Until then this flow does the launch+no-error portion; the log-line
-# assertion is enforced by the validate-task.ts wrapper.
+# Implementation note: Maestro doesn't have a first-class
+# `assertLogContains` for iOS Simulator device logs — the workaround is
+# to scrape
+#   xcrun simctl spawn booted log show --predicate \
+#     'subsystem == "com.onlook.mobile"' --last 30s
+# from the orchestrator after the flow runs, and fail the task if
+# `[onlook-runtime] hermes ready` is absent. That scrape lives in
+# validate-task.ts's post-check for MC1.4.
 
 appId: com.onlook.mobile
 ---
 - launchApp:
     clearState: true
-- waitForAnimationToEnd:
-    timeout: 8000
+- assertVisible:
+    text: "Onlook"
+    timeout: 10000
+- assertVisible: "Scan QR"
+- assertVisible: "Recent sessions"
+- assertVisible: "Settings"
 - assertNotVisible: "Error"
 - assertNotVisible: "Unable to load"
 - assertNotVisible: "RCTFatal"

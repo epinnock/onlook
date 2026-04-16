@@ -1,22 +1,26 @@
 # 02-black-screen.yaml — Wave 1 task MC1.3 of plans/onlook-mobile-client-task-queue.md.
 #
-# Asserts the app launches to a black screen — i.e. the root view controller
-# is mounted, the window is visible, and no red RN error overlay appears.
-# We don't assert any specific text yet because the app doesn't render any
-# UI until the runtime + user bundle are loaded (MC1.4 and later).
+# Historically this flow asserted the app launched to a *black* screen —
+# i.e. the root view controller was mounted but no UI rendered, because
+# the app was a bare scaffold. As of 2026-04-16 LauncherScreen is wired
+# into App.tsx (MC3.20), so the "black screen" assertion no longer
+# matches reality. We now assert:
+#   1. LauncherScreen's "Onlook" header is visible (RN root mounted,
+#      React rendered, no red-box).
+#   2. No common red-box error strings are on screen.
 #
-# Maestro can't directly assert on screen pixel color, but it CAN assert
-# that no element with text exists (which is how an unstyled, content-less
-# RN root view renders on boot). A red-box error would introduce visible
-# text like "Error", "Unable to load", etc., so `assertNotVisible` on
-# common error strings catches the failure mode we care about.
+# The file is preserved (rather than deleted) so validate-task.ts wrappers
+# that reference MC1.3 by flow filename continue to resolve; the check
+# has just been upgraded from "absence of errors on an empty view" to
+# "presence of launcher chrome + absence of errors".
 
 appId: com.onlook.mobile
 ---
 - launchApp:
     clearState: true
-- waitForAnimationToEnd:
-    timeout: 5000
+- assertVisible:
+    text: "Onlook"
+    timeout: 8000
 - assertNotVisible: "Error"
 - assertNotVisible: "Unable to load"
 - assertNotVisible: "RCTFatal"
