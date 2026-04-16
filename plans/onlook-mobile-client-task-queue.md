@@ -670,10 +670,11 @@ Goal: console relay, network inspector, error boundary, in-app dev menu. All flo
   - Deps: MC5.1, MC3.13
   - Validate: `bun test apps/mobile-client/src/debug/__tests__/consoleStreamer.test.ts`
 
-- **MC5.3** — Network inspector: `fetch` patch in runtime bundle
-  - Files: `packages/mobile-preview/runtime/network-fetch-patch.js`
-  - Deps: MCF5
-  - Validate: `bun test packages/mobile-preview/runtime/__tests__/network-fetch-patch.test.js`
+- **MC5.3** — Network inspector: `fetch` patch in runtime bundle ✅
+  - Files: `apps/mobile-client/src/debug/fetchPatch.ts`
+  - Deps: MCF1
+  - Validate: `bun test apps/mobile-client/src/debug/__tests__/fetchPatch.test.ts`
+  - Status: Done — 12 tests pass, typecheck clean
 
 - **MC5.4** — Network inspector: `XMLHttpRequest` patch in runtime bundle
   - Files: `packages/mobile-preview/runtime/network-xhr-patch.js`

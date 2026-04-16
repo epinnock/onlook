@@ -9,3 +9,6 @@ export type { DebugInfo } from './debugInfo';
 
 export { ConsoleRelay, consoleRelay } from './consoleRelay';
 export type { ConsoleEntry, ConsoleLevel } from './consoleRelay';
+
+export { FetchPatch, fetchPatch } from './fetchPatch';
+export type { NetworkEntry } from './fetchPatch';
