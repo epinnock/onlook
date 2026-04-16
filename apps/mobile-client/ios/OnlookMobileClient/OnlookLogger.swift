@@ -33,6 +33,10 @@ public enum OnlookLogger {
         os_log("[onlook-runtime] %{public}@", log: log, type: .info, message)
     }
 
+    public static func notice(_ message: String) {
+        os_log("[onlook-runtime] %{public}@", log: log, type: .default, message)
+    }
+
     public static func error(_ message: String) {
         os_log("[onlook-runtime] %{public}@", log: log, type: .error, message)
     }

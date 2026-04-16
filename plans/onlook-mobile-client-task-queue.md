@@ -277,6 +277,12 @@ Goal: buildable app that loads a Hermes JS context and prints `[onlook-runtime] 
   - Validate: `bun run build:mobile-runtime` regenerates `bundle.js` cleanly; no remaining `[SPIKE_B]` prefix in runtime logs.
   - Status: **Housekeeping follow-up** flagged in `plans/adr/MC1.4-MC2.10-runtime-context.md`. Wave 2 is functionally complete; refresh the log prefix and spike-era comments in `shell.js` to match the `[onlook-runtime]` / `[onlook-inspector]` convention already used elsewhere in the shell.
 
+- **MC1.4.2** — Use OnlookLogger.notice for non-error boot events
+  - Files: `apps/mobile-client/ios/OnlookMobileClient/OnlookLogger.swift`, `apps/mobile-client/ios/OnlookMobileClient/HermesBootstrap.swift`
+  - Deps: MC1.4 (landed)
+  - Validate: `bash apps/mobile-client/scripts/validate-mc14.sh` — `.default` is persisted by `log show` without the `--info` flag (same as `.error`), so the `[onlook-runtime] hermes ready` scrape still captures the line.
+  - Status: **Landed.** Added `OnlookLogger.notice(_:)` that wraps `os_log` at `type: .default` — Apple's recommended level for notable non-error events. Switched the `hermes ready` boot line in `HermesBootstrap.prepend(into:)` from `OnlookLogger.error` to `OnlookLogger.notice` so the os_log level matches the event's semantics. The three remaining `OnlookLogger.error` call sites in `HermesBootstrap.swift` (runtime asset not found, read failure, runtime-missing guard in `prepend`) are genuine error conditions and stay at `.error`.
+
 - **MC1.5** — Android `MainActivity.kt` — activity lifecycle + Hermes bootstrap
   - Files: `apps/mobile-client/android/app/src/main/java/com/onlook/mobile/MainActivity.kt`
   - Deps: MCF8, MCF11
