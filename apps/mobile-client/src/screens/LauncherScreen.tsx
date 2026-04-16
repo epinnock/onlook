@@ -12,7 +12,7 @@
  *  - "Settings" touchable at the bottom
  */
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 
 interface LauncherScreenProps {
@@ -22,7 +22,25 @@ interface LauncherScreenProps {
     onSettingsPress?: () => void;
 }
 
+// `OnlookRuntime.log` (when the JSI binding is wired) forwards into os_log with
+// the `[onlook-runtime]` prefix; until then, plain `console.log` is funneled by
+// Hermes's `nativeLoggingHook` to the same device syslog stream. Either path is
+// grepable from `validate-iphone-launch.sh`.
+declare const globalThis: Record<string, unknown> & {
+    OnlookRuntime?: { log?: (msg: string) => void };
+};
+
 export default function LauncherScreen({ onScanPress, onSettingsPress }: LauncherScreenProps) {
+    useEffect(() => {
+        // Mount marker consumed by apps/mobile-client/scripts/validate-iphone-launch.sh.
+        const msg = '[onlook-runtime] LauncherScreen mounted';
+        if (globalThis.OnlookRuntime?.log) {
+            globalThis.OnlookRuntime.log('LauncherScreen mounted');
+        } else {
+            console.log(msg);
+        }
+    }, []);
+
     return (
         <SafeAreaView style={styles.root}>
             {/* ── Branding header ── */}
