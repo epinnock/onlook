@@ -104,10 +104,9 @@ jsi::Value OnlookRuntime::runApplication(
 
 jsi::Value OnlookRuntime::reloadBundle(
     jsi::Runtime& rt,
-    const jsi::Value* /*args*/,
-    size_t /*count*/) {
-  throw jsi::JSError(
-      rt, "OnlookRuntime.reloadBundle: not implemented (Wave 2 MC2.8)");
+    const jsi::Value* args,
+    size_t count) {
+  return reloadBundleImpl(rt, args, count);
 }
 
 jsi::Value OnlookRuntime::dispatchEvent(
