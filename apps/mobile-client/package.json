@@ -11,6 +11,7 @@
         "android": "expo run:android",
         "prebuild": "expo prebuild --clean",
         "typecheck": "tsc --noEmit",
+        "test": "bun run scripts/run-tests-isolated.ts",
         "lint": "eslint . --max-warnings 0",
         "format": "eslint --fix .",
         "clean": "rm -rf node_modules",

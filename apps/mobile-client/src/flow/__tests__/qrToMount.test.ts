@@ -13,9 +13,17 @@
  *
  * Task: MC3.21
  * Validate: bun test apps/mobile-client/src/flow/__tests__/qrToMount.test.ts
+ *
+ * NOTE: this file calls `mock.module()` for paths (`../../deepLink/parse`,
+ * `../../relay/manifestFetcher`, `../../relay/bundleFetcher`,
+ * `../../storage/recentSessions`) that OTHER test files import for their
+ * real implementations. Bun's `mock.module` is process-wide and has no
+ * auto-restore at file boundaries, so running `bun test src` pollutes
+ * those files. Use `bun run test` (see `scripts/run-tests-isolated.ts`),
+ * which runs each test file in its own process.
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 
 /* ── Mutable mock state ─────────────────────────────────────────────────── */
 

@@ -35,6 +35,13 @@
  *
  * Task: MCI.1
  * Validate: bun test apps/mobile-client/src/__tests__/full-pipeline.integration.test.ts
+ *
+ * NOTE: this file calls `mock.module('expo-secure-store', ...)` which is
+ * process-wide in Bun and persists across test files with no auto-restore
+ * hook at file boundaries. Running `bun test src` will pollute any later
+ * test that imports the real `expo-secure-store` mock differently. Use
+ * `bun run test` (see `scripts/run-tests-isolated.ts`), which runs each
+ * test file in its own process.
  */
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
