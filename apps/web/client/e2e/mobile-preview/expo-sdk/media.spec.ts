@@ -162,11 +162,6 @@ test.describe('Mobile preview Expo media bundle', () => {
 
         await openVerificationProject(page, VERIFICATION_PROJECT_ID);
 
-        const editor = page
-            .locator('[data-testid="project-editor"], body[data-onlook-loaded="true"]')
-            .first();
-        await editor.waitFor({ state: 'attached', timeout: 60_000 });
-
         const pushRequest = await pushRequestPromise;
         const payload = pushRequest.postDataJSON() as
             | { type?: string; code?: string }
