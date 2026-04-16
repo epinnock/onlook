@@ -67,3 +67,27 @@ First successful install + boot of OnlookMobileClient on a physical iPhone (iPho
 
 ## Contributors
 Orchestrated via /loop cron across ~40+ parallel agents.
+
+## Appendix: Session metrics
+
+- Range: `ffe1fc93..HEAD` on `feat/mobile-client`
+- Duration: ~5h 0m (first commit 2026-04-16 12:03 UTC, last commit 2026-04-16 17:04 UTC)
+- Commits: 36
+- Files changed: 61
+- New files: 33
+- Net LOC: +4,918 / -309 (delta +4,609)
+- Commits by type:
+  - feat(mobile-client): 10
+  - docs(mobile-client): 6
+  - test(mobile-client): 5
+  - docs: 4
+  - test(mobile-client-protocol): 2
+  - fix(mobile-client): 2
+  - test(mobile-preview): 1
+  - refactor(mobile-client): 1
+  - perf(mobile-client): 1
+  - fix(mobile-preview): 1
+  - feat(web-client): 1
+  - chore(ci): 1
+  - chore(ai): 1
+- Peak parallelism: 8+ agents active concurrently across the ~5-hour window (orchestrator estimate)
