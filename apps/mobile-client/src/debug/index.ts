@@ -20,3 +20,5 @@ export type { ExceptionEntry } from './exceptionCatcher';
 
 export { NetworkStreamer } from './networkStreamer';
 export type { NetworkStreamerSources, NetworkStreamerOptions } from './networkStreamer';
+
+export { ConsoleStreamer } from './consoleStreamer';
