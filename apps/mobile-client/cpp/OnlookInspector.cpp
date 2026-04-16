@@ -185,9 +185,11 @@ jsi::Value OnlookInspector::captureScreenshot(
     jsi::Runtime& rt,
     const jsi::Value* /*args*/,
     size_t /*count*/) {
-  throw jsi::JSError(
-      rt,
-      "OnlookInspector.captureScreenshot: not implemented (Wave 4 MC4.4)");
+  // No JS-side arguments; UIKit body lives in OnlookInspector_screenshot.mm
+  // (MC4.4) behind the `captureScreenshotImpl` free function declared in
+  // OnlookInspector.h. Returns a base64-encoded PNG string; the editor
+  // wraps this in a `data:image/png;base64,` prefix before rendering.
+  return captureScreenshotImpl(rt);
 }
 
 jsi::Value OnlookInspector::highlightNode(

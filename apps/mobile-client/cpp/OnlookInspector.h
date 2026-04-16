@@ -139,4 +139,28 @@ facebook::jsi::Value highlightNodeImpl(
     int reactTag,
     std::string colorHex);
 
+/// MC4.4 — render the current key UIWindow via `UIGraphicsImageRenderer`,
+/// encode as PNG via `UIImagePNGRepresentation`, base64-encode, and return
+/// as a `jsi::String`. Throws `jsi::JSError` when no key window is
+/// foreground-active or the PNG encode fails. Defined in
+/// OnlookInspector_screenshot.mm (iOS); Android mirror (PixelCopy-based)
+/// lands behind MCF8c. Caller is `OnlookInspector::captureScreenshot` in
+/// OnlookInspector.cpp — no JS-side args, so no validation is required
+/// before handing off.
+facebook::jsi::Value captureScreenshotImpl(facebook::jsi::Runtime& rt);
+
+/// MC4.3 — return a plain JS `ReactNodeDescriptor` snapshot of the Fabric
+/// shadow subtree rooted at `reactTag`: `{ reactTag, componentName,
+/// children[] }`. Defined in OnlookInspector_walkTree.mm (iOS); Android
+/// mirror lands behind MCF8c. Placeholder body until MC4.2 stabilizes the
+/// fabric-handle lookup path — returns a single-level stub so editor-side
+/// consumers (MC4.14-MC4.18) get a valid shape. `OnlookInspector::walkTree`
+/// in OnlookInspector.cpp is the thin delegator that forwards the JSI
+/// args pointer after shape validation; the impl re-checks the arg shape
+/// so JSError messages stay attributable if another TU calls in directly.
+facebook::jsi::Value walkTreeImpl(
+    facebook::jsi::Runtime& rt,
+    const facebook::jsi::Value* args,
+    size_t count);
+
 }  // namespace onlook
