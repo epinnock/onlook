@@ -302,10 +302,10 @@ Goal: buildable app that loads a Hermes JS context and prints `[onlook-runtime] 
   - Files: `apps/mobile-client/react-native.config.js`
   - Deps: MCF8
   - Validate: `bun run mobile:build:ios` AND `cd apps/mobile-client/ios && grep -L ExpoFileSystem Pods/Pods.xcodeproj/project.pbxproj` (proves the disallowed module is NOT in the build)
-  - Status: **🟢 ADR landed 2026-04-15** — see `plans/adr/MC1.8-module-allowlist.md`. New direction: enforce the allowlist at the **JS-import surface** (ESLint + Metro resolver), not at the linked-binary set. Original validate (`grep -L ExpoFileSystem ...`) is unworkable because ExpoFileSystem is a baseline `expo-modules-core` peer. New scope:
-    - **Files:** `apps/mobile-client/eslint.config.{js,mjs}` (or extension of `@onlook/eslint`), `apps/mobile-client/metro.config.js`, `apps/mobile-client/scripts/validate-mc18.sh`, optionally `apps/mobile-client/src/supported-modules.ts` (programmatic allowlist).
-    - **Validate:** `bun --filter @onlook/mobile-client lint && bash apps/mobile-client/scripts/validate-mc18.sh` (the script writes a probe file importing a banned module, runs lint + Metro bundle, asserts both reject).
-    - Ready to dispatch when picked up.
+  - Status: **ESLint half shipped; Metro resolver block deferred to follow-up.** ADR landed 2026-04-15 — see `plans/adr/MC1.8-module-allowlist.md`. Direction: enforce the allowlist at the **JS-import surface** (ESLint + Metro resolver), not at the linked-binary set. Original validate (`grep -L ExpoFileSystem ...`) is unworkable because ExpoFileSystem is a baseline `expo-modules-core` peer. Shipped scope (this dispatch):
+    - **Files landed:** `apps/mobile-client/src/supported-modules.ts` (programmatic allowlist — `ALLOWED_EXPO_MODULES` + `isAllowedExpoModule`), `apps/mobile-client/eslint.config.mjs` (flat config — extends `@onlook/eslint/base`, adds `no-restricted-imports` with `paths` + `patterns` for 14 banned `expo-*` modules), `apps/mobile-client/scripts/validate-mc18.sh` (baseline-then-probe validator).
+    - **Validate:** `bun --filter @onlook/mobile-client lint && bash apps/mobile-client/scripts/validate-mc18.sh` — script runs baseline lint (expect exit 0), writes `__lint_probe__.ts` importing `expo-av`, reruns lint (expect non-zero), cleans up via trap.
+    - **Deferred follow-up:** `apps/mobile-client/metro.config.js` resolver block. Prior attempts bled hours on the resolver without landing a fix; ESLint alone catches ~all authored imports before bundling, which covers the primary threat model. Resolver will be picked up as a separate task once the Metro config pattern is proven in a scratch repo.
 
 - **MC1.9** — `SUPPORTED_MODULES.md` documentation
   - Files: `apps/mobile-client/SUPPORTED_MODULES.md`
