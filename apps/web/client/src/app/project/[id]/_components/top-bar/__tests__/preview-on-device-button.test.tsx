@@ -49,6 +49,10 @@ const engineRef: { current: MockEditorEngine } = {
 
 interface MockPreviewHandle {
     status: { kind: string };
+    errorPanel: {
+        isVisible: boolean;
+        items: unknown[];
+    };
     isOpen: boolean;
     open: () => Promise<void>;
     close: () => void;
@@ -81,6 +85,10 @@ const connectionRef: { current: MockConnectionHandle } = {
 function createPreviewHandle(overrides: Partial<MockPreviewHandle> = {}): MockPreviewHandle {
     const handle: MockPreviewHandle = {
         status: { kind: 'idle' },
+        errorPanel: {
+            isVisible: false,
+            items: [],
+        },
         isOpen: false,
         openCalls: 0,
         closeCalls: 0,
@@ -140,6 +148,10 @@ mock.module('@/components/ui/qr-modal', () => ({
     QrModal: ({ open }: { open: boolean }) => (
         <div data-testid="qr-modal-stub" data-open={String(open)} />
     ),
+}));
+
+mock.module('@/components/ui/mobile-preview-error-panel', () => ({
+    MobilePreviewErrorPanel: () => <div data-testid="mobile-preview-error-panel-stub" />,
 }));
 
 // Stub @onlook/ui/button to a plain <button>. The real Button comes from

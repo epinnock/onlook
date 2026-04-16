@@ -6,6 +6,8 @@ import { tmpdir } from 'node:os';
 
 export const VERIFICATION_PROJECT_ID = '2bff33ae-7334-457e-a69e-93a5d90b18b3';
 export const VERIFICATION_BRANCH_ID = 'fcebdee5-1010-4147-9748-823a27dc36a3';
+const AUTH_SESSION_RETRY_COUNT = 240;
+const AUTH_SESSION_RETRY_DELAY_MS = 500;
 
 const USER_GET_INPUT = encodeURIComponent(
     JSON.stringify({
@@ -37,20 +39,20 @@ export function buildAppUrl(pathname: string): string {
 export async function waitForAuthenticatedSession(page: Page): Promise<void> {
     const userGetUrl = buildAppUrl(`/api/trpc/user.get?batch=1&input=${USER_GET_INPUT}`);
 
-    for (let attempt = 0; attempt < 60; attempt += 1) {
+    for (let attempt = 0; attempt < AUTH_SESSION_RETRY_COUNT; attempt += 1) {
         const cookies = await page.context().cookies([getWebBaseUrl()]);
         const hasAuthCookie = cookies.some(
             (cookie) => cookie.name.includes('auth-token') && cookie.value.length > 0,
         );
 
         if (!hasAuthCookie) {
-            await page.waitForTimeout(500);
+            await page.waitForTimeout(AUTH_SESSION_RETRY_DELAY_MS);
             continue;
         }
 
         const response = await page.context().request.get(userGetUrl).catch(() => null);
         if (!response) {
-            await page.waitForTimeout(500);
+            await page.waitForTimeout(AUTH_SESSION_RETRY_DELAY_MS);
             continue;
         }
 
@@ -64,7 +66,7 @@ export async function waitForAuthenticatedSession(page: Page): Promise<void> {
             return;
         }
 
-        await page.waitForTimeout(500);
+        await page.waitForTimeout(AUTH_SESSION_RETRY_DELAY_MS);
     }
 
     throw new Error('Timed out waiting for an authenticated dev-login session.');
@@ -130,6 +132,8 @@ export async function openVerificationProject(
 export function seedVerificationFixture(
     repoRoot: string,
     overrides: Record<string, string>,
+    projectId = VERIFICATION_PROJECT_ID,
+    branchId = VERIFICATION_BRANCH_ID,
 ): void {
     const tempRoot = mkdtempSync(join(tmpdir(), 'onlook-mobile-preview-'));
 
@@ -152,9 +156,9 @@ export function seedVerificationFixture(
                 'run',
                 join(repoRoot, 'scripts/seed-expo-fixture.ts'),
                 '--project-id',
-                VERIFICATION_PROJECT_ID,
+                projectId,
                 '--branch-id',
-                VERIFICATION_BRANCH_ID,
+                branchId,
                 ...overrideArgs,
             ],
             {

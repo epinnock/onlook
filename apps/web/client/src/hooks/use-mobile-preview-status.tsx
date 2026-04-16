@@ -292,6 +292,7 @@ export function useMobilePreviewStatus(
     const isOpenRef = useRef(false);
     const readyStatusRef = useRef<ReadyQrModalStatus | null>(null);
     const runtimeErrorMessageRef = useRef<string | null>(null);
+    const latestBundleCodeRef = useRef<string | null>(null);
 
     isOpenRef.current = isOpen;
 
@@ -314,7 +315,12 @@ export function useMobilePreviewStatus(
 
     const recordRuntimeError = useCallback(
         (message: string) => {
-            errorStoreRef.current.recordRuntimeError(message);
+            const bundleCode = latestBundleCodeRef.current;
+            if (bundleCode) {
+                errorStoreRef.current.recordMappedRuntimeError(message, bundleCode);
+            } else {
+                errorStoreRef.current.recordRuntimeError(message);
+            }
             syncErrorPanel();
         },
         [syncErrorPanel],
@@ -529,6 +535,7 @@ export function useMobilePreviewStatus(
 
             try {
                 const bundle = await buildMobilePreviewBundle(fileSystem);
+                latestBundleCodeRef.current = bundle.code;
                 await pushMobilePreviewUpdate({
                     serverBaseUrl: baseUrl,
                     code: bundle.code,

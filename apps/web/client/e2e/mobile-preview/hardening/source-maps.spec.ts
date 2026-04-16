@@ -1,21 +1,17 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import { EXPO_BROWSER_TEST_BRANCH } from '../../fixtures/test-branch';
+import { seedExpoBrowserTestBranch } from '../../expo-browser/helpers/setup';
 import {
-    MOBILE_PREVIEW_FIXTURE_PROJECT_ID,
     MOBILE_PREVIEW_FIXTURE_SDK_VERSION,
 } from '../helpers/fixture';
-
-const VERIFICATION_PROJECT_ID = '2bff33ae-7334-457e-a69e-93a5d90b18b3';
+import {
+    ensureDevLoggedIn,
+    openVerificationProject,
+} from '../helpers/browser';
 const RUNTIME_HASH = 'runtime-hash-source-maps';
 const RUNTIME_MANIFEST_URL = `exp://preview.test/manifest/${RUNTIME_HASH}`;
 const SOURCE_MAPPED_FILE_PATH = 'App.tsx';
-
-const CANDIDATE_PROJECT_IDS = [
-    VERIFICATION_PROJECT_ID,
-    EXPO_BROWSER_TEST_BRANCH.projectId,
-    MOBILE_PREVIEW_FIXTURE_PROJECT_ID,
-];
 
 interface MobilePreviewEvalPushPayload {
     type: string;
@@ -24,14 +20,6 @@ interface MobilePreviewEvalPushPayload {
 
 function escapeRegExp(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function getEditorBaseUrl(): string {
-    return process.env.PLAYWRIGHT_BASE_URL?.trim() || 'http://127.0.0.1:3000';
-}
-
-function getEditorUrl(path: string): string {
-    return new URL(path, `${getEditorBaseUrl().replace(/\/$/, '')}/`).toString();
 }
 
 function getMobilePreviewEndpointUrl(path: '/status' | '/push'): string {
@@ -55,98 +43,46 @@ function findLineContaining(bundleCode: string, searchText: string): number {
     return index + 1;
 }
 
-async function signInWithDevMode(page: Page): Promise<void> {
-    await page.goto(getEditorUrl('/login'));
-
-    const devModeButton = page.getByRole('button', {
-        name: /dev mode: sign in as demo user/i,
-    });
-
-    if (!(await devModeButton.isVisible({ timeout: 15_000 }).catch(() => false))) {
-        return;
+function findGeneratedLineWithinModule(
+    bundleCode: string,
+    modulePath: string,
+): number {
+    const lines = bundleCode.split('\n');
+    const headerIndex = lines.findIndex((line) =>
+        line.includes(`${modulePath}": function(require, module, exports) {`),
+    );
+    if (headerIndex < 0) {
+        throw new Error(`Unable to find bundle module for: ${modulePath}`);
     }
 
-    await devModeButton.click();
-    await page.waitForURL((url) => !url.pathname.startsWith('/login'), {
-        timeout: 30_000,
-    });
+    return headerIndex + 2;
 }
 
-async function gotoProjectPage(page: Page, projectId: string): Promise<void> {
-    try {
-        await page.goto(getEditorUrl(`/project/${projectId}`), {
-            waitUntil: 'domcontentloaded',
-        });
-    } catch (error) {
-        if (!(error instanceof Error) || !error.message.includes('ERR_ABORTED')) {
-            throw error;
-        }
-
-        await page.waitForLoadState('domcontentloaded').catch(() => undefined);
-    }
-}
-
-async function openFirstExpoBrowserProject(page: Page): Promise<string> {
-    const editorReady = page
-        .locator('[data-testid="project-editor"], body[data-onlook-loaded="true"]')
-        .first();
-    const previewFrame = page
-        .locator('iframe[id^="frame-"], iframe[src*="/preview/"]')
-        .first();
+async function openSourceMapsProject(page: Page): Promise<void> {
     const previewButton = page.getByTestId('preview-on-device-button');
+    const loadingProject = page.getByText('Loading project...');
     const applicationErrorHeading = page
         .getByRole('heading', {
             name: /application error: a client-side exception has occurred/i,
         })
         .first();
 
-    for (const projectId of CANDIDATE_PROJECT_IDS) {
-        await gotoProjectPage(page, projectId);
+    await ensureDevLoggedIn(page, `/project/${EXPO_BROWSER_TEST_BRANCH.projectId}`);
+    await openVerificationProject(page, EXPO_BROWSER_TEST_BRANCH.projectId);
 
-        if (page.url().includes('/login')) {
-            await signInWithDevMode(page);
-            await gotoProjectPage(page, projectId);
-        }
+    await loadingProject
+        .waitFor({ state: 'hidden', timeout: 120_000 })
+        .catch(() => undefined);
 
-        if (page.url().includes('/see-a-demo')) {
-            continue;
-        }
-
-        if (
-            await applicationErrorHeading
-                .isVisible({ timeout: 2_000 })
-                .catch(() => false)
-        ) {
-            continue;
-        }
-
-        const mounted = await editorReady
-            .waitFor({ state: 'attached', timeout: 10_000 })
-            .then(() => true)
-            .catch(() => false);
-        if (!mounted) {
-            continue;
-        }
-
-        const buttonVisible = await previewButton
-            .isVisible({ timeout: 10_000 })
-            .catch(() => false);
-        if (!buttonVisible) {
-            continue;
-        }
-
-        await previewFrame
-            .waitFor({ state: 'attached', timeout: 15_000 })
-            .catch(() => undefined);
-        await page.waitForTimeout(1_000);
-        return projectId;
+    if (
+        await applicationErrorHeading
+            .isVisible({ timeout: 2_000 })
+            .catch(() => false)
+    ) {
+        throw new Error('Project route rendered a client-side application error.');
     }
 
-    throw new Error(
-        `Could not find an ExpoBrowser project with a visible preview button. Tried: ${CANDIDATE_PROJECT_IDS.join(
-            ', ',
-        )}`,
-    );
+    await expect(previewButton).toBeVisible({ timeout: 60_000 });
 }
 
 async function installMockMobilePreviewSocket(page: Page): Promise<void> {
@@ -230,6 +166,10 @@ async function waitForInitialPush(
 }
 
 test.describe('Mobile preview source maps', () => {
+    test.beforeAll(() => {
+        seedExpoBrowserTestBranch();
+    });
+
     test('maps runtime errors back to the original file and line in the editor panel', async ({
         page,
     }) => {
@@ -278,8 +218,7 @@ test.describe('Mobile preview source maps', () => {
             });
         });
 
-        await signInWithDevMode(page);
-        await openFirstExpoBrowserProject(page);
+        await openSourceMapsProject(page);
 
         const firstPushPayload = await waitForInitialPush(firstPush, page);
         expect(firstPushPayload.type).toBe('eval');
@@ -287,9 +226,9 @@ test.describe('Mobile preview source maps', () => {
             '//# sourceMappingURL=data:application/json',
         );
 
-        const generatedLine = findLineContaining(
+        const generatedLine = findGeneratedLineWithinModule(
             firstPushPayload.code,
-            'return React.createElement',
+            SOURCE_MAPPED_FILE_PATH,
         );
         const mappedRuntimeError = `ReferenceError: __missingBinding is not defined (<anonymous>:${generatedLine}:1)`;
 
@@ -331,7 +270,9 @@ test.describe('Mobile preview source maps', () => {
         );
         await expect(runtimeErrorLink).toHaveAttribute(
             'href',
-            new RegExp(`onlook://file/${escapeRegExp(SOURCE_MAPPED_FILE_PATH)}:\\d+`),
+            new RegExp(
+                `onlook://file/(?:[^:]+/)?${escapeRegExp(SOURCE_MAPPED_FILE_PATH)}:\\d+`,
+            ),
         );
     });
 });

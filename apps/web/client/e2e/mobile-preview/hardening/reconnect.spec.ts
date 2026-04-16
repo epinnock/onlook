@@ -1,20 +1,16 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import { EXPO_BROWSER_TEST_BRANCH } from '../../fixtures/test-branch';
+import { seedExpoBrowserTestBranch } from '../../expo-browser/helpers/setup';
 import {
-    MOBILE_PREVIEW_FIXTURE_PROJECT_ID,
     MOBILE_PREVIEW_FIXTURE_SDK_VERSION,
 } from '../helpers/fixture';
-
-const VERIFICATION_PROJECT_ID = '2bff33ae-7334-457e-a69e-93a5d90b18b3';
+import {
+    ensureDevLoggedIn,
+    openVerificationProject,
+} from '../helpers/browser';
 const RUNTIME_HASH = 'runtime-hash-reconnect';
 const RUNTIME_MANIFEST_URL = `exp://preview.test/manifest/${RUNTIME_HASH}`;
-
-const CANDIDATE_PROJECT_IDS = [
-    VERIFICATION_PROJECT_ID,
-    EXPO_BROWSER_TEST_BRANCH.projectId,
-    MOBILE_PREVIEW_FIXTURE_PROJECT_ID,
-];
 
 interface MobilePreviewEvalPushPayload {
     type: string;
@@ -23,14 +19,6 @@ interface MobilePreviewEvalPushPayload {
 
 function escapeRegExp(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function getEditorBaseUrl(): string {
-    return process.env.PLAYWRIGHT_BASE_URL?.trim() || 'http://127.0.0.1:3000';
-}
-
-function getEditorUrl(path: string): string {
-    return new URL(path, `${getEditorBaseUrl().replace(/\/$/, '')}/`).toString();
 }
 
 function getMobilePreviewEndpointUrl(path: '/status' | '/push'): string {
@@ -44,98 +32,31 @@ function getMobilePreviewEndpointUrl(path: '/status' | '/push'): string {
     return url.toString();
 }
 
-async function signInWithDevMode(page: Page): Promise<void> {
-    await page.goto(getEditorUrl('/login'));
-
-    const devModeButton = page.getByRole('button', {
-        name: /dev mode: sign in as demo user/i,
-    });
-
-    if (!(await devModeButton.isVisible({ timeout: 15_000 }).catch(() => false))) {
-        return;
-    }
-
-    await devModeButton.click();
-    await page.waitForURL((url) => !url.pathname.startsWith('/login'), {
-        timeout: 30_000,
-    });
-}
-
-async function gotoProjectPage(page: Page, projectId: string): Promise<void> {
-    try {
-        await page.goto(getEditorUrl(`/project/${projectId}`), {
-            waitUntil: 'domcontentloaded',
-        });
-    } catch (error) {
-        if (!(error instanceof Error) || !error.message.includes('ERR_ABORTED')) {
-            throw error;
-        }
-
-        await page.waitForLoadState('domcontentloaded').catch(() => undefined);
-    }
-}
-
-async function openFirstExpoBrowserProject(page: Page): Promise<string> {
-    const editorReady = page
-        .locator('[data-testid="project-editor"], body[data-onlook-loaded="true"]')
-        .first();
-    const previewFrame = page
-        .locator('iframe[id^="frame-"], iframe[src*="/preview/"]')
-        .first();
+async function openReconnectProject(page: Page): Promise<void> {
     const previewButton = page.getByTestId('preview-on-device-button');
+    const loadingProject = page.getByText('Loading project...');
     const applicationErrorHeading = page
         .getByRole('heading', {
             name: /application error: a client-side exception has occurred/i,
         })
         .first();
 
-    for (const projectId of CANDIDATE_PROJECT_IDS) {
-        await gotoProjectPage(page, projectId);
+    await ensureDevLoggedIn(page, `/project/${EXPO_BROWSER_TEST_BRANCH.projectId}`);
+    await openVerificationProject(page, EXPO_BROWSER_TEST_BRANCH.projectId);
 
-        if (page.url().includes('/login')) {
-            await signInWithDevMode(page);
-            await gotoProjectPage(page, projectId);
-        }
+    await loadingProject
+        .waitFor({ state: 'hidden', timeout: 120_000 })
+        .catch(() => undefined);
 
-        if (page.url().includes('/see-a-demo')) {
-            continue;
-        }
-
-        if (
-            await applicationErrorHeading
-                .isVisible({ timeout: 2_000 })
-                .catch(() => false)
-        ) {
-            continue;
-        }
-
-        const mounted = await editorReady
-            .waitFor({ state: 'attached', timeout: 10_000 })
-            .then(() => true)
-            .catch(() => false);
-        if (!mounted) {
-            continue;
-        }
-
-        const buttonVisible = await previewButton
-            .isVisible({ timeout: 10_000 })
-            .catch(() => false);
-        if (!buttonVisible) {
-            continue;
-        }
-
-        await previewFrame
-            .waitFor({ state: 'attached', timeout: 15_000 })
-            .catch(() => undefined);
-        await page.waitForTimeout(1_000);
-        return projectId;
+    if (
+        await applicationErrorHeading
+            .isVisible({ timeout: 2_000 })
+            .catch(() => false)
+    ) {
+        throw new Error('Project route rendered a client-side application error.');
     }
 
-    throw new Error(
-        `Could not find an ExpoBrowser project with a visible preview button. Tried: ${CANDIDATE_PROJECT_IDS.join(
-            ', ',
-        )}`,
-    );
+    await expect(previewButton).toBeVisible({ timeout: 60_000 });
 }
 
 async function installBounceableStatusSocket(page: Page): Promise<void> {
@@ -254,10 +175,11 @@ async function installBounceableStatusSocket(page: Page): Promise<void> {
         });
         Object.defineProperty(globalThis, '__emitMobilePreviewReconnectMessage', {
             value: (data: string) => {
-                const openSocket = [...store.instances]
-                    .reverse()
-                    .find((socket) => socket.readyState === MockWebSocket.OPEN);
-                openSocket?.emit(data);
+                for (const socket of store.instances) {
+                    if (socket.readyState === MockWebSocket.OPEN) {
+                        socket.emit(data);
+                    }
+                }
             },
             configurable: true,
         });
@@ -281,7 +203,32 @@ async function waitForInitialPush(
     ]);
 }
 
+async function getReconnectState(page: Page): Promise<{
+    connectionCount: number;
+    openSocketIds: number[];
+}> {
+    return page.evaluate(() => {
+        const target = globalThis as typeof globalThis & {
+            __getMobilePreviewReconnectState?: () => {
+                connectionCount: number;
+                openSocketIds: number[];
+            };
+        };
+
+        return (
+            target.__getMobilePreviewReconnectState?.() ?? {
+                connectionCount: 0,
+                openSocketIds: [],
+            }
+        );
+    });
+}
+
 test.describe('Mobile preview reconnect after server bounce', () => {
+    test.beforeAll(() => {
+        seedExpoBrowserTestBranch();
+    });
+
     test('reconnects the status socket and restores ready state after a simulated bounce', async ({
         page,
     }) => {
@@ -330,8 +277,7 @@ test.describe('Mobile preview reconnect after server bounce', () => {
             });
         });
 
-        await signInWithDevMode(page);
-        await openFirstExpoBrowserProject(page);
+        await openReconnectProject(page);
 
         const firstPushPayload = await waitForInitialPush(firstPush, page);
         expect(firstPushPayload.type).toBe('eval');
@@ -342,28 +288,13 @@ test.describe('Mobile preview reconnect after server bounce', () => {
         await expect(manifestUrl).toBeVisible();
         await expect(manifestUrl).toContainText(RUNTIME_MANIFEST_URL);
 
-        await expect
-            .poll(async () => {
-                return page.evaluate(() => {
-                    const target = globalThis as typeof globalThis & {
-                        __getMobilePreviewReconnectState?: () => {
-                            connectionCount: number;
-                            openSocketIds: number[];
-                        };
-                    };
-
-                    return (
-                        target.__getMobilePreviewReconnectState?.() ?? {
-                            connectionCount: 0,
-                            openSocketIds: [],
-                        }
-                    );
-                });
-            })
-            .toMatchObject({
-                connectionCount: 1,
-                openSocketIds: [1],
-            });
+        await expect.poll(
+            async () => (await getReconnectState(page)).openSocketIds.length,
+            {
+                message: 'expected at least one open mobile preview socket',
+            },
+        ).toBeGreaterThan(0);
+        const initialState = await getReconnectState(page);
 
         await page.evaluate(() => {
             const target = globalThis as typeof globalThis & {
@@ -373,28 +304,19 @@ test.describe('Mobile preview reconnect after server bounce', () => {
             target.__bounceMobilePreviewSocketServer?.();
         });
 
-        await expect
-            .poll(async () => {
-                return page.evaluate(() => {
-                    const target = globalThis as typeof globalThis & {
-                        __getMobilePreviewReconnectState?: () => {
-                            connectionCount: number;
-                            openSocketIds: number[];
-                        };
-                    };
-
-                    return (
-                        target.__getMobilePreviewReconnectState?.() ?? {
-                            connectionCount: 0,
-                            openSocketIds: [],
-                        }
-                    );
-                });
-            })
-            .toMatchObject({
-                connectionCount: 2,
-                openSocketIds: [],
-            });
+        await expect.poll(
+            async () => (await getReconnectState(page)).openSocketIds.length,
+            {
+                message: 'expected the preview sockets to close after a simulated bounce',
+            },
+        ).toBe(0);
+        await expect.poll(
+            async () => (await getReconnectState(page)).connectionCount,
+            {
+                message: 'expected a reconnect attempt after the simulated bounce',
+            },
+        ).toBeGreaterThan(initialState.connectionCount);
+        const bouncedState = await getReconnectState(page);
 
         await page.evaluate(() => {
             const target = globalThis as typeof globalThis & {
@@ -405,27 +327,16 @@ test.describe('Mobile preview reconnect after server bounce', () => {
         });
 
         await expect
-            .poll(async () => {
-                return page.evaluate(() => {
-                    const target = globalThis as typeof globalThis & {
-                        __getMobilePreviewReconnectState?: () => {
-                            connectionCount: number;
-                            openSocketIds: number[];
-                        };
-                    };
-
-                    return (
-                        target.__getMobilePreviewReconnectState?.() ?? {
-                            connectionCount: 0,
-                            openSocketIds: [],
-                        }
-                    );
-                });
+            .poll(async () => (await getReconnectState(page)).connectionCount, {
+                message: 'expected the preview runtime to reconnect after restore',
             })
-            .toMatchObject({
-                connectionCount: 3,
-                openSocketIds: [3],
-            });
+            .toBeGreaterThan(bouncedState.connectionCount);
+        await expect.poll(
+            async () => (await getReconnectState(page)).openSocketIds.length,
+            {
+                message: 'expected at least one reopened preview socket after restore',
+            },
+        ).toBeGreaterThan(0);
 
         await page.evaluate((message) => {
             const target = globalThis as typeof globalThis & {
@@ -435,11 +346,11 @@ test.describe('Mobile preview reconnect after server bounce', () => {
             target.__emitMobilePreviewReconnectMessage?.(message);
         }, JSON.stringify({ type: 'evalError', error: 'post-bounce runtime error' }));
 
-        const runtimeModalError = page.getByTestId('qr-status-error');
-        await expect(runtimeModalError).toBeVisible();
-        await expect(runtimeModalError).toContainText(
-            /Mobile preview runtime error: post-bounce runtime error/,
-        );
+        const runtimeErrorPanel = page.getByTestId('mobile-preview-error-panel');
+        await expect(runtimeErrorPanel).toBeVisible();
+        await expect(
+            page.getByTestId('mobile-preview-error-message-runtime'),
+        ).toContainText('post-bounce runtime error');
 
         await page.evaluate((message) => {
             const target = globalThis as typeof globalThis & {

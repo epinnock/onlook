@@ -21,6 +21,7 @@
  */
 
 import { useEditorEngine } from '@/components/store/editor';
+import { MobilePreviewErrorPanel } from '@/components/ui/mobile-preview-error-panel';
 import { QrModal } from '@/components/ui/qr-modal';
 import { env } from '@/env';
 import {
@@ -68,25 +69,28 @@ function PreviewOnDeviceInner({
 
     return (
         <>
-            <div className="flex items-center gap-2">
-                <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8"
-                    onClick={handleClick}
-                    data-testid="preview-on-device-button"
-                    aria-label="Preview on device"
-                >
-                    Preview on device
-                </Button>
-                <span
-                    data-testid="mobile-preview-connection-status"
-                    data-status={connection.status.kind}
-                    className={getConnectionStatusClassName(connection.status)}
-                    aria-live="polite"
-                >
-                    {getConnectionStatusLabel(connection.status)}
-                </span>
+            <div className="flex flex-col items-start gap-2">
+                <div className="flex items-center gap-2">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8"
+                        onClick={handleClick}
+                        data-testid="preview-on-device-button"
+                        aria-label="Preview on device"
+                    >
+                        Preview on device
+                    </Button>
+                    <span
+                        data-testid="mobile-preview-connection-status"
+                        data-status={connection.status.kind}
+                        className={getConnectionStatusClassName(connection.status)}
+                        aria-live="polite"
+                    >
+                        {getConnectionStatusLabel(connection.status)}
+                    </span>
+                </div>
+                <MobilePreviewErrorPanel panel={preview.errorPanel} />
             </div>
             <QrModal
                 open={preview.isOpen}
