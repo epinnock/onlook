@@ -60,6 +60,7 @@
 
 #include <jsi/jsi.h>
 
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -102,6 +103,26 @@ facebook::jsi::Value dispatchEventImpl(
     facebook::jsi::Runtime& rt,
     const facebook::jsi::Value* args,
     size_t count);
+
+/// Post `{kind, message, stack}` to
+/// `globalThis.OnlookRuntime.dispatchEvent('onlook:error', payload)`. Used by
+/// MC2.7+ `runApplication` / `reloadBundle` / `dispatchEvent` to funnel
+/// unhandled errors through a single JS-observable event. Safe to call before
+/// OnlookRuntime has been installed (benign no-op + `nativeLoggingHook`
+/// breadcrumb). Defined in OnlookRuntime_errorSurface.cpp. Wave 2 task MC2.14.
+void reportRuntimeError(
+    facebook::jsi::Runtime& rt,
+    const std::string& kind,
+    const std::string& message,
+    const std::string& stack);
+
+/// Run `fn` and convert any thrown exception into `reportRuntimeError`.
+/// Catches `jsi::JSError` (reported as kind="js" with the JS message + stack),
+/// `std::exception` (kind="native"), and any other throwable (kind="unknown").
+/// Defined in OnlookRuntime_errorSurface.cpp. Wave 2 task MC2.14.
+void captureAndReport(
+    facebook::jsi::Runtime& rt,
+    const std::function<void()>& fn);
 
 /// Pre-warm Fabric's `findNodeAtPoint` by calling it once with off-screen
 /// coordinates (-1, -1). Absorbs the ~150ms cold-start latency during
