@@ -1,0 +1,17 @@
+{
+    "id": "manifest-001",
+    "createdAt": "2026-04-16T12:00:00.000Z",
+    "runtimeVersion": "0.1.0",
+    "launchAsset": {
+        "hash": "abc123",
+        "key": "bundle",
+        "contentType": "application/javascript",
+        "url": "http://relay.test/bundle.js"
+    },
+    "assets": [],
+    "extra": {
+        "expoClient": {
+            "onlookRuntimeVersion": "0.1.0"
+        }
+    }
+}

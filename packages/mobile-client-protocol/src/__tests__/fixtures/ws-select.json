@@ -1,0 +1,10 @@
+{
+    "type": "onlook:select",
+    "sessionId": "s1",
+    "reactTag": 42,
+    "source": {
+        "fileName": "App.tsx",
+        "lineNumber": 10,
+        "columnNumber": 5
+    }
+}

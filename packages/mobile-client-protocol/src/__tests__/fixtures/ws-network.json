@@ -1,0 +1,9 @@
+{
+    "type": "onlook:network",
+    "requestId": "r1",
+    "method": "GET",
+    "url": "http://x.test/resource",
+    "phase": "end",
+    "timestamp": 1234567890,
+    "sessionId": "s1"
+}
