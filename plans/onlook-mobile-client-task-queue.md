@@ -581,10 +581,11 @@ iOS and Android paths fan out in parallel — 4.1–4.6 are iOS, 4.7–4.11 are 
   - Deps: MC4.1
   - Validate: `bun run mobile:e2e:ios -- 25-highlight.yaml` (Maestro screenshots before/during/after, compares regions)
 
-- **MC4.6** — iOS tap event forwarder (Fabric root tap → `RCTDeviceEventEmitter`)
-  - Files: `apps/mobile-client/ios/OnlookMobile/OnlookInspectorEventForwarder.mm`
-  - Deps: MC4.2
-  - Validate: `bun run mobile:e2e:ios -- 26-tap-forwarded.yaml`
+- **MC4.6** — iOS tap event forwarder (Fabric root tap → `RCTDeviceEventEmitter`) — **Status: JS-facing module shipped 2026-04-11; Fabric call-site waits on MC2.5.**
+  - Files: `apps/mobile-client/ios/OnlookMobileClient/OnlookTapForwarder.mm` (NEW — re-homed from the original `ios/OnlookMobile/OnlookInspectorEventForwarder.mm` path so the file lives alongside MC1.10's `OnlookLogger.swift` under the actual target folder `OnlookMobileClient/`). Also updates `apps/mobile-client/ios/OnlookMobileClient.xcodeproj/project.pbxproj` (adds file ref + Sources build-phase entry, same pbxproj-edit pattern as MC1.10 / MC4.1).
+  - Deps: MC4.2 (shipped), MC2.5 (Fabric `registerEventHandler` — still in flight). MC2.5 is what actually calls `[OnlookTapForwarder forwardTap:reactTag:source:]` from the Fabric commit phase; MC4.6 ships the module standalone so the integration snaps together when MC2.5 lands.
+  - Shape: `OnlookTapForwarder : RCTEventEmitter <RCTBridgeModule>`, `RCT_EXPORT_MODULE(OnlookTapForwarder)`, `supportedEvents = @[@"onlookTap"]`. Exposes `+ (void)forwardTap:(CGPoint)point reactTag:(NSInteger)reactTag source:(nullable NSDictionary *)source` which looks up the singleton instance (weak static, set in `-init`, guarded `@synchronized`), and calls `sendEventWithName:@"onlookTap" body:@{ @"x", @"y", @"reactTag", @"source" }`. `source` is a direct passthrough of `props.__source` (MC4.12's Sucrase `jsx-source` metadata) plucked by the Fabric tap handler; nil source bridges to JS `null` so MC4.14's `extractSource` hits its null-guard. Gated on `-startObserving` / `-stopObserving` state so pre-subscription taps drop silently instead of logging RN's "no listeners registered" warning.
+  - Validate: Mac mini iOS build (`bun run mobile:build:ios` — compiles + links the new TU into `OnlookMobileClient.app`). The 26-tap-forwarded.yaml Maestro flow is deferred to MC4.19 after MC2.5's Fabric handler registration lands, since the tap-to-emit path can't fire until MC2.5 invokes `forwardTap:` from a real Fabric commit.
 
 - **MC4.7** — Android `OnlookInspector.kt` TurboModule registration
   - Files: `apps/mobile-client/android/app/src/main/java/com/onlook/mobile/OnlookInspector.kt`
