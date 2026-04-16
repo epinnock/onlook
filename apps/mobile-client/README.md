@@ -27,7 +27,7 @@ apps/mobile-client/
 
 ## Validate scripts
 
-Bespoke per-task validators live in `scripts/` and substitute for Maestro flows that currently hang on the bare RN scaffold. Each scrapes the iOS Simulator device log for the expected runtime log line after a fresh build+install. See [`scripts/validate-index.md`](./scripts/validate-index.md) for the full index.
+Bespoke per-task validators live in `scripts/` and substitute for Maestro flows that currently hang on the bare RN scaffold. Each scrapes the iOS Simulator device log for the expected runtime log line after a fresh build+install.
 
 | Script | Tests |
 | ------ | ----- |
