@@ -22,13 +22,21 @@
     <string>0.1.0</string>
     <key>CFBundleSignature</key>
     <string>????</string>
+    <!--
+      URL schemes. The `onlook` scheme (from app.config.ts `scheme: 'onlook'`)
+      is the only one our deep-link parser accepts (see
+      src/deepLink/parse.ts — ONLOOK_SCHEME = 'onlook:'). Expo prebuild also
+      auto-registers the bundle identifier (`com.onlook.mobile`) as a URL
+      scheme; it is pruned here because no code emits `com.onlook.mobile://`
+      URLs and parseOnlookDeepLink would reject them anyway. If `expo prebuild`
+      is re-run, re-apply this pruning.
+    -->
     <key>CFBundleURLTypes</key>
     <array>
       <dict>
         <key>CFBundleURLSchemes</key>
         <array>
           <string>onlook</string>
-          <string>com.onlook.mobile</string>
         </array>
       </dict>
     </array>
