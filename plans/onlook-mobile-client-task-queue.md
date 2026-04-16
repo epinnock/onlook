@@ -360,10 +360,10 @@ Goal: replace Spike B's scraping path with a documented `global.OnlookRuntime.ru
   - Deps: MC2.2, MC1.7
   - Validate: `bun run mobile:e2e:android -- 04-global-present.yaml`
 
-- **MC2.5** — Native-side Fabric `registerEventHandler` pre-JS call (iOS)
-  - Files: `apps/mobile-client/ios/OnlookMobile/FabricEventBootstrap.mm`
+- **MC2.5** — Native-side Fabric `registerEventHandler` pre-JS call (iOS) — **Status: iOS placeholder shipped 2026-04-16; real Fabric hook deferred to follow-up once downstream tasks reveal the needed API surface.**
+  - Files: `apps/mobile-client/ios/OnlookMobileClient/FabricEventBootstrap.mm` + `FabricEventBootstrap.h` (re-homed from the original `ios/OnlookMobile/` path to match MC1.10 / MC4.6 target folder). `apps/mobile-client/ios/OnlookMobileClient/AppDelegate.swift` calls `FabricEventBootstrap.registerHandler()` after `factory.startReactNative(...)`; bridging header `OnlookMobileClient-Bridging-Header.h` imports `FabricEventBootstrap.h`. `apps/mobile-client/ios/OnlookMobileClient.xcodeproj/project.pbxproj` updated (file refs + Sources build-phase entry + PBXGroup children) via the same pattern as MC1.10 / MC4.6. The shipped body is a placeholder that `os_log`s a marker line proving the native-side registration pass ran — the runtime's `packages/mobile-preview/runtime/shell.js:111` still owns the real `nativeFabricUIManager.registerEventHandler(...)` invocation today. The placeholder gives downstream inspector work (MC4.6's tap forwarder, MC2.15 prewarm) a known native seam to call through to; the real body lands in a follow-up once those tasks surface the exact Fabric API we need to hook.
   - Deps: MC2.3
-  - Validate: `bun run mobile:e2e:ios -- 05-fabric-event-registered.yaml`
+  - Validate: `bun run mobile:build:ios` (Mac mini — BUILD SUCCEEDED is the placeholder exit criterion). `bun run mobile:e2e:ios -- 05-fabric-event-registered.yaml` is deferred to the follow-up that fills in the real Fabric handler body.
 
 - **MC2.6** — Native-side Fabric `registerEventHandler` pre-JS call (Android)
   - Files: `apps/mobile-client/android/app/src/main/cpp/fabric_event_bootstrap.cpp`

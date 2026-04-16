@@ -27,6 +27,12 @@ public class AppDelegate: ExpoAppDelegate {
       withModuleName: "main",
       in: window,
       launchOptions: launchOptions)
+
+    // MC2.5 — native-side Fabric `registerEventHandler` pre-JS call.
+    // Today this is a logging placeholder; the real hook body lands
+    // in a follow-up once downstream inspector tasks reveal the API
+    // surface. See `FabricEventBootstrap.mm` for rationale.
+    FabricEventBootstrap.registerHandler()
 #endif
 
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
