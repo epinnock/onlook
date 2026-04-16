@@ -3,6 +3,12 @@
 ## Milestone
 First successful install + boot of OnlookMobileClient on a physical iPhone (iPhone 8 Plus, iOS 15.1). Confirms the entire stack — Wave F toolchain → Wave 1 scaffold → Wave 2 OnlookRuntime JSI → Wave 3 QR flow wiring → Wave 4 inspector → Wave 5 dev panel → Wave 6 distribution path — boots cleanly from a device build/install.
 
+## Screenshot
+
+![OnlookMobile icon installed on iPhone 8 Plus home screen (2026-04-16)](../../apps/mobile-client/docs/images/first-install-2026-04-16.png)
+
+First successful install verified — icon visible on home screen; app boot was captured via device syslog, not screen.
+
 ## Verified
 - Keychain-unlocked codesign works over SSH-to-Mac mini
 - `expo prebuild` → `pod install` → `xcodebuild -destination 'platform=iOS,id=<UDID>'` → `ios-deploy --bundle` produces a runnable signed `.app`

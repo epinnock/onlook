@@ -160,4 +160,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI: unpin iPhone 15 destination — use `generic/platform=iOS Simulator`.
 - Docs: install-on-device runbook; task queue synced for 2026-04-16 session.
 
+### Milestone
+
+First successful install verified on a physical iPhone 8 Plus — icon visible on home screen; app boot captured via device syslog, not screen. See [`docs/images/first-install-2026-04-16.png`](docs/images/first-install-2026-04-16.png) and release note [`plans/release-notes/2026-04-16-first-iphone-deploy.md`](../../plans/release-notes/2026-04-16-first-iphone-deploy.md).
+
 iOS side functionally complete; Android deferred behind MCF8c.
