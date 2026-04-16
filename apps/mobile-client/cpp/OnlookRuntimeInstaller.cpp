@@ -67,6 +67,12 @@ jsi::Value OnlookRuntimeInstaller::installHostObject(
   auto jsObject = jsi::Object::createFromHostObject(rt, std::move(hostObject));
   rt.global().setProperty(rt, "OnlookRuntime", std::move(jsObject));
   logThroughHermes(rt, kInstalledLogLine);
+  // MC2.15: pre-warm nativeFabricUIManager.findNodeAtPoint(-1, -1) so the
+  // first real user tap doesn't pay the ~150ms cold-start. Runs AFTER the
+  // install log line above so validate-mc23's log scrape sees the
+  // "installed on globalThis" confirmation before any prewarm-side
+  // logging. Best-effort; swallows all exceptions (see InspectorPrewarm.cpp).
+  onlook::prewarmInspector(rt);
   return jsi::Value::undefined();
 }
 

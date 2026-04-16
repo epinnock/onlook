@@ -82,6 +82,26 @@ facebook::jsi::Value runApplicationImpl(
     const facebook::jsi::Value* args,
     size_t count);
 
+/// `reloadBundle(bundleSource)` implementation, isolated into
+/// OnlookRuntime_reloadBundle.cpp for the same TU-isolation rationale as
+/// `runApplicationImpl`. Calls `globalThis.onlookUnmount()` if present to
+/// tear down the current React tree, then forwards to `runApplicationImpl`
+/// to re-eval + re-mount. Wave 2 task MC2.8.
+facebook::jsi::Value reloadBundleImpl(
+    facebook::jsi::Runtime& rt,
+    const facebook::jsi::Value* args,
+    size_t count);
+
+/// Pre-warm Fabric's `findNodeAtPoint` by calling it once with off-screen
+/// coordinates (-1, -1). Absorbs the ~150ms cold-start latency during
+/// mount (while the splash is still up) so the first real user tap
+/// returns in <30ms instead of paying the warm-up cost. Best-effort: if
+/// `nativeFabricUIManager` or `findNodeAtPoint` are missing the call
+/// silently no-ops. Defined in InspectorPrewarm.cpp; invoked by
+/// OnlookRuntimeInstaller::install() right after `globalThis.OnlookRuntime`
+/// is wired up. Wave 2 task MC2.15.
+void prewarmInspector(facebook::jsi::Runtime& rt);
+
 /// JSI host object exposing the OnlookRuntime API to JS. See file header
 /// for the public-API contract. Sits behind `globalThis.OnlookRuntime`
 /// once the platform installer has registered it.

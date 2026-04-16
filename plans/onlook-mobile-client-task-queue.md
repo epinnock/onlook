@@ -414,9 +414,10 @@ Goal: replace Spike B's scraping path with a documented `global.OnlookRuntime.ru
   - Validate: `bun run mobile:e2e:ios -- 10-bundle-throws.yaml` (loads a bundle that throws, asserts the error message surfaces through a `dispatchEvent('onlook:error', …)` callback)
 
 - **MC2.15** — Pre-warm `findNodeAtPoint(-1, -1)` after mount (risk mitigation from source plan)
-  - Files: `apps/mobile-client/cpp/InspectorPrewarm.cpp`
+  - Files: `apps/mobile-client/cpp/InspectorPrewarm.cpp` (NEW), `apps/mobile-client/cpp/OnlookRuntime.h` (declaration added), `apps/mobile-client/cpp/OnlookRuntimeInstaller.cpp` (call site), `apps/mobile-client/ios/OnlookMobileClient.xcodeproj/project.pbxproj` (Sources/group registration)
   - Deps: MC2.5, MC2.6
   - Validate: `bun run mobile:e2e:ios -- 11-tap-latency.yaml` (first tap after mount returns in < 30ms)
+  - Status: **iOS scaffolding shipped 2026-04-11.** `prewarmInspector(jsi::Runtime&)` declared in `OnlookRuntime.h` (kept alongside existing free functions — separate `InspectorPrewarm.h` would duplicate the `<jsi/jsi.h>` include for a single 1-line decl) and defined in the new `InspectorPrewarm.cpp` TU. Called from `OnlookRuntimeInstaller::installHostObject` AFTER `rt.global().setProperty("OnlookRuntime", …)` and the install-confirmation log line, so the validate-mc23 log scrape still sees the expected line before any prewarm-side work. Body is fully defensive: missing `nativeFabricUIManager`, missing `findNodeAtPoint`, non-function value, or a thrown exception all silently no-op — prewarm is best-effort, never user-visible. The `11-tap-latency.yaml` Maestro flow remains a follow-up (needs a renderable bundle to tap on, which Wave 2 doesn't provide); the BUILD-SUCCEEDED exit criterion is Mac mini `bun run mobile:build:ios`. pbxproj registration followed the direct-edit template from MC4.1 commit `74090a54` (PBXBuildFile + PBXFileReference + OnlookMobileClient group member + Sources build phase) rather than the xcodeproj Ruby gem, matching what MC4.1/MC4.5/MC4.6 actually did in-repo.
 
 **Wave 2 exit criterion:** `OnlookRuntime.runApplication(redSquareBundle)` paints a red square on both iOS and Android simulators, `reloadBundle` swaps it atomically, and the 241KB runtime is evaluated exactly once per Hermes context.
 

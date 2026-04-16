@@ -16,6 +16,7 @@
 		27698B7609D7DA4A53B360FF /* OnlookInspectorInstaller.mm in Sources */ = {isa = PBXBuildFile; fileRef = A3792952804A3839A0DF131C /* OnlookInspectorInstaller.mm */; };
 		A4F58B1CD2E90734C16A5501 /* OnlookInspector_highlight.mm in Sources */ = {isa = PBXBuildFile; fileRef = B7C39D48E1F05082A84C6612 /* OnlookInspector_highlight.mm */; };
 		6B5441152D0DC84F4FE4C4B4 /* OnlookInspector.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 38AD43BCD60F61B17E5BB688 /* OnlookInspector.cpp */; };
+		D1E7A2F40AB91C58B7C3E215 /* InspectorPrewarm.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D1E7A2F40AB91C58B7C3E216 /* InspectorPrewarm.cpp */; };
 		9A78FF78EE5F3DCB2E060C8E /* OnlookRuntimeInstaller.mm in Sources */ = {isa = PBXBuildFile; fileRef = DAEB2E8EEEADD1A86CC53822 /* OnlookRuntimeInstaller.mm */; };
 		9AA77EE9615F1F28B0460B8A /* HermesBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 751569567CF7839D697C2619 /* HermesBootstrap.swift */; };
 		9D125CFB192329F77F327B59 /* OnlookRuntime_version.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 71F9FC1DB09E06FE78D6C0CD /* OnlookRuntime_version.cpp */; };
@@ -37,6 +38,7 @@
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = OnlookMobileClient/Info.plist; sourceTree = "<group>"; };
 		33A946F1E2C2023B0E6A4C22 /* OnlookInspectorInstaller.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; name = OnlookInspectorInstaller.cpp; path = ../cpp/OnlookInspectorInstaller.cpp; sourceTree = "<group>"; };
 		38AD43BCD60F61B17E5BB688 /* OnlookInspector.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; name = OnlookInspector.cpp; path = ../cpp/OnlookInspector.cpp; sourceTree = "<group>"; };
+		D1E7A2F40AB91C58B7C3E216 /* InspectorPrewarm.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; name = InspectorPrewarm.cpp; path = ../cpp/InspectorPrewarm.cpp; sourceTree = "<group>"; };
 		3B157860CDE10F8994B5CA50 /* OnlookRuntime.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = OnlookRuntime.h; path = ../cpp/OnlookRuntime.h; sourceTree = "<group>"; };
 		47F0BD4FD6854685DEE69E11 /* OnlookInspectorInstaller.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = OnlookInspectorInstaller.h; path = ../cpp/OnlookInspectorInstaller.h; sourceTree = "<group>"; };
 		48E3EF96145B6BAC5F2AF4D9 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = OnlookMobileClient/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
@@ -109,6 +111,7 @@
 				33A946F1E2C2023B0E6A4C22 /* OnlookInspectorInstaller.cpp */,
 				A3792952804A3839A0DF131C /* OnlookInspectorInstaller.mm */,
 				B7C39D48E1F05082A84C6612 /* OnlookInspector_highlight.mm */,
+				D1E7A2F40AB91C58B7C3E216 /* InspectorPrewarm.cpp */,
 			);
 			name = OnlookMobileClient;
 			sourceTree = "<group>";
@@ -393,6 +396,7 @@
 				BF372BE4763A0A8073CC7D94 /* OnlookInspectorInstaller.cpp in Sources */,
 				27698B7609D7DA4A53B360FF /* OnlookInspectorInstaller.mm in Sources */,
 				A4F58B1CD2E90734C16A5501 /* OnlookInspector_highlight.mm in Sources */,
+				D1E7A2F40AB91C58B7C3E215 /* InspectorPrewarm.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
