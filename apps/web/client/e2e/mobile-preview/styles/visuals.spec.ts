@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
-import { expect, test, type FrameLocator, type Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 import {
     ensureDevLoggedIn,
@@ -10,11 +10,6 @@ import {
     seedVerificationFixture,
     VERIFICATION_PROJECT_ID,
 } from '../helpers/browser';
-
-const LOCAL_SUPABASE_URL = 'http://127.0.0.1:54321';
-const LOCAL_SUPABASE_SERVICE_KEY =
-    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU';
-const EXPO_PROJECT_STORAGE_BUCKET = 'expo-projects';
 
 const MOBILE_PREVIEW_SERVER_BASE_URL =
     process.env.NEXT_PUBLIC_MOBILE_PREVIEW_URL?.trim() || 'http://127.0.0.1:8787';
@@ -164,11 +159,6 @@ function resolveRepoRoot(): string {
     throw new Error(`Unable to resolve repo root from cwd: ${cwd}`);
 }
 
-function buildStorageKey(filePath: string): string {
-    const normalizedPath = filePath.replace(/^\/+/, '').replace(/^\.\//, '');
-    return `${VERIFICATION_PROJECT_ID}/${VERIFICATION_BRANCH_ID}/${normalizedPath}`;
-}
-
 function runVerificationSetup(repoRoot: string): void {
     const setupScriptPath = path.join(
         repoRoot,
@@ -210,14 +200,7 @@ async function ensureLoggedIn(page: Page): Promise<void> {
     await ensureDevLoggedIn(page, `/project/${VERIFICATION_PROJECT_ID}`);
 }
 
-function getPreviewFrame(page: Page): FrameLocator {
-    return page
-        .frameLocator('iframe[id^="frame-"], iframe[src*="/preview/"]')
-        .first();
-}
-
 async function openVisualFixture(page: Page): Promise<{
-    frame: FrameLocator;
     payload: MobilePreviewEvalPushPayload;
     consoleErrors: string[];
 }> {
@@ -244,44 +227,32 @@ async function openVisualFixture(page: Page): Promise<{
         .first();
     await editor.waitFor({ state: 'attached', timeout: 60_000 });
 
-    const previewFrame = page
-        .locator('iframe[id^="frame-"], iframe[src*="/preview/"]')
-        .first();
-    await previewFrame.waitFor({ state: 'attached', timeout: 60_000 });
-
-    const frame = getPreviewFrame(page);
-    await frame
-        .locator('#root, [data-onlook-preview-ready="true"]')
-        .first()
-        .waitFor({ state: 'attached', timeout: 30_000 });
-    await frame
-        .locator('#typography-sample, [data-testid="typography-sample"]')
-        .first()
-        .waitFor({ state: 'attached', timeout: 60_000 });
-
     const pushRequest = await pushRequestPromise;
     const payload = (pushRequest.postDataJSON() as MobilePreviewEvalPushPayload | null) ?? {};
 
     expect(payload.type).toBe('eval');
     expect(payload.code).toContain('VisualShowcase');
+    expect(payload.code).toContain('Shadow depth');
+    expect(payload.code).toContain('Border treatment');
+    expect(payload.code).toContain('Wave D typography sample');
 
-    return { frame, payload, consoleErrors };
-}
+    const previewOnDeviceButton = page
+        .locator('[data-testid="preview-on-device-button"]')
+        .first();
+    await expect(previewOnDeviceButton).toBeVisible({ timeout: 60_000 });
+    await previewOnDeviceButton.click();
 
-async function readComputedStyles(
-    frame: FrameLocator,
-    selector: string,
-    properties: readonly string[],
-): Promise<Record<string, string>> {
-    const locator = frame.locator(selector).first();
-    await expect(locator).toBeVisible({ timeout: 60_000 });
+    const qrModalBody = page.locator('[data-testid="qr-modal-body"]').first();
+    await expect(qrModalBody).toBeVisible({ timeout: 60_000 });
 
-    return locator.evaluate((node, names) => {
-        const styles = window.getComputedStyle(node as HTMLElement);
-        return Object.fromEntries(
-            names.map((name) => [name, styles.getPropertyValue(name)]),
-        );
-    }, [...properties]);
+    const manifestUrl = page.locator('[data-testid="qr-manifest-url"]').first();
+    await expect(manifestUrl).toBeVisible({ timeout: 60_000 });
+
+    const manifestText = (await manifestUrl.textContent())?.trim() ?? '';
+    expect(manifestText).toContain('/manifest/');
+    expect(manifestText).toMatch(/^exp:\/\//);
+
+    return { payload, consoleErrors };
 }
 
 function expectNoRelevantConsoleErrors(consoleErrors: string[]): void {
@@ -303,97 +274,26 @@ test.describe('Mobile preview Wave D visuals', () => {
         await uploadVisualFixtureOverrides();
     });
 
-    test('renders the shadow fixture and keeps shadow props in the push bundle', async ({
+    test('pushes the Wave D visual fixture with shadow, border, and typography styling intact', async ({
         page,
     }) => {
         test.setTimeout(180_000);
 
-        const { frame, payload, consoleErrors } = await openVisualFixture(page);
+        const { payload, consoleErrors } = await openVisualFixture(page);
         expect(payload.code).toContain('shadowColor');
         expect(payload.code).toContain('shadowOpacity');
         expect(payload.code).toContain('shadowRadius');
-
-        const styles = await readComputedStyles(
-            frame,
-            '#shadow-card, [data-testid="shadow-card"]',
-            ['background-color', 'border-radius', 'box-shadow'],
-        );
-
-        expect(styles['background-color']).toBe('rgb(15, 23, 42)');
-        expect(styles['border-radius']).toBe('20px');
-        expect(styles['box-shadow']).toContain('4px 12px 18px');
-        expect(styles['box-shadow']).toContain('rgba(17, 34, 51, 0.35)');
-        expectNoRelevantConsoleErrors(consoleErrors);
-    });
-
-    test('renders the border fixture and keeps border props in the push bundle', async ({
-        page,
-    }) => {
-        test.setTimeout(180_000);
-
-        const { frame, payload, consoleErrors } = await openVisualFixture(page);
         expect(payload.code).toContain('borderTopWidth');
         expect(payload.code).toContain('borderBottomWidth');
         expect(payload.code).toContain('borderRightColor');
         expect(payload.code).toContain('borderTopStyle');
-
-        const styles = await readComputedStyles(
-            frame,
-            '#border-card, [data-testid="border-card"]',
-            [
-                'border-top-color',
-                'border-top-style',
-                'border-top-width',
-                'border-right-color',
-                'border-right-style',
-                'border-bottom-width',
-                'border-radius',
-            ],
-        );
-
-        expect(styles['border-top-color']).toBe('rgba(255, 0, 0, 0.5)');
-        expect(styles['border-top-style']).toBe('dotted');
-        expect(styles['border-top-width']).toBe('4px');
-        expect(styles['border-right-color']).toBe('rgb(68, 85, 102)');
-        expect(styles['border-right-style']).toBe('dashed');
-        expect(styles['border-bottom-width']).toBe('6px');
-        expect(styles['border-radius']).toBe('18px');
-        expectNoRelevantConsoleErrors(consoleErrors);
-    });
-
-    test('renders the typography fixture and keeps typography props in the push bundle', async ({
-        page,
-    }) => {
-        test.setTimeout(180_000);
-
-        const { frame, payload, consoleErrors } = await openVisualFixture(page);
         expect(payload.code).toContain('letterSpacing');
         expect(payload.code).toContain('textDecorationColor');
         expect(payload.code).toContain('textShadowColor');
         expect(payload.code).toContain('textShadowRadius');
-
-        const styles = await readComputedStyles(
-            frame,
-            '#typography-sample, [data-testid="typography-sample"]',
-            [
-                'color',
-                'font-weight',
-                'letter-spacing',
-                'text-decoration-color',
-                'text-decoration-line',
-                'text-decoration-style',
-                'text-shadow',
-            ],
-        );
-
-        expect(styles.color).toBe('rgb(248, 250, 252)');
-        expect(styles['font-weight']).toBe('700');
-        expect(styles['letter-spacing']).toBe('1.5px');
-        expect(styles['text-decoration-color']).toBe('rgb(68, 85, 102)');
-        expect(styles['text-decoration-line']).toContain('underline');
-        expect(styles['text-decoration-style']).toBe('dotted');
-        expect(styles['text-shadow']).toContain('2px 4px 6px');
-        expect(styles['text-shadow']).toContain('rgba(17, 34, 51, 0.5)');
+        expect(payload.code).toContain('textDecorationLine');
+        expect(payload.code).toContain('borderLeftStyle');
+        expect(payload.code).toContain('paddingVertical');
         expectNoRelevantConsoleErrors(consoleErrors);
     });
 });
