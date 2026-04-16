@@ -8,6 +8,21 @@ const LOCAL_DB_CONTAINER = 'supabase_db_onlook-web';
 const DEMO_USER_ID = '2585ea6b-6303-4f21-977c-62af2f5a21f4';
 const DEMO_USER_EMAIL = 'support@onlook.com';
 
+function escapeSqlString(value: string): string {
+    return value.replaceAll("'", "''");
+}
+
+function getPreviewBaseUrl(): string {
+    const explicitBaseUrl = process.env.PLAYWRIGHT_BASE_URL?.trim();
+    if (explicitBaseUrl) {
+        return explicitBaseUrl.replace(/\/$/, '');
+    }
+
+    const explicitPort =
+        process.env.PLAYWRIGHT_PORT?.trim() || process.env.PORT?.trim() || '3001';
+    return `http://127.0.0.1:${explicitPort}`;
+}
+
 function resolveRepoRoot(): string {
     const cwd = process.cwd();
     const rootFromCwd = path.join(
@@ -50,6 +65,7 @@ function runVerificationSetup(repoRoot: string): void {
 
 function seedExpoBrowserProjectBranch(): void {
     const { projectId, branchId } = EXPO_BROWSER_TEST_BRANCH;
+    const previewUrl = `${getPreviewBaseUrl()}/preview/${branchId}/main/`;
     const sql = `
 DO $$
 DECLARE
@@ -57,6 +73,7 @@ DECLARE
     v_branch_id uuid := '${branchId}';
     v_canvas_id uuid;
     v_user_id uuid := '${DEMO_USER_ID}';
+    v_preview_url text := '${escapeSqlString(previewUrl)}';
 BEGIN
     INSERT INTO projects (id, name, description, sandbox_id, sandbox_url, created_at, updated_at)
     VALUES (
@@ -117,9 +134,13 @@ BEGIN
             0,
             1024,
             768,
-            'http://127.0.0.1:3001/preview/' || v_branch_id || '/main/',
+            v_preview_url,
             'web'
         );
+    ELSE
+        UPDATE frames
+        SET url = v_preview_url
+        WHERE branch_id = v_branch_id;
     END IF;
 END $$;
 `;

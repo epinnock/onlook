@@ -60,6 +60,59 @@ describe('BrowserMetro', () => {
         metro.dispose();
     });
 
+    it('uses a local iframe shim for expo-status-bar', async () => {
+        const metro = new BrowserMetro({
+            vfs: makeFakeVfs({
+                'App.tsx': `
+                    import { StatusBar } from 'expo-status-bar';
+                    export default function App() { return <StatusBar style="light" />; }
+                `,
+            }),
+            esmUrl: 'https://esm.sh',
+        });
+
+        const result = await metro.bundle();
+
+        expect(result.modules['App.tsx']?.deps).toContain('expo-status-bar');
+        expect(result.modules['App.tsx']?.code).toContain(
+            '/__browser_metro_shims__/expo-status-bar.js',
+        );
+        expect(result.modules['__browser_metro_shims__/expo-status-bar.js']?.code).toContain(
+            'function StatusBar()',
+        );
+        expect(result.iife).not.toContain('https://esm.sh/expo-status-bar?bundle');
+        metro.dispose();
+    });
+
+    it('uses a local react-native iframe shim with patched Switch events', async () => {
+        const metro = new BrowserMetro({
+            vfs: makeFakeVfs({
+                'App.tsx': `
+                    import { Switch, View } from 'react-native';
+                    export default function App() {
+                        return <View><Switch value={false} onValueChange={() => undefined} /></View>;
+                    }
+                `,
+            }),
+            esmUrl: 'https://esm.sh',
+        });
+
+        const result = await metro.bundle();
+        const appCode = result.modules['App.tsx']?.code ?? '';
+        const shimCode =
+            result.modules['__browser_metro_shims__/react-native.js']?.code ?? '';
+
+        expect(result.modules['App.tsx']?.deps).toContain('react-native');
+        expect(appCode).toContain('/__browser_metro_shims__/react-native.js');
+        expect(appCode).not.toContain('https://esm.sh/react-native-web?bundle');
+        expect(shimCode).toContain('OnlookBrowserMetroSwitch');
+        expect(shimCode).toContain("role: 'switch'");
+        expect(shimCode).toContain('onValueChange(nextValue)');
+        expect(shimCode).toContain('https://esm.sh/react-native-web?bundle');
+        expect(result.iife).toContain('https://esm.sh/react-native-web?bundle');
+        metro.dispose();
+    });
+
     it('picks the entry from a list of candidates', async () => {
         const metro = new BrowserMetro({
             vfs: makeFakeVfs({

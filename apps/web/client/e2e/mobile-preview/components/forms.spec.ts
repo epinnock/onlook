@@ -1,14 +1,14 @@
-import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
 import { expect, test, type FrameLocator, type Page } from '@playwright/test';
 
+import { EXPO_BROWSER_TEST_BRANCH } from '../../fixtures/test-branch';
+import { seedExpoBrowserTestBranch } from '../../expo-browser/helpers/setup';
 import {
     ensureDevLoggedIn,
     openVerificationProject,
     seedVerificationFixture,
-    VERIFICATION_PROJECT_ID,
 } from '../helpers/browser';
 
 const MOBILE_PREVIEW_SERVER_BASE_URL =
@@ -35,7 +35,7 @@ const styles = StyleSheet.create({
 });
 `;
 
-const FORMS_SHOWCASE_TSX = `import { useState } from 'react';
+const FORMS_SHOWCASE_TSX = `import React from 'react';
 import {
   StyleSheet,
   Switch,
@@ -44,77 +44,89 @@ import {
   View,
 } from 'react-native';
 
-export function FormsShowcase() {
-  const [displayName, setDisplayName] = useState('Ada Lovelace');
-  const [notes, setNotes] = useState('Build browser-native mobile previews.');
-  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+interface FormsShowcaseState {
+  displayName: string;
+  notes: string;
+  notificationsEnabled: boolean;
+}
 
-  return (
-    <View style={styles.screen}>
-      <View style={styles.card} testID="forms-card">
-        <Text style={styles.eyebrow}>Wave C controls</Text>
-        <Text style={styles.title}>Forms and controls fixture</Text>
-        <Text style={styles.subtitle}>
-          TextInput and Switch should stay interactive in the browser preview.
-        </Text>
+export class FormsShowcase extends React.Component<Record<string, never>, FormsShowcaseState> {
+  state: FormsShowcaseState = {
+    displayName: 'Ada Lovelace',
+    notes: 'Build browser-native mobile previews.',
+    notificationsEnabled: false,
+  };
 
-        <View style={styles.fieldBlock}>
-          <Text style={styles.label}>Display name</Text>
-          <TextInput
-            nativeID="profile-name-input"
-            testID="profile-name-input"
-            placeholder="Display name"
-            placeholderTextColor="#64748b"
-            style={styles.singleLineInput}
-            value={displayName}
-            onChangeText={setDisplayName}
-          />
-          <Text style={styles.valueText} testID="profile-name-value">
-            Current name: {displayName}
+  render() {
+    const { displayName, notes, notificationsEnabled } = this.state;
+
+    return (
+      <View style={styles.screen}>
+        <View style={styles.card} testID="forms-card">
+          <Text style={styles.eyebrow}>Wave C controls</Text>
+          <Text style={styles.title}>Forms and controls fixture</Text>
+          <Text style={styles.subtitle}>
+            TextInput and Switch should stay interactive in the browser preview.
           </Text>
-        </View>
 
-        <View style={styles.fieldBlock}>
-          <Text style={styles.label}>Project notes</Text>
-          <TextInput
-            multiline
-            nativeID="notes-input"
-            testID="notes-input"
-            numberOfLines={4}
-            placeholder="Project notes"
-            placeholderTextColor="#64748b"
-            style={styles.multilineInput}
-            value={notes}
-            onChangeText={setNotes}
-          />
-          <Text style={styles.valueText} testID="notes-value">
-            Notes mirror: {notes}
-          </Text>
-        </View>
-
-        <View style={styles.switchRow}>
-          <View style={styles.switchCopy}>
-            <Text style={styles.label}>Push notifications</Text>
-            <Text style={styles.switchHint}>
-              Toggle to verify the mapped Switch host control.
+          <View style={styles.fieldBlock}>
+            <Text style={styles.label}>Display name</Text>
+            <TextInput
+              nativeID="profile-name-input"
+              testID="profile-name-input"
+              placeholder="Display name"
+              placeholderTextColor="#64748b"
+              style={styles.singleLineInput}
+              value={displayName}
+              onChangeText={(value) => this.setState({ displayName: value })}
+            />
+            <Text style={styles.valueText} testID="profile-name-value">
+              Current name: {displayName}
             </Text>
           </View>
-          <Switch
-            ios_backgroundColor="#334155"
-            testID="marketing-switch"
-            value={notificationsEnabled}
-            onValueChange={setNotificationsEnabled}
-            thumbColor={notificationsEnabled ? '#f8fafc' : '#cbd5e1'}
-            trackColor={{ false: '#475569', true: '#22c55e' }}
-          />
-        </View>
 
-        <Text style={styles.valueText} testID="switch-value">
-          Notifications: {notificationsEnabled ? 'enabled' : 'disabled'}
-        </Text>
+          <View style={styles.fieldBlock}>
+            <Text style={styles.label}>Project notes</Text>
+            <TextInput
+              multiline
+              nativeID="notes-input"
+              testID="notes-input"
+              numberOfLines={4}
+              placeholder="Project notes"
+              placeholderTextColor="#64748b"
+              style={styles.multilineInput}
+              value={notes}
+              onChangeText={(value) => this.setState({ notes: value })}
+            />
+            <Text style={styles.valueText} testID="notes-value">
+              Notes mirror: {notes}
+            </Text>
+          </View>
+
+          <View style={styles.switchRow}>
+            <View style={styles.switchCopy}>
+              <Text style={styles.label}>Push notifications</Text>
+              <Text style={styles.switchHint}>
+                Toggle to verify the mapped Switch host control.
+              </Text>
+            </View>
+            <Switch
+              ios_backgroundColor="#334155"
+              testID="marketing-switch"
+              value={notificationsEnabled}
+              onValueChange={(value) => this.setState({ notificationsEnabled: value })}
+              thumbColor={notificationsEnabled ? '#f8fafc' : '#cbd5e1'}
+              trackColor={{ false: '#475569', true: '#22c55e' }}
+            />
+          </View>
+
+          <Text style={styles.valueText} testID="switch-value">
+            Notifications: {notificationsEnabled ? 'enabled' : 'disabled'}
+          </Text>
+        </View>
       </View>
-    </View>
-  );
+    );
+  }
 }
 
 const styles = StyleSheet.create({
@@ -239,42 +251,18 @@ function resolveRepoRoot(): string {
     throw new Error(`Unable to resolve repo root from cwd: ${cwd}`);
 }
 
-function runVerificationSetup(repoRoot: string): void {
-    const setupScriptPath = path.join(
-        repoRoot,
-        'apps/web/client/verification/onlook-editor/setup.sh',
-    );
-
-    try {
-        execFileSync('bash', [setupScriptPath], {
-            cwd: repoRoot,
-            encoding: 'utf8',
-            stdio: 'pipe',
-            timeout: 300_000,
-        });
-    } catch (error) {
-        const stdout =
-            error && typeof error === 'object' && 'stdout' in error
-                ? String(error.stdout)
-                : '';
-        const stderr =
-            error && typeof error === 'object' && 'stderr' in error
-                ? String(error.stderr)
-                : '';
-
-        throw new Error(
-            `verification setup failed.\nstdout:\n${stdout}\nstderr:\n${stderr}`,
-        );
-    }
-}
-
 async function uploadFormsFixtureOverrides(): Promise<void> {
     const repoRoot = resolveRepoRoot();
 
-    seedVerificationFixture(repoRoot, {
-        'App.tsx': FORMS_FIXTURE_APP_TSX,
-        'components/FormsShowcase.tsx': FORMS_SHOWCASE_TSX,
-    });
+    seedVerificationFixture(
+        repoRoot,
+        {
+            'App.tsx': FORMS_FIXTURE_APP_TSX,
+            'components/FormsShowcase.tsx': FORMS_SHOWCASE_TSX,
+        },
+        EXPO_BROWSER_TEST_BRANCH.projectId,
+        EXPO_BROWSER_TEST_BRANCH.branchId,
+    );
 }
 
 function getPreviewFrame(page: Page): FrameLocator {
@@ -296,24 +284,48 @@ async function openFormsFixture(page: Page): Promise<{
     });
 
     const pushRequestPromise = page.waitForRequest(
-        (request) =>
-            request.method() === 'POST' &&
-            request.url() === `${MOBILE_PREVIEW_SERVER_BASE_URL}/push`,
+        (request) => {
+            if (
+                request.method() !== 'POST' ||
+                request.url() !== `${MOBILE_PREVIEW_SERVER_BASE_URL}/push`
+            ) {
+                return false;
+            }
+
+            return request.postData()?.includes('FormsShowcase') ?? false;
+        },
         { timeout: 120_000 },
     );
+    const previewButton = page.getByTestId('preview-on-device-button');
+    const loadingProject = page.getByText('Loading project...');
+    const applicationErrorHeading = page
+        .getByRole('heading', {
+            name: /application error: a client-side exception has occurred/i,
+        })
+        .first();
 
-    await ensureDevLoggedIn(page, `/project/${VERIFICATION_PROJECT_ID}`);
-    await openVerificationProject(page, VERIFICATION_PROJECT_ID);
+    await ensureDevLoggedIn(page, `/project/${EXPO_BROWSER_TEST_BRANCH.projectId}`);
+    await openVerificationProject(page, EXPO_BROWSER_TEST_BRANCH.projectId);
 
-    await page
-        .locator('[data-testid="project-editor"], body[data-onlook-loaded="true"]')
-        .first()
-        .waitFor({ state: 'attached', timeout: 60_000 });
+    await loadingProject
+        .waitFor({ state: 'hidden', timeout: 120_000 })
+        .catch(() => undefined);
+
+    if (
+        await applicationErrorHeading
+            .isVisible({ timeout: 2_000 })
+            .catch(() => false)
+    ) {
+        throw new Error('Project route rendered a client-side application error.');
+    }
+
+    await expect(previewButton).toBeVisible({ timeout: 60_000 });
 
     await page
         .locator('iframe[id^="frame-"], iframe[src*="/preview/"]')
         .first()
         .waitFor({ state: 'attached', timeout: 60_000 });
+    await page.waitForTimeout(1_000);
 
     const frame = getPreviewFrame(page);
     await frame
@@ -341,11 +353,17 @@ function expectNoRelevantConsoleErrors(consoleErrors: string[]): void {
     expect(relevantErrors).toEqual([]);
 }
 
+async function enablePreviewInteractionMode(page: Page): Promise<void> {
+    const previewMode = page.getByRole('radio', { name: /^Preview$/ }).first();
+
+    await expect(previewMode).toBeVisible({ timeout: 30_000 });
+    await previewMode.click();
+    await expect(previewMode).toBeChecked({ timeout: 10_000 });
+}
+
 test.describe('Mobile preview Wave C forms and controls', () => {
     test.beforeAll(async () => {
-        const repoRoot = resolveRepoRoot();
-
-        runVerificationSetup(repoRoot);
+        seedExpoBrowserTestBranch();
         await uploadFormsFixtureOverrides();
     });
 
@@ -379,6 +397,8 @@ test.describe('Mobile preview Wave C forms and controls', () => {
         test.setTimeout(180_000);
 
         const { frame, consoleErrors } = await openFormsFixture(page);
+        await enablePreviewInteractionMode(page);
+
         const singleLineInput = frame
             .locator(
                 '#profile-name-input, [data-testid="profile-name-input"], input[placeholder="Display name"]',
@@ -390,9 +410,7 @@ test.describe('Mobile preview Wave C forms and controls', () => {
             )
             .first();
         const switchControl = frame
-            .locator(
-                '#marketing-switch, [data-testid="marketing-switch"], [role="switch"], input[type="checkbox"]',
-            )
+            .getByRole('switch')
             .first();
 
         await expect(singleLineInput).toBeVisible({ timeout: 60_000 });
