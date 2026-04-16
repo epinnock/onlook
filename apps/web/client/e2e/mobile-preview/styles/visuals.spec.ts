@@ -222,10 +222,10 @@ async function openVisualFixture(page: Page): Promise<{
 
     await openVerificationProject(page, VERIFICATION_PROJECT_ID);
 
-    const editor = page
-        .locator('[data-testid="project-editor"], body[data-onlook-loaded="true"]')
+    const previewOnDeviceButton = page
+        .locator('[data-testid="preview-on-device-button"]')
         .first();
-    await editor.waitFor({ state: 'attached', timeout: 60_000 });
+    await expect(previewOnDeviceButton).toBeVisible({ timeout: 60_000 });
 
     const pushRequest = await pushRequestPromise;
     const payload = (pushRequest.postDataJSON() as MobilePreviewEvalPushPayload | null) ?? {};
@@ -236,10 +236,6 @@ async function openVisualFixture(page: Page): Promise<{
     expect(payload.code).toContain('Border treatment');
     expect(payload.code).toContain('Wave D typography sample');
 
-    const previewOnDeviceButton = page
-        .locator('[data-testid="preview-on-device-button"]')
-        .first();
-    await expect(previewOnDeviceButton).toBeVisible({ timeout: 60_000 });
     await previewOnDeviceButton.click();
 
     const qrModalBody = page.locator('[data-testid="qr-modal-body"]').first();
