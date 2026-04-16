@@ -9,7 +9,11 @@
  */
 import { expect, test } from '@playwright/test';
 
-import { EXPO_BROWSER_TEST_BRANCH } from '../../fixtures/test-branch';
+import {
+    ensureDevLoggedIn,
+    openVerificationProject,
+    VERIFICATION_PROJECT_ID,
+} from '../helpers/browser';
 
 const PRODUCTIVITY_MODULE_PATTERN =
     /expo-(notifications|contacts|calendar)|Native module cannot be null|TurboModuleRegistry|getEnforcing\(/i;
@@ -18,7 +22,8 @@ test.describe('Mobile preview Expo productivity SDK shims', () => {
     test('boots preview-on-device without productivity module errors', async ({
         page,
     }) => {
-        const { projectId } = EXPO_BROWSER_TEST_BRANCH;
+        test.setTimeout(180_000);
+        const projectId = VERIFICATION_PROJECT_ID;
         const consoleErrors: string[] = [];
 
         page.on('console', (message) => {
@@ -30,15 +35,11 @@ test.describe('Mobile preview Expo productivity SDK shims', () => {
             consoleErrors.push(error.message);
         });
 
-        await page.goto(`/project/${projectId}`);
-
-        const editor = page
-            .locator('[data-testid="project-editor"], body[data-onlook-loaded="true"]')
-            .first();
-        await editor.waitFor({ state: 'attached', timeout: 30_000 });
+        await ensureDevLoggedIn(page, `/project/${projectId}`);
+        await openVerificationProject(page, projectId);
 
         const previewButton = page.getByTestId('preview-on-device-button');
-        await expect(previewButton).toBeVisible();
+        await expect(previewButton).toBeVisible({ timeout: 60_000 });
         await previewButton.click();
 
         await expect(

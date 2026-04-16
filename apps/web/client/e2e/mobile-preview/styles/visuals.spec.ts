@@ -3,12 +3,13 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 
 import { expect, test, type FrameLocator, type Page } from '@playwright/test';
-import { createClient } from '@supabase/supabase-js';
 
 import {
-    MOBILE_PREVIEW_FIXTURE_BRANCH_ID,
-    MOBILE_PREVIEW_FIXTURE_PROJECT_ID,
-} from '../helpers/fixture';
+    ensureDevLoggedIn,
+    openVerificationProject,
+    seedVerificationFixture,
+    VERIFICATION_PROJECT_ID,
+} from '../helpers/browser';
 
 const LOCAL_SUPABASE_URL = 'http://127.0.0.1:54321';
 const LOCAL_SUPABASE_SERVICE_KEY =
@@ -17,8 +18,6 @@ const EXPO_PROJECT_STORAGE_BUCKET = 'expo-projects';
 
 const MOBILE_PREVIEW_SERVER_BASE_URL =
     process.env.NEXT_PUBLIC_MOBILE_PREVIEW_URL?.trim() || 'http://127.0.0.1:8787';
-const PLAYWRIGHT_APP_BASE_URL =
-    process.env.PLAYWRIGHT_BASE_URL?.trim() || 'http://127.0.0.1:3000';
 
 const VISUAL_FIXTURE_APP_TSX = `import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, View } from 'react-native';
@@ -167,11 +166,7 @@ function resolveRepoRoot(): string {
 
 function buildStorageKey(filePath: string): string {
     const normalizedPath = filePath.replace(/^\/+/, '').replace(/^\.\//, '');
-    return `${MOBILE_PREVIEW_FIXTURE_PROJECT_ID}/${MOBILE_PREVIEW_FIXTURE_BRANCH_ID}/${normalizedPath}`;
-}
-
-function buildAppUrl(pathname: string): string {
-    return new URL(pathname, PLAYWRIGHT_APP_BASE_URL).toString();
+    return `${VERIFICATION_PROJECT_ID}/${VERIFICATION_BRANCH_ID}/${normalizedPath}`;
 }
 
 function runVerificationSetup(repoRoot: string): void {
@@ -204,57 +199,15 @@ function runVerificationSetup(repoRoot: string): void {
 }
 
 async function uploadVisualFixtureOverrides(): Promise<void> {
-    const supabase = createClient(LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_KEY, {
-        auth: {
-            autoRefreshToken: false,
-            persistSession: false,
-        },
+    const repoRoot = resolveRepoRoot();
+    seedVerificationFixture(repoRoot, {
+        'App.tsx': VISUAL_FIXTURE_APP_TSX,
+        'components/VisualShowcase.tsx': VISUAL_SHOWCASE_TSX,
     });
-
-    const uploads = [
-        {
-            path: 'App.tsx',
-            body: VISUAL_FIXTURE_APP_TSX,
-        },
-        {
-            path: 'components/VisualShowcase.tsx',
-            body: VISUAL_SHOWCASE_TSX,
-        },
-    ] as const;
-
-    for (const upload of uploads) {
-        const { error } = await supabase.storage
-            .from(EXPO_PROJECT_STORAGE_BUCKET)
-            .upload(buildStorageKey(upload.path), upload.body, {
-                upsert: true,
-                contentType: 'text/plain; charset=utf-8',
-            });
-
-        if (error) {
-            throw new Error(`failed to upload ${upload.path}: ${error.message}`);
-        }
-    }
 }
 
 async function ensureLoggedIn(page: Page): Promise<void> {
-    const response = await page.goto(buildAppUrl('/login'));
-    if (response && response.status() >= 500) {
-        throw new Error(
-            `login page returned ${response.status()} at ${response.url()}`,
-        );
-    }
-
-    const devLoginButton = page.getByRole('button', {
-        name: /dev mode: sign in as demo user/i,
-    });
-
-    if (await devLoginButton.isVisible().catch(() => false)) {
-        await devLoginButton.click();
-    }
-
-    await page.waitForURL((url) => !url.pathname.startsWith('/login'), {
-        timeout: 60_000,
-    });
+    await ensureDevLoggedIn(page, `/project/${VERIFICATION_PROJECT_ID}`);
 }
 
 function getPreviewFrame(page: Page): FrameLocator {
@@ -284,9 +237,7 @@ async function openVisualFixture(page: Page): Promise<{
         { timeout: 120_000 },
     );
 
-    await page.goto(buildAppUrl(`/project/${MOBILE_PREVIEW_FIXTURE_PROJECT_ID}`), {
-        waitUntil: 'domcontentloaded',
-    });
+    await openVerificationProject(page, VERIFICATION_PROJECT_ID);
 
     const editor = page
         .locator('[data-testid="project-editor"], body[data-onlook-loaded="true"]')

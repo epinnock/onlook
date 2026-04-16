@@ -3,19 +3,16 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 
 import { expect, test, type Frame, type Page } from '@playwright/test';
-import { createClient } from '@supabase/supabase-js';
 
 import {
-    MOBILE_PREVIEW_FIXTURE_BRANCH_ID,
-    MOBILE_PREVIEW_FIXTURE_PROJECT_ID,
-} from '../helpers/fixture';
+    ensureDevLoggedIn,
+    openVerificationProject,
+    seedVerificationFixture,
+    VERIFICATION_PROJECT_ID,
+} from '../helpers/browser';
 
-const LOCAL_SUPABASE_URL = 'http://127.0.0.1:54321';
-const LOCAL_SUPABASE_SERVICE_KEY =
     'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU';
 const EXPO_PROJECT_STORAGE_BUCKET = 'expo-projects';
-const PLAYWRIGHT_APP_BASE_URL =
-    process.env.PLAYWRIGHT_BASE_URL?.trim() || 'http://127.0.0.1:3000';
 
 const LOCATION_AND_SENSORS_APP_TSX = `import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text } from 'react-native';
@@ -335,11 +332,7 @@ function resolveRepoRoot(): string {
 
 function buildStorageKey(filePath: string): string {
     const normalizedPath = filePath.replace(/^\/+/, '').replace(/^\.\//, '');
-    return `${MOBILE_PREVIEW_FIXTURE_PROJECT_ID}/${MOBILE_PREVIEW_FIXTURE_BRANCH_ID}/${normalizedPath}`;
-}
-
-function buildAppUrl(pathname: string): string {
-    return new URL(pathname, PLAYWRIGHT_APP_BASE_URL).toString();
+    return `${VERIFICATION_PROJECT_ID}/${VERIFICATION_BRANCH_ID}/${normalizedPath}`;
 }
 
 function runVerificationSetup(repoRoot: string): void {
@@ -374,53 +367,17 @@ function runVerificationSetup(repoRoot: string): void {
 async function uploadFixtureFile(
     filePath: string,
     body: string,
-    contentType = 'text/plain; charset=utf-8',
 ): Promise<void> {
-    const supabase = createClient(LOCAL_SUPABASE_URL, LOCAL_SUPABASE_SERVICE_KEY, {
-        auth: {
-            autoRefreshToken: false,
-            persistSession: false,
-        },
-    });
-
-    const { error } = await supabase.storage
-        .from(EXPO_PROJECT_STORAGE_BUCKET)
-        .upload(buildStorageKey(filePath), body, {
-            upsert: true,
-            contentType,
-        });
-
-    if (error) {
-        throw new Error(`failed to upload ${filePath}: ${error.message}`);
-    }
+    const repoRoot = resolveRepoRoot();
+    seedVerificationFixture(repoRoot, { [filePath]: body });
 }
 
 async function ensureLoggedIn(page: Page): Promise<void> {
-    const response = await page.goto(buildAppUrl('/login'));
-    if (response && response.status() >= 500) {
-        throw new Error(
-            `login page returned ${response.status()} at ${response.url()}`,
-        );
-    }
-
-    const devLoginButton = page.getByRole('button', {
-        name: /dev mode: sign in as demo user/i,
-    });
-
-    if (await devLoginButton.isVisible().catch(() => false)) {
-        await devLoginButton.click();
-    }
-
-    await page.waitForURL((url) => !url.pathname.startsWith('/login'), {
-        timeout: 60_000,
-    });
+    await ensureDevLoggedIn(page, `/project/${VERIFICATION_PROJECT_ID}`);
 }
 
 async function openPreviewFrame(page: Page): Promise<Frame> {
-    await page.goto(buildAppUrl(`/project/${MOBILE_PREVIEW_FIXTURE_PROJECT_ID}`), {
-        waitUntil: 'domcontentloaded',
-        timeout: 120_000,
-    });
+    await openVerificationProject(page, VERIFICATION_PROJECT_ID);
 
     const editor = page
         .locator('[data-testid="project-editor"], body[data-onlook-loaded="true"]')
