@@ -140,6 +140,40 @@ from `apps/mobile-client/`.
 
 ---
 
+## 4a. Shortcut via npm script
+
+Once Xcode has produced a signed `Debug-iphoneos` `.app` (section 4, or any
+subsequent `xcodebuild`/`expo run:ios --device` run), reinstalling onto the
+same phone no longer needs Xcode — the `mobile:install:device` script wraps
+the `ios-deploy` invocation we validated during MCI.5:
+
+```bash
+# From repo root or apps/mobile-client/:
+bun run --filter @onlook/mobile-client mobile:install:device -- --device=<UDID>
+
+# Or, with the UDID pinned in your shell environment:
+export ONLOOK_DEVICE_UDID=<UDID>
+bun run --filter @onlook/mobile-client mobile:install:device
+```
+
+The script:
+
+- Requires `ios-deploy` on PATH (`brew install ios-deploy` on macOS). It fails
+  fast with that suggestion when missing.
+- Picks the newest `OnlookMobileClient.app` from either
+  `apps/mobile-client/build/Build/Products/Debug-iphoneos/` (local
+  `-derivedDataPath` builds) or
+  `~/Library/Developer/Xcode/DerivedData/OnlookMobileClient-*/Build/Products/Debug-iphoneos/`
+  (Xcode's default). If neither has a bundle, it tells you to run
+  `bun run mobile:build:ios` first.
+- Launches with `--justlaunch` so the process detaches after install —
+  matching the MCI.5 walkthrough behaviour on the iOS 15.1 reference device.
+
+This is a reinstall convenience only. The very first build on a new machine
+or after bundle-ID churn still needs the Xcode GUI signing step in section 4.
+
+---
+
 ## 5. Troubleshooting
 
 - **Device shows as "unavailable"** in Xcode / `devicectl`: the phone is
