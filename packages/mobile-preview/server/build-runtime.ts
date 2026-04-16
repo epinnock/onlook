@@ -55,7 +55,12 @@ async function build() {
 var __modules={};function __d(f,i,d){__modules[i]={factory:f,hasError:false,importedAll:false,exports:{}};}function __r(i){var m=__modules[i];if(!m)throw new Error("Module "+i+" not registered");if(!m.importedAll){m.importedAll=true;try{m.factory.call(m.exports,typeof globalThis!=="undefined"?globalThis:typeof self!=="undefined"?self:this,__r,null,m.exports,m,m.exports,null);}catch(e){m.hasError=true;if(typeof globalThis.nativeLoggingHook==="function"){globalThis.nativeLoggingHook("[ONLOOK] Module error: "+(e&&e.message),1);}throw e;}}return m.exports;}
 __d(function(global,require,_imports,_exports,module,exports,_dependencyMap){
 `;
-  const suffix = '\n}, 0, []);\n__r(0);\n})();\n';
+  // After __r(0) runs the full module tree (shell.js → runtime.js), React
+  // and createElement are on globalThis. Inside Hermes (where main.jsbundle
+  // follows), delete them so the main bundle's React is authoritative —
+  // prevents the dual-React hooks crash (useState of null).
+  // __turboModuleProxy is a Hermes-native global absent in browsers.
+  const suffix = '\n}, 0, []);\n__r(0);\nif(typeof globalThis.__turboModuleProxy!=="undefined"){delete globalThis.React;delete globalThis.createElement;}\n})();\n';
 
   await Bun.write(outPath, preamble + rawBundle + suffix);
 

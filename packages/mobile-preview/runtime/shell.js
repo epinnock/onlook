@@ -314,15 +314,7 @@ globalThis.RN$AppRegistry = {
 
 _log('B13 shell ready');
 
-// Prevent dual-React by deferring to main bundle's React when running
-// inside the Onlook Mobile Client (Hermes prepend mode). The runtime's
-// React is only needed for the browser-preview path where no main bundle
-// exists.
-if (typeof globalThis.__turboModuleProxy !== 'undefined') {
-  // Running inside RN (Hermes) — main.jsbundle will provide its own React.
-  // Delete our copy so RN's module system is authoritative.
-  delete globalThis.React;
-  delete globalThis.createElement;
-  // Keep renderApp, _initReconciler, and other shell exports — they don't
-  // conflict because they're called by the relay, not by user components.
-}
+// NOTE: the dual-React guard (delete globalThis.React inside Hermes) runs
+// in build-runtime.ts's suffix AFTER __r(0) completes — not here. shell.js
+// evaluates before runtime.js sets globalThis.React, so a delete here would
+// be a no-op. See build-runtime.ts line 58+ for the post-__r(0) guard.

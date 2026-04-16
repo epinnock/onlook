@@ -112,15 +112,16 @@ describe('bundle execution: runtime bootstraps and exposes public globals', () =
     // failed we've already surfaced it above. We still run them so a single
     // failing build produces one actionable error rather than a cascade.
 
-    test('sandbox.React is exposed as an object (runtime.js ran)', () => {
-        expect(typeof sandbox.React).toBe('object');
-        expect(sandbox.React).not.toBeNull();
+    test('sandbox.React is deleted when __turboModuleProxy is set (dual-React guard)', () => {
+        // When __turboModuleProxy is present (Hermes/RN env), the bundle's
+        // post-__r(0) guard deletes globalThis.React so the main RN bundle's
+        // React is authoritative. This prevents the dual-React hooks crash.
+        expect(sandbox.React).toBeUndefined();
     });
 
-    test('sandbox.React.createElement is a function', () => {
-        const React = sandbox.React as { createElement?: unknown } | undefined;
-        expect(React).toBeDefined();
-        expect(typeof React?.createElement).toBe('function');
+    test('sandbox.createElement is deleted when __turboModuleProxy is set', () => {
+        // Same guard — createElement is also deleted in Hermes mode.
+        expect(sandbox.createElement).toBeUndefined();
     });
 
     test('sandbox.renderApp is a function (B13 shell / runtime exposure)', () => {
