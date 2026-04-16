@@ -18,3 +18,4 @@ export {
     isInspectorEnabled,
     onInspectorToggle,
 } from './toggleInspector';
+export { createViewLogsAction } from './viewLogs';

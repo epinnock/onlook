@@ -739,10 +739,11 @@ Goal: console relay, network inspector, error boundary, in-app dev menu. All flo
   - Validate: `bun test apps/mobile-client/src/actions/__tests__/copySessionId.test.ts && bun --filter @onlook/mobile-client typecheck`
   - Status: **Done** — `createCopySessionIdAction(getSessionId)` returns DevMenuAction; `copySessionIdToClipboard()` standalone helper uses `Clipboard` from `react-native` with a console.log fallback when unavailable. Alerts "No active session" when getter yields null; "Session ID copied" on success; logs `[onlook-runtime] session ID copied: <id>`. 7 tests pass, typecheck clean.
 
-- **MC5.15** — Dev menu action: view recent logs
-  - Files: `packages/mobile-preview/runtime/dev-menu/actions/viewLogs.js`
+- **MC5.15** — Dev menu action: view recent logs ✅
+  - Files: `apps/mobile-client/src/actions/viewLogs.ts`, `apps/mobile-client/src/components/RecentLogsModal.tsx`, `apps/mobile-client/src/actions/index.ts`, `apps/mobile-client/src/components/index.ts`
   - Deps: MC5.9, MC5.1
-  - Validate: `bun test packages/mobile-preview/runtime/dev-menu/actions/__tests__/viewLogs.test.js`
+  - Validate: `bun --filter @onlook/mobile-client typecheck`
+  - Status: **Done** — `createViewLogsAction(setVisible)` returns DevMenuAction `{ label: 'View Recent Logs', onPress: () => setVisible(true) }`; modal visibility is owned by the app root so the modal persists after the dev menu closes. `RecentLogsModal` reads `consoleRelay.getBuffer()` on open, renders a dark bottom-sheet (matching DevMenu composition) with a FlatList of entries (timestamp + color-coded level badge + monospace message). Level→color: log=#FFFFFF, info=#3B82F6, warn=#FACC15, error=#EF4444, debug=#9CA3AF. Footer "Clear" button calls `consoleRelay.clearBuffer()` and closes. Typecheck clean.
 
 - **MC5.16** — Editor-side dev panel: console stream rendering
   - Files: `apps/web/client/src/components/editor/dev-panel/MobileConsoleTab.tsx`
