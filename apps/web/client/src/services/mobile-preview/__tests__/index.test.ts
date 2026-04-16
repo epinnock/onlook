@@ -171,10 +171,10 @@ describe('buildMobilePreviewBundle', () => {
     test('throws for unsupported bare imports', async () => {
         const vfs = makeFakeVfs({
             'App.tsx': `
-                import { Button } from '@react-navigation/native';
+                import { createJSONStorage } from 'react-native-mmkv';
 
                 export default function App() {
-                    return <Button />;
+                    return createJSONStorage ? null : null;
                 }
             `,
         });

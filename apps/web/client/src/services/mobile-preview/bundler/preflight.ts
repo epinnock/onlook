@@ -4,15 +4,9 @@ import { isBareSpecifier } from './path-utils';
 import { resolveProjectSpecifier } from './resolution';
 import { MobilePreviewBundleError } from './types';
 
-const REGISTRY_BACKED_BARE_IMPORTS = [
-    'react-native-screens',
-    'react-native-svg',
-] as const;
-
-export const MOBILE_PREVIEW_SUPPORTED_BARE_IMPORTS = new Set([
-    ...SUPPORTED_BARE_IMPORTS,
-    ...REGISTRY_BACKED_BARE_IMPORTS,
-]);
+export const MOBILE_PREVIEW_SUPPORTED_BARE_IMPORTS = new Set(
+    SUPPORTED_BARE_IMPORTS,
+);
 
 export interface UnsupportedMobilePreviewImport {
     importerPath: string;

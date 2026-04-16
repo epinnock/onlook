@@ -42,6 +42,10 @@ function makeFakeVfs(files: Record<string, string>): MobilePreviewVfs {
 
 describe('mobile preview unsupported-import preflight', () => {
     test('treats registry-backed shim imports as supported bare imports', () => {
+        expect(isMobilePreviewSupportedBareImport('expo-clipboard')).toBe(true);
+        expect(isMobilePreviewSupportedBareImport('@react-navigation/native')).toBe(
+            true,
+        );
         expect(isMobilePreviewSupportedBareImport('react-native-screens')).toBe(
             true,
         );
@@ -55,7 +59,6 @@ describe('mobile preview unsupported-import preflight', () => {
                 `
                     import supported from './supported';
                     import nested from './nested';
-                    import { Button } from '@react-navigation/native';
 
                     export default function App() {
                         void supported;
@@ -68,8 +71,9 @@ describe('mobile preview unsupported-import preflight', () => {
                 'supported.ts',
                 `
                     import { Screen } from 'react-native-screens';
+                    import { NavigationContainer } from '@react-navigation/native';
 
-                    export { Screen };
+                    export { NavigationContainer, Screen };
                 `,
             ],
             [
@@ -84,10 +88,6 @@ describe('mobile preview unsupported-import preflight', () => {
 
         expect(collectUnsupportedMobilePreviewImports(files, 'App.tsx')).toEqual([
             {
-                importerPath: 'App.tsx',
-                specifier: '@react-navigation/native',
-            },
-            {
                 importerPath: 'nested.ts',
                 specifier: 'react-native-mmkv',
             },
@@ -99,7 +99,7 @@ describe('mobile preview unsupported-import preflight', () => {
             formatUnsupportedMobilePreviewImports([
                 {
                     importerPath: 'App.tsx',
-                    specifier: '@react-navigation/native',
+                    specifier: 'react-native-mmkv',
                 },
             ]),
         ).toContain(
@@ -133,11 +133,14 @@ describe('mobile preview unsupported-import preflight', () => {
     test('allows bundle builds that rely on registry-backed runtime shims', async () => {
         const vfs = makeFakeVfs({
             'App.tsx': `
+                import * as Clipboard from 'expo-clipboard';
+                import { NavigationContainer } from '@react-navigation/native';
+                import { createStackNavigator } from '@react-navigation/stack';
                 import { Screen } from 'react-native-screens';
                 import Svg from 'react-native-svg';
 
                 export default function App() {
-                    return Screen && Svg ? null : null;
+                    return Clipboard && NavigationContainer && createStackNavigator && Screen && Svg ? null : null;
                 }
             `,
         });
@@ -145,6 +148,9 @@ describe('mobile preview unsupported-import preflight', () => {
         const bundle = await buildMobilePreviewBundle(vfs);
 
         expect(bundle.moduleCount).toBe(1);
+        expect(bundle.code).toContain("require('expo-clipboard')");
+        expect(bundle.code).toContain("require('@react-navigation/native')");
+        expect(bundle.code).toContain("require('@react-navigation/stack')");
         expect(bundle.code).toContain("require('react-native-screens')");
         expect(bundle.code).toContain("require('react-native-svg')");
     });
@@ -152,7 +158,7 @@ describe('mobile preview unsupported-import preflight', () => {
     test('throws the mobile preview bundle error type for unsupported imports', async () => {
         const vfs = makeFakeVfs({
             'App.tsx': `
-                const module = require('@react-navigation/native');
+                const module = require('react-native-mmkv');
 
                 export default module;
             `,

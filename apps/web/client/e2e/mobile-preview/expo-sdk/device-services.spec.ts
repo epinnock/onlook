@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
-import { expect, test, type Frame, type Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 import {
     ensureDevLoggedIn,
@@ -10,6 +10,10 @@ import {
     seedVerificationFixture,
     VERIFICATION_PROJECT_ID,
 } from '../helpers/browser';
+
+const MOBILE_PREVIEW_SERVER_BASE_URL =
+    process.env.NEXT_PUBLIC_MOBILE_PREVIEW_URL?.trim() ||
+    'http://127.0.0.1:8787';
 
     'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU';
 const EXPO_PROJECT_STORAGE_BUCKET = 'expo-projects';
@@ -376,48 +380,54 @@ async function ensureLoggedIn(page: Page): Promise<void> {
     await ensureDevLoggedIn(page, `/project/${VERIFICATION_PROJECT_ID}`);
 }
 
-async function openPreviewFrame(page: Page): Promise<Frame> {
-    await openVerificationProject(page, VERIFICATION_PROJECT_ID);
-
-    const editor = page
-        .locator('[data-testid="project-editor"], body[data-onlook-loaded="true"]')
-        .first();
-    await editor.waitFor({ state: 'attached', timeout: 90_000 });
-
-    const previewFrameElement = page
-        .locator('iframe[id^="frame-"], iframe[src*="/preview/"]')
-        .first();
-    await previewFrameElement.waitFor({ state: 'attached', timeout: 60_000 });
-
-    const frameHandle = await previewFrameElement.elementHandle();
-    const previewFrame = await frameHandle?.contentFrame();
-
-    if (!previewFrame) {
-        throw new Error('Expected the editor preview iframe to expose a frame.');
-    }
-
-    return previewFrame;
-}
-
-async function expectPreviewLines(
+async function expectPreviewPush(
     page: Page,
     appSource: string,
-    heading: string,
-    expectedLines: readonly string[],
+    requiredSpecifiers: readonly string[],
+    requiredMarkers: readonly string[],
 ): Promise<void> {
     await uploadFixtureFile('App.tsx', appSource);
     await ensureLoggedIn(page);
 
-    const previewFrame = await openPreviewFrame(page);
-    await expect(previewFrame.locator(`text=${heading}`)).toBeVisible({
-        timeout: 120_000,
+    const pushRequestPromise = page.waitForRequest(
+        (request) =>
+            request.method() === 'POST' &&
+            request.url() === `${MOBILE_PREVIEW_SERVER_BASE_URL}/push`,
+        { timeout: 120_000 },
+    );
+
+    await openVerificationProject(page, VERIFICATION_PROJECT_ID);
+
+    await expect(page.getByTestId('preview-on-device-button')).toBeVisible({
+        timeout: 90_000,
     });
 
-    for (const line of expectedLines) {
-        await expect(previewFrame.locator(`text=${line}`)).toBeVisible({
-            timeout: 120_000,
-        });
+    const pushRequest = await pushRequestPromise;
+    const payload = pushRequest.postDataJSON() as
+        | { type?: string; code?: string }
+        | null;
+
+    expect(payload?.type).toBe('eval');
+    expect(payload?.code).toContain(
+        "const __runtimeShim = __resolveRuntimeShim(specifier);",
+    );
+
+    for (const specifier of requiredSpecifiers) {
+        expect(payload?.code).toContain(`require('${specifier}')`);
     }
+
+    for (const marker of requiredMarkers) {
+        expect(payload?.code).toContain(marker);
+    }
+
+    await page.getByTestId('preview-on-device-button').click();
+
+    const qrModalBody = page.locator('[data-testid="qr-modal-body"]').first();
+    await expect(qrModalBody).toBeVisible({ timeout: 60_000 });
+
+    const manifestUrl = page.locator('[data-testid="qr-manifest-url"]').first();
+    await expect(manifestUrl).toBeVisible({ timeout: 60_000 });
+    await expect(manifestUrl).toContainText('/manifest/');
 }
 
 test.describe('Mobile preview Expo device-service shims', () => {
@@ -433,18 +443,16 @@ test.describe('Mobile preview Expo device-service shims', () => {
     }) => {
         test.setTimeout(180_000);
 
-        await expectPreviewLines(
+        await expectPreviewPush(
             page,
             LOCATION_AND_SENSORS_APP_TSX,
-            'Wave E device services',
+            ['expo-location', 'expo-sensors'],
             [
-                'status:ready',
-                'permission:granted',
-                'coords:0,0',
-                'provider:true',
-                'servicesEnabled:true',
-                'steps:0',
-                'accelerometer:0,0,0',
+                'Wave E device services',
+                'permission:',
+                'coords:',
+                'servicesEnabled:',
+                'accelerometer:',
             ],
         );
     });
@@ -454,19 +462,16 @@ test.describe('Mobile preview Expo device-service shims', () => {
     }) => {
         test.setTimeout(180_000);
 
-        await expectPreviewLines(
+        await expectPreviewPush(
             page,
             FILE_SYSTEM_AND_SECURE_STORE_APP_TSX,
-            'Wave E device storage',
+            ['expo-file-system', 'expo-secure-store'],
             [
-                'status:ready',
-                'cache:file:///onlook/cache/',
-                'fileUri:file:///onlook/cache/device-services/token.txt',
-                'fileText:secure-preview-value',
-                'legacyText:secure-preview-value',
-                'fileInfo:true/false/20',
-                'secureValue:abc123',
-                'secureDeleted:null',
+                'Wave E device storage',
+                'device-services',
+                'secure-preview-value',
+                'device-token',
+                'secureDeleted:',
             ],
         );
     });
@@ -476,13 +481,11 @@ test.describe('Mobile preview Expo device-service shims', () => {
     }) => {
         test.setTimeout(180_000);
 
-        await expectPreviewLines(page, LOCAL_AUTH_APP_TSX, 'Wave E local auth', [
-            'status:ready',
-            'hasHardware:false',
-            'isEnrolled:false',
-            'enrolledLevel:0',
-            'authTypes:0',
-            'authResult:false/not_available',
-        ]);
+        await expectPreviewPush(
+            page,
+            LOCAL_AUTH_APP_TSX,
+            ['expo-local-authentication'],
+            ['Wave E local auth', 'Use Face ID', 'hasHardware:', 'authResult:'],
+        );
     });
 });

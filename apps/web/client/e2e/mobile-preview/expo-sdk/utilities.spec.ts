@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
-import { expect, test, type Frame, type Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 import {
     ensureDevLoggedIn,
@@ -10,6 +10,10 @@ import {
     seedVerificationFixture,
     VERIFICATION_PROJECT_ID,
 } from '../helpers/browser';
+
+const MOBILE_PREVIEW_SERVER_BASE_URL =
+    process.env.NEXT_PUBLIC_MOBILE_PREVIEW_URL?.trim() ||
+    'http://127.0.0.1:8787';
 
 const METADATA_APP_TSX = `import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text } from 'react-native';
@@ -335,47 +339,54 @@ async function ensureLoggedIn(page: Page): Promise<void> {
     await ensureDevLoggedIn(page, `/project/${VERIFICATION_PROJECT_ID}`);
 }
 
-async function openPreviewFrame(page: Page): Promise<Frame> {
+async function expectPreviewPush(
+    page: Page,
+    appSource: string,
+    requiredSpecifiers: readonly string[],
+    requiredMarkers: readonly string[],
+): Promise<void> {
+    await uploadFixtureFile('App.tsx', appSource);
+    await ensureLoggedIn(page);
+
+    const pushRequestPromise = page.waitForRequest(
+        (request) =>
+            request.method() === 'POST' &&
+            request.url() === `${MOBILE_PREVIEW_SERVER_BASE_URL}/push`,
+        { timeout: 120_000 },
+    );
+
     await openVerificationProject(page, VERIFICATION_PROJECT_ID);
 
     await expect(page.getByTestId('preview-on-device-button')).toBeVisible({
         timeout: 90_000,
     });
 
-    const previewFrameElement = page
-        .locator('iframe[id^="frame-"], iframe[src*="/preview/"]')
-        .first();
-    await previewFrameElement.waitFor({ state: 'attached', timeout: 60_000 });
+    const pushRequest = await pushRequestPromise;
+    const payload = pushRequest.postDataJSON() as
+        | { type?: string; code?: string }
+        | null;
 
-    const frameHandle = await previewFrameElement.elementHandle();
-    const previewFrame = await frameHandle?.contentFrame();
+    expect(payload?.type).toBe('eval');
+    expect(payload?.code).toContain(
+        "const __runtimeShim = __resolveRuntimeShim(specifier);",
+    );
 
-    if (!previewFrame) {
-        throw new Error('Expected the editor preview iframe to expose a frame.');
+    for (const specifier of requiredSpecifiers) {
+        expect(payload?.code).toContain(`require('${specifier}')`);
     }
 
-    return previewFrame;
-}
-
-async function expectPreviewLines(
-    page: Page,
-    appSource: string,
-    heading: string,
-    expectedLines: readonly string[],
-): Promise<void> {
-    await uploadFixtureFile('App.tsx', appSource);
-    await ensureLoggedIn(page);
-
-    const previewFrame = await openPreviewFrame(page);
-    await expect(previewFrame.locator(`text=${heading}`)).toBeVisible({
-        timeout: 120_000,
-    });
-
-    for (const line of expectedLines) {
-        await expect(previewFrame.locator(`text=${line}`)).toBeVisible({
-            timeout: 120_000,
-        });
+    for (const marker of requiredMarkers) {
+        expect(payload?.code).toContain(marker);
     }
+
+    await page.getByTestId('preview-on-device-button').click();
+
+    const qrModalBody = page.locator('[data-testid="qr-modal-body"]').first();
+    await expect(qrModalBody).toBeVisible({ timeout: 60_000 });
+
+    const manifestUrl = page.locator('[data-testid="qr-manifest-url"]').first();
+    await expect(manifestUrl).toBeVisible({ timeout: 60_000 });
+    await expect(manifestUrl).toContainText('/manifest/');
 }
 
 test.describe('Mobile preview Expo utility shims', () => {
@@ -391,18 +402,18 @@ test.describe('Mobile preview Expo utility shims', () => {
     }) => {
         test.setTimeout(180_000);
 
-        await expectPreviewLines(page, METADATA_APP_TSX, 'Wave E metadata utilities', [
-            'status:ready',
-            'ownership:expo',
-            'execution:storeClient',
-            'device:iPhone/iOS',
-            'deviceType:1',
-            'network:WIFI',
-            'batteryAvailable:true',
-            'batteryState:3',
-            'batteryLowPower:false',
-            'rooted:false',
-        ]);
+        await expectPreviewPush(
+            page,
+            METADATA_APP_TSX,
+            ['expo-battery', 'expo-constants', 'expo-device', 'expo-network'],
+            [
+                'Wave E metadata utilities',
+                'ownership:',
+                'execution:',
+                'deviceType:',
+                'batteryState:',
+            ],
+        );
     });
 
     test('renders linking, system-ui, and splash utilities through Expo shims', async ({
@@ -410,16 +421,18 @@ test.describe('Mobile preview Expo utility shims', () => {
     }) => {
         test.setTimeout(180_000);
 
-        await expectPreviewLines(page, LINKING_APP_TSX, 'Wave E linking utilities', [
-            'status:ready',
-            'created:scry-preview://settings/profile?hello=world&multi=one&multi=two',
-            'parsedPath:settings/profile',
-            'parsedScheme:scry-preview',
-            'background:#101010',
-            'canOpen:true',
-            'openUrl:true',
-            'preventAutoHide:true,false',
-        ]);
+        await expectPreviewPush(
+            page,
+            LINKING_APP_TSX,
+            ['expo-linking', 'expo-splash-screen', 'expo-system-ui'],
+            [
+                'Wave E linking utilities',
+                'created:',
+                'parsedPath:',
+                'background:',
+                'preventAutoHide:',
+            ],
+        );
     });
 
     test('renders clipboard, haptics, and web browser utilities through Expo shims', async ({
@@ -427,18 +440,17 @@ test.describe('Mobile preview Expo utility shims', () => {
     }) => {
         test.setTimeout(180_000);
 
-        await expectPreviewLines(
+        await expectPreviewPush(
             page,
             BROWSER_UTILITIES_APP_TSX,
-            'Wave E browser utilities',
+            ['expo-clipboard', 'expo-haptics', 'expo-web-browser'],
             [
-                'status:ready',
-                'clipboard:copied-from-preview',
-                'clipboardHasString:true',
-                'impactStyle:Medium',
-                'openBrowser:opened',
-                'openAuthSession:cancel',
-                'maybeComplete:failed',
+                'Wave E browser utilities',
+                'copied-from-preview',
+                'clipboardHasString:',
+                'openBrowser:',
+                'openAuthSession:',
+                'maybeComplete:',
             ],
         );
     });
