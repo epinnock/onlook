@@ -643,11 +643,12 @@ iOS and Android paths fan out in parallel — 4.1–4.6 are iOS, 4.7–4.11 are 
   - Deps: MC4.15
   - Validate: `bun test apps/web/client/src/components/editor/monaco/__tests__/cursor-jump-from-mobile.test.tsx` (uses existing editor test rig: posts a fake `onlook:select`, asserts cursor position)
 
-- **MC4.18** — End-to-end inspector flow (device tap → editor cursor jump)
-  - Files: `apps/mobile-client/e2e/flows/27-tap-to-editor.yaml` + fixture bundle
+- **MC4.18** — End-to-end inspector flow (device tap → editor cursor jump) — **Status: JS integration shipped 2026-04-11; Maestro flow pending MC4.6 + MC4.17.**
+  - Files: `apps/mobile-client/src/flow/inspectorFlow.ts`, `apps/mobile-client/src/flow/__tests__/inspectorFlow.test.ts`, `apps/mobile-client/src/flow/index.ts` (barrel). Maestro `apps/mobile-client/e2e/flows/27-tap-to-editor.yaml` + fixture bundle still to land once native tap capture (MC4.6, blocked on Wave 2 MC2.5) and Monaco cursor jump (MC4.17) ship.
   - Deps: MC4.6, MC4.14, MC4.17
-  - Validate: `bun run mobile:e2e:ios -- 27-tap-to-editor.yaml` (spins local editor + local relay, loads fixture bundle with a button, taps button, asserts mock Monaco cursor-jump endpoint received `{ file: 'App.tsx', line: 12, column: 8 }`)
-  - Note: iOS only. Android parity is dead-letter per source-plan cut line.
+  - `wireInspectorFlow(client, sessionId)` bundles MC4.14's `TapHandler` into a single callable: returns `{ tapHandler, destroy }`. The wrapper component (later) binds `onPress` to `tapHandler.handleTap(extractSource(props))`, the handler stamps `sessionId` + `reactTag` into an `onlook:select` wire message, and `client.send()` posts it to the relay — where MC4.15's `dispatchOnlookSelect` fans it out to the Monaco cursor-jump handler (MC4.17). `destroy()` short-circuits future sends (idempotent) and blanks the internal session id so a re-wire picks up the next session cleanly. An empty-string sessionId throws so misconfigured callers fail loudly.
+  - Validate: `bun test apps/mobile-client/src/flow/__tests__/inspectorFlow.test.ts` — 8 tests covering handle shape, wire format, sessionId flow-through across distinct clients, reactTag passthrough, destroy-stops-sends, destroy idempotence, empty-sessionId guard, and send-error swallow.
+  - Note: iOS only. Android parity is dead-letter per source-plan cut line. The Maestro e2e flow is left scoped for a follow-up — this task ships the JS integration shape so MC4.17 can compose against it.
 
 - **MC4.19** — CI job: Wave 4 iOS flows (Android flows gated on MC4.11 optimistic inclusion)
   - Files: `.github/workflows/mobile-client.yml` (append)
