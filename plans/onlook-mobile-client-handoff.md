@@ -358,3 +358,20 @@ bun test apps/mobile-client/scripts/__tests__
 This branch was built by Claude Opus 4.6 in a Claude Code session on 2026-04-11. The session's commit authorship is tagged via `Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>`. Full session decisions (why this approach, why SDK 54 specifically, why xcode-scribe) are captured in the task queue and the commit messages — read both before making non-trivial changes.
 
 **The task queue is the source of truth.** If you find that the decomposition is wrong or the hotspot registry has a gap, STOP, update the queue, and commit that as a docs change before proceeding. Do not silently diverge from it — other people picking this up will assume the queue still matches reality.
+
+---
+
+## Supplementary docs (2026-04-16 session)
+
+This handoff predates the 2026-04-16 session in which the first on-device iPhone deploy landed. The following artifacts capture what happened after this doc was frozen — read these before picking up work, as several assumptions here (Android parity, bundle shape, C++ graph) have since been refined.
+
+- [plans/post-mortems/2026-04-16-runtime-d-r-clobber.md](post-mortems/2026-04-16-runtime-d-r-clobber.md) — post-mortem on the runtime D/R clobber incident and the fix that unblocked iOS bring-up.
+- [plans/release-notes/2026-04-16-first-iphone-deploy.md](release-notes/2026-04-16-first-iphone-deploy.md) — release notes for the first successful on-device iPhone deploy, including what shipped and what is deferred.
+- [plans/android-blocked-inventory.md](android-blocked-inventory.md) — inventory of Android-side blockers discovered during this session; consult before attempting Android parity work.
+- [plans/cpp-dependency-graph.md](cpp-dependency-graph.md) — current C++ dependency graph for the native runtime; authoritative reference for Fabric/TurboModule surface changes.
+- [plans/followups.md](followups.md) — rolling list of follow-ups (non-blocking cleanups, deferred polish) queued out of this session.
+- [plans/handoff-2026-04-17.md](handoff-2026-04-17.md) — next-day handoff supplementing this document with the current state and immediate next steps.
+- [apps/mobile-client/docs/install-on-device.md](../apps/mobile-client/docs/install-on-device.md) — step-by-step guide for installing the mobile client onto a physical iPhone.
+- [apps/mobile-client/docs/mac-mini-debugging.md](../apps/mobile-client/docs/mac-mini-debugging.md) — debugging playbook for the shared Mac mini (spectra-macmini) used for iOS builds.
+- [apps/mobile-client/docs/combined-bundle-format.md](../apps/mobile-client/docs/combined-bundle-format.md) — spec for the combined runtime + app bundle format shipped to devices.
+- [apps/mobile-client/docs/onboarding.md](../apps/mobile-client/docs/onboarding.md) — onboarding guide for new contributors joining the mobile-client effort.
