@@ -197,6 +197,13 @@ function createAppRegistry(target) {
 
       const renderApp = resolveRenderApp(target);
       if (typeof renderApp === 'function') {
+        // Signal to the per-push IIFE wrapper that an AppRegistry-style
+        // entry successfully triggered renderApp, so its default-export
+        // fallback path doesn't then throw with a misleading "entry did
+        // not call AppRegistry" error. See services/mobile-preview/index.ts
+        // `wrapEvalBundle` — it resets this flag at the top of each push
+        // and reads it at the tail.
+        target.__onlookAppRegistered = true;
         renderApp(resolveReact(target).createElement(Comp, null));
       }
     },

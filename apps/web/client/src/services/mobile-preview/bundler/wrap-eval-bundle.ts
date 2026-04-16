@@ -134,6 +134,11 @@ const React = globalThis.React;
 if (!React || typeof globalThis.renderApp !== 'function') {
   throw new Error('Onlook mobile preview runtime is not ready.');
 }
+// Reset the per-push flag before the runtime's AppRegistry shim can set
+// it. Without the reset, a stale 'true' from a previous push would
+// suppress the fallback on a new push that legitimately relies on a
+// default-export entry.
+globalThis.__onlookAppRegistered = false;
 let __appRegistered = false;
 const __modules = {
 ${modules}
@@ -254,7 +259,13 @@ function __require(specifier) {
   return module.exports;
 }
 const __entryModule = __require(${JSON.stringify(entryPath)});
-if (!__appRegistered) {
+// The runtime's AppRegistry shim (packages/mobile-preview/runtime/shims/core/
+// react-native.js) sets globalThis.__onlookAppRegistered when a user calls
+// AppRegistry.registerComponent('main', ...) through the runtime-resolved
+// 'react-native' module. The local __appRegistered only tracks the
+// fallback __reactNative shim further up this IIFE. Check both so we don't
+// re-throw after a successful runtime-shim mount.
+if (!__appRegistered && !globalThis.__onlookAppRegistered) {
   const __root = __entryModule && __entryModule.__esModule ? __entryModule.default : (__entryModule.default ?? __entryModule);
   if (!__root || typeof __root !== 'function') {
     throw new Error('Entry module "${entryPath}" did not call AppRegistry.registerComponent and did not export a component.');
