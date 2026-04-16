@@ -476,10 +476,10 @@ Goal: fresh app launch → scan QR → load bundle from `cf-expo-relay` → moun
   - Deps: MC3.5
   - Validate: `bun run mobile:e2e:ios -- 15-settings.yaml`
 
-- **MC3.11** — Manifest fetcher
-  - Files: `apps/mobile-client/src/relay/fetchManifest.ts`
+- **MC3.11** — Manifest fetcher — **shipped 2026-04-16**
+  - Files: `apps/mobile-client/src/relay/manifestFetcher.ts`
   - Deps: MCF4
-  - Validate: `bun test apps/mobile-client/src/relay/__tests__/fetchManifest.test.ts` (uses `msw` to mock the relay, asserts Zod-parsed output)
+  - Validate: `bun test apps/mobile-client/src/relay/__tests__/manifestFetcher.test.ts`
 
 - **MC3.12** — Bundle fetcher — **shipped 2026-04-16**
   - Files: `apps/mobile-client/src/relay/bundleFetcher.ts`
