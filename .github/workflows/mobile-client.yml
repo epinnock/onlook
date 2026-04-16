@@ -72,7 +72,7 @@ jobs:
       - name: Unit tests — mobile-client-protocol
         run: bun test packages/mobile-client-protocol/src
       - name: Unit tests — mobile-client scripts
-        run: bun test apps/mobile-client/scripts/__tests__
+        run: cd apps/mobile-client && bun run test
       - name: Smoke — validate-task harness parses real queue entries
         run: bun run apps/mobile-client/scripts/validate-task.ts MCF0 --dry-run
       - name: MCI.3 — bundle size audit (hello-onlook, gate ≤ 20 KB)
