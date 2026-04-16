@@ -716,19 +716,21 @@ Goal: console relay, network inspector, error boundary, in-app dev menu. All flo
   - Status: Done — PanResponder-based three-finger long-press (800ms) gesture handler, transparent wrapper component
 
 - **MC5.11** — Dev menu action: reload bundle
-  - Files: `packages/mobile-preview/runtime/dev-menu/actions/reload.js`
+  - Files: `apps/mobile-client/src/actions/reloadBundle.ts`, `apps/mobile-client/src/actions/index.ts`
   - Deps: MC5.9, MC2.8
-  - Validate: `bun test packages/mobile-preview/runtime/dev-menu/actions/__tests__/reload.test.js`
+  - Validate: `bun test apps/mobile-client/src/actions/__tests__/reloadBundle.test.ts && bun --filter @onlook/mobile-client typecheck`
+  - Status: Done — `createReloadAction()` returns DevMenuAction; `reloadApp()` standalone helper. Tries `globalThis.OnlookRuntime.reloadBundle()` first, falls back to RN `DevSettings.reload()`. 5 tests pass, typecheck clean.
 
 - **MC5.12** — Dev menu action: clear async storage
   - Files: `packages/mobile-preview/runtime/dev-menu/actions/clearStorage.js`
   - Deps: MC5.9
   - Validate: `bun test packages/mobile-preview/runtime/dev-menu/actions/__tests__/clearStorage.test.js`
 
-- **MC5.13** — Dev menu action: toggle inspector overlay
-  - Files: `packages/mobile-preview/runtime/dev-menu/actions/toggleInspector.js`
-  - Deps: MC5.9, MC4.5
-  - Validate: `bun test packages/mobile-preview/runtime/dev-menu/actions/__tests__/toggleInspector.test.js`
+- **MC5.13** — Dev menu action: toggle inspector overlay ✅
+  - Files: `apps/mobile-client/src/actions/toggleInspector.ts`
+  - Deps: MC5.9
+  - Validate: `bun test apps/mobile-client/src/actions/__tests__/toggleInspector.test.ts && bun --filter @onlook/mobile-client typecheck`
+  - Status: **Done** — 7 tests pass, plain-object observable with Set-based listener pattern
 
 - **MC5.14** — Dev menu action: copy session ID
   - Files: `packages/mobile-preview/runtime/dev-menu/actions/copySessionId.js`
