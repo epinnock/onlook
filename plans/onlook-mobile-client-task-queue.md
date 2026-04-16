@@ -437,6 +437,7 @@ Goal: fresh app launch → scan QR → load bundle from `cf-expo-relay` → moun
   - Files: `apps/mobile-client/src/deepLink/parse.ts`
   - Deps: MCF1
   - Validate: `bun test apps/mobile-client/src/deepLink/parse.test.ts` (`onlook://launch?session=abc&relay=http://localhost:8787` → `{ sessionId: 'abc', relay: 'http://localhost:8787' }`)
+  - Status: shipped 2026-04-16
 
 - **MC3.4** — Deep link handler (registers OS handler, forwards to router)
   - Files: `apps/mobile-client/src/deepLink/handler.ts`

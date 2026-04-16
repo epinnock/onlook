@@ -55,6 +55,27 @@
       "validate_command": "bun test packages/browser-metro/src/host/__tests__/iife-wrapper-no-export.test.ts",
       "exit_code": 0,
       "stderr_tail": "\n 5 pass\n 0 fail\n 24 expect() calls\nRan 5 tests across 1 file. [185.00ms]\n"
+    },
+    "MC3.5": {
+      "state": "failed",
+      "validated_at": "2026-04-16T02:26:14.871Z",
+      "validate_command": "bun run mobile:e2e:ios -- 12-launcher-visible.yaml",
+      "exit_code": 1,
+      "stderr_tail": "$ cd apps/mobile-client && bun run mobile:e2e:ios \"12-launcher-visible.yaml\"\n$ bun run scripts/run-e2e.ts \"12-launcher-visible.yaml\"\nerror: script \"mobile:e2e:ios\" exited with code 1\nerror: script \"mobile:e2e:ios\" exited with code 1\n"
+    },
+    "MC4.12": {
+      "state": "passed",
+      "validated_at": "2026-04-16T02:29:12.517Z",
+      "validate_command": "bun test packages/browser-metro/src/host/__tests__/sucrase-jsx-source.test.ts",
+      "exit_code": 0,
+      "stderr_tail": "\n 12 pass\n 0 fail\n 41 expect() calls\nRan 12 tests across 1 file. [313.00ms]\n"
+    },
+    "MC3.3": {
+      "state": "passed",
+      "validated_at": "2026-04-16T02:29:44.098Z",
+      "validate_command": "bun test apps/mobile-client/src/deepLink/parse.test.ts",
+      "exit_code": 0,
+      "stderr_tail": "\n 12 pass\n 0 fail\n 18 expect() calls\nRan 12 tests across 1 file. [205.00ms]\n"
     }
   }
 }
