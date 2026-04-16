@@ -73,10 +73,12 @@ function buildSandbox(hermes: boolean): Record<string, unknown> {
         // modules in this test.
         RN$registerCallableModule: (_name: string, _factory: () => unknown) => {},
     };
-    if (hermes) {
-        // Empty object satisfies the `typeof proxy !== 'undefined'` branch in
-        // entry.js, causing runtime.js to be skipped (Hermes path).
-        sandbox.__turboModuleProxy = {};
+    if (!hermes) {
+        // Browser-preview path: `window` is defined. entry.js only loads
+        // runtime.js when `typeof window !== 'undefined'`. In Hermes-mode
+        // tests (hermes=true) we leave window absent, matching what the
+        // runtime prelude sees in Hermes before InitializeCore runs.
+        sandbox.window = sandbox;
     }
     return sandbox;
 }
