@@ -92,6 +92,17 @@ facebook::jsi::Value reloadBundleImpl(
     const facebook::jsi::Value* args,
     size_t count);
 
+/// `dispatchEvent(name, payload)` implementation, isolated into
+/// OnlookRuntime_dispatchEvent.cpp for the same TU-isolation rationale as
+/// `runApplicationImpl`. Resolves `globalThis.__onlookEventBus.dispatch`
+/// and forwards `(name, payload)`; silent no-op (with a nativeLoggingHook
+/// breadcrumb) if the bus has not been installed yet by the runtime
+/// shell. Wave 2 task MC2.9.
+facebook::jsi::Value dispatchEventImpl(
+    facebook::jsi::Runtime& rt,
+    const facebook::jsi::Value* args,
+    size_t count);
+
 /// Pre-warm Fabric's `findNodeAtPoint` by calling it once with off-screen
 /// coordinates (-1, -1). Absorbs the ~150ms cold-start latency during
 /// mount (while the splash is still up) so the first real user tap

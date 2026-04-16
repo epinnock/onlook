@@ -111,10 +111,9 @@ jsi::Value OnlookRuntime::reloadBundle(
 
 jsi::Value OnlookRuntime::dispatchEvent(
     jsi::Runtime& rt,
-    const jsi::Value* /*args*/,
-    size_t /*count*/) {
-  throw jsi::JSError(
-      rt, "OnlookRuntime.dispatchEvent: not implemented (Wave 2 MC2.9)");
+    const jsi::Value* args,
+    size_t count) {
+  return dispatchEventImpl(rt, args, count);
 }
 
 jsi::String OnlookRuntime::version(jsi::Runtime& rt) {
