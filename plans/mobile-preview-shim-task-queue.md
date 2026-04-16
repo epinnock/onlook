@@ -69,29 +69,40 @@ This replaces Claude-specific per-worktree rules. If a task needs more files, sp
 
 ### Port allocation
 
-Eight worktrees can run in parallel only if their dev servers do not collide.
+Up to sixteen worktrees can run in parallel only if their dev servers do not collide. Slot allocation is canonical in `CLAUDE.md` under "Parallel execution methodology"; mirrored here for convenience.
 
 | Slot | Web app | Mobile HTTP | Mobile WS |
 |---|---|---|---|
-| 0 | 3100 | 8787 | 8887 |
-| 1 | 3101 | 8788 | 8888 |
-| 2 | 3102 | 8789 | 8889 |
-| 3 | 3103 | 8790 | 8890 |
-| 4 | 3104 | 8791 | 8891 |
-| 5 | 3105 | 8792 | 8892 |
-| 6 | 3106 | 8793 | 8893 |
-| 7 | 3107 | 8794 | 8894 |
+| 0  | 3100 | 8787 | 8887 |
+| 1  | 3101 | 8788 | 8888 |
+| 2  | 3102 | 8789 | 8889 |
+| 3  | 3103 | 8790 | 8890 |
+| 4  | 3104 | 8791 | 8891 |
+| 5  | 3105 | 8792 | 8892 |
+| 6  | 3106 | 8793 | 8893 |
+| 7  | 3107 | 8794 | 8894 |
+| 8  | 3108 | 8795 | 8895 |
+| 9  | 3109 | 8796 | 8896 |
+| 10 | 3110 | 8797 | 8897 |
+| 11 | 3111 | 8798 | 8898 |
+| 12 | 3112 | 8799 | 8899 |
+| 13 | 3113 | 8800 | 8900 |
+| 14 | 3114 | 8801 | 8901 |
+| 15 | 3115 | 8802 | 8902 |
 
-Per worktree, export:
+Per worktree, export before starting work:
 
 ```bash
-export MOBILE_PREVIEW_SLOT=3
-export WEB_PORT=$((3100 + MOBILE_PREVIEW_SLOT))
-export MOBILE_PREVIEW_PORT=$((8787 + MOBILE_PREVIEW_SLOT))
-export MOBILE_PREVIEW_WS_PORT=$((8887 + MOBILE_PREVIEW_SLOT))
+export PREVIEW_SLOT=<0-15>
+export WEB_PORT=$((3100 + PREVIEW_SLOT))
+export MOBILE_PREVIEW_PORT=$((8787 + PREVIEW_SLOT))
+export MOBILE_PREVIEW_WS_PORT=$((8887 + PREVIEW_SLOT))
 export PLAYWRIGHT_BASE_URL="http://127.0.0.1:${WEB_PORT}"
 export NEXT_PUBLIC_MOBILE_PREVIEW_URL="http://127.0.0.1:${MOBILE_PREVIEW_PORT}"
+export CF_BUILDS_DIR=/tmp/cf-builds/slot-${PREVIEW_SLOT}   # avoid shared-store collisions
 ```
+
+Legacy env var `MOBILE_PREVIEW_SLOT` is preserved as an alias of `PREVIEW_SLOT` for backward compatibility with older scripts.
 
 ## Validation model
 
