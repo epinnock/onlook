@@ -12,3 +12,6 @@ export type { ConsoleEntry, ConsoleLevel } from './consoleRelay';
 
 export { FetchPatch, fetchPatch } from './fetchPatch';
 export type { NetworkEntry } from './fetchPatch';
+
+export { ExceptionCatcher, exceptionCatcher } from './exceptionCatcher';
+export type { ExceptionEntry } from './exceptionCatcher';

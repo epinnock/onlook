@@ -692,10 +692,11 @@ Goal: console relay, network inspector, error boundary, in-app dev menu. All flo
   - Validate: `bun --filter @onlook/mobile-client typecheck`
   - Status: **✅ Done** — React class component wrapping `getDerivedStateFromError` + `componentDidCatch`. Default fallback renders `ErrorScreen` (MC3.17) with error message, component stack, and retry button. Supports optional `fallback` prop for custom UI and `onError` callback for external reporting. Barrel-exported from `src/components/index.ts`.
 
-- **MC5.7** — Native JS exception catcher (Hermes exceptions from `runApplication`)
-  - Files: `apps/mobile-client/cpp/OnlookRuntime_exceptionCatcher.cpp`
-  - Deps: MC2.14
-  - Validate: `bun run mobile:e2e:ios -- 28-native-exception.yaml`
+- **MC5.7** — Native JS exception catcher (Hermes exceptions from `runApplication`) ✅
+  - Files: `apps/mobile-client/src/debug/exceptionCatcher.ts`, `apps/mobile-client/src/debug/__tests__/exceptionCatcher.test.ts`, `apps/mobile-client/src/debug/index.ts`
+  - Deps: MCF1
+  - Validate: `bun test apps/mobile-client/src/debug/__tests__/exceptionCatcher.test.ts && bun --filter @onlook/mobile-client typecheck`
+  - Status: **✅ Done** — `ExceptionCatcher` class patches `globalThis.ErrorUtils.setGlobalHandler` (RN/Hermes error hook) and `window.onerror` when available, forwards to any prior handler, and captures unhandled JS exceptions + manual `captureException(error, componentStack)` calls from `ErrorBoundary` (MC5.6). Each entry is logged with `[onlook-runtime]` prefix, pushed to a 50-slot ring buffer, and fanned out to registered listeners. Availability of `ErrorUtils` / `window` is probed lazily so the catcher is safe in bare JS and test contexts. 15 tests passing.
 
 - **MC5.8** — Crash overlay UI (friendly "your app crashed" + "view in editor" CTA) ✅
   - Files: `apps/mobile-client/src/screens/CrashScreen.tsx`
