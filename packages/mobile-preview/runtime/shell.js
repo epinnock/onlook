@@ -24,7 +24,7 @@
 // `nativeLoggingHook` so it's visible in `xcrun simctl spawn booted
 // log stream`; we do NOT throw because a missing installer should not
 // take the whole runtime down — it's a hard dependency for user code
-// calling into the runtime API but not for Spike B's render path.
+// calling into the runtime API but not for the base render path.
 (function() {
   try {
     var proxy = globalThis.__turboModuleProxy || globalThis.nativeModuleProxy;
@@ -162,7 +162,7 @@ if (typeof globalThis.performance === 'undefined') {
 globalThis._log = function(msg) {
   try {
     if (typeof globalThis.nativeLoggingHook === 'function') {
-      globalThis.nativeLoggingHook('[SPIKE_B] ' + msg, 1);
+      globalThis.nativeLoggingHook('[onlook-runtime] ' + msg, 1);
     }
   } catch (_) {}
 };
