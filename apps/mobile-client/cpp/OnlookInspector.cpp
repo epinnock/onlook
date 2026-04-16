@@ -192,10 +192,31 @@ jsi::Value OnlookInspector::captureScreenshot(
 
 jsi::Value OnlookInspector::highlightNode(
     jsi::Runtime& rt,
-    const jsi::Value* /*args*/,
-    size_t /*count*/) {
-  throw jsi::JSError(
-      rt, "OnlookInspector.highlightNode: not implemented (Wave 4 MC4.5)");
+    const jsi::Value* args,
+    size_t count) {
+  // Arg validation here; UIKit body lives in OnlookInspector_highlight.mm
+  // (MC4.5) behind the `highlightNodeImpl` free function declared in
+  // OnlookInspector.h. Signature: (reactTag: number, color: string). Any
+  // other shape is a protocol bug from the editor-side dispatcher
+  // (MC4.17) and raises a JSError at the JSI boundary rather than being
+  // silently coerced inside the UIKit path.
+  if (count < 2) {
+    throw jsi::JSError(
+        rt,
+        "OnlookInspector.highlightNode: expected (reactTag, color) — got " +
+            std::to_string(count) + " argument(s)");
+  }
+  if (!args[0].isNumber()) {
+    throw jsi::JSError(
+        rt, "OnlookInspector.highlightNode: expected reactTag: number");
+  }
+  if (!args[1].isString()) {
+    throw jsi::JSError(
+        rt, "OnlookInspector.highlightNode: expected color: string");
+  }
+  const int reactTag = static_cast<int>(args[0].asNumber());
+  const std::string color = args[1].asString(rt).utf8(rt);
+  return highlightNodeImpl(rt, reactTag, color);
 }
 
 }  // namespace onlook

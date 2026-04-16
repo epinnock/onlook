@@ -576,10 +576,10 @@ iOS and Android paths fan out in parallel — 4.1–4.6 are iOS, 4.7–4.11 are 
   - Deps: MC4.1
   - Validate: `bun run mobile:e2e:ios -- 24-screenshot.yaml` (base64 decodes to a valid PNG ≥ 100 bytes)
 
-- **MC4.5** — iOS `highlightNode(reactTag, color)` — 2px overlay border, 600ms
-  - Files: `apps/mobile-client/ios/OnlookMobile/OnlookInspector+highlight.swift`
+- **MC4.5** — iOS `highlightNode(reactTag, color)` — 2px overlay border, 600ms — **Status: shipped 2026-04-11.**
+  - Files: `apps/mobile-client/cpp/OnlookInspector_highlight.mm` (NEW — isolated Obj-C++ TU so MC4.2/4.3/4.4 can edit `OnlookInspector.cpp` concurrently without rebase fights). Declares `onlook::highlightNodeImpl(jsi::Runtime&, int reactTag, std::string colorHex)` as a free function in `OnlookInspector.h`; `OnlookInspector::highlightNode` in `OnlookInspector.cpp` is a thin delegator (arg validation + call). Also updates `apps/mobile-client/ios/OnlookMobileClient.xcodeproj/project.pbxproj` (file ref + Sources build-phase entry, same template as MC4.1).
   - Deps: MC4.1
-  - Validate: `bun run mobile:e2e:ios -- 25-highlight.yaml` (Maestro screenshots before/during/after, compares regions)
+  - Validate: `bun run mobile:build:ios` (BUILD SUCCEEDED); `bun run mobile:e2e:ios -- 25-highlight.yaml` (Maestro screenshots before/during/after, compares regions) — gates behind a renderable user bundle, same story as MC4.1.
 
 - **MC4.6** — iOS tap event forwarder (Fabric root tap → `RCTDeviceEventEmitter`) — **Status: JS-facing module shipped 2026-04-11; Fabric call-site waits on MC2.5.**
   - Files: `apps/mobile-client/ios/OnlookMobileClient/OnlookTapForwarder.mm` (NEW — re-homed from the original `ios/OnlookMobile/OnlookInspectorEventForwarder.mm` path so the file lives alongside MC1.10's `OnlookLogger.swift` under the actual target folder `OnlookMobileClient/`). Also updates `apps/mobile-client/ios/OnlookMobileClient.xcodeproj/project.pbxproj` (adds file ref + Sources build-phase entry, same pbxproj-edit pattern as MC1.10 / MC4.1).

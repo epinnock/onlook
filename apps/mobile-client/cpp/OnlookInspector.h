@@ -119,4 +119,24 @@ class OnlookInspector : public facebook::jsi::HostObject {
       size_t count);
 };
 
+// ── platform-specific method implementations declared here as free
+//    functions so the iOS UIKit / Android View bodies can live in their
+//    own TUs without creating rebase pressure on the shared C++ host
+//    object. MC4.5 / MCF8c (Android mirror) wire these up. Each platform
+//    TU defines the function; OnlookInspector::<method> in
+//    OnlookInspector.cpp is a thin delegator that handles arg validation
+//    before handing off to the free function.
+
+/// MC4.5 — draw a 2pt overlay border on the UIView backing `reactTag` in
+/// `colorHex` (e.g. "#FF0000") and fade it out over 600ms. Throws
+/// `jsi::JSError` on invalid color, unmounted reactTag, or a view that
+/// isn't yet in a window. Defined in OnlookInspector_highlight.mm (iOS);
+/// Android mirror lands behind MCF8c. Caller must have already validated
+/// argument shape (see `OnlookInspector::highlightNode` in
+/// OnlookInspector.cpp).
+facebook::jsi::Value highlightNodeImpl(
+    facebook::jsi::Runtime& rt,
+    int reactTag,
+    std::string colorHex);
+
 }  // namespace onlook
