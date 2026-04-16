@@ -702,10 +702,11 @@ Goal: console relay, network inspector, error boundary, in-app dev menu. All flo
   - Deps: MC5.6, MC5.7
   - Validate: `bun run mobile:e2e:ios -- 29-crash-overlay.yaml`
 
-- **MC5.9** — Dev menu component (React, shipped inside runtime bundle)
-  - Files: `packages/mobile-preview/runtime/dev-menu/Menu.js`
-  - Deps: MCF5
-  - Validate: `bun test packages/mobile-preview/runtime/dev-menu/__tests__/Menu.test.js`
+- **MC5.9** — Dev menu component (React, shipped inside runtime bundle) ✅
+  - Files: `apps/mobile-client/src/components/DevMenu.tsx`
+  - Deps: MCF1
+  - Validate: `bun --filter @onlook/mobile-client typecheck`
+  - Status: Done — modal overlay with slide-up animation, dark theme, action list with destructive support
 
 - **MC5.10** — Dev menu trigger: three-finger long-press gesture handler
   - Files: `packages/mobile-preview/runtime/dev-menu/gesture.js`
