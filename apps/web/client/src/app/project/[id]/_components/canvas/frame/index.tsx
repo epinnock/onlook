@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 import { RightClickMenu } from '../../right-click-menu';
 import { GestureScreen } from './gesture';
 import { ResizeHandles } from './resize-handles';
+import { SimulatorFrameShell } from './simulator-frame-shell';
 import { TopBar } from './top-bar';
 import { useFrameReload } from './use-frame-reload';
 import { useSandboxTimeout } from './use-sandbox-timeout';
@@ -40,6 +41,13 @@ const LOADING_MESSAGES = [
 ];
 
 export const FrameView = observer(({ frame, isInDragSelection = false }: { frame: Frame; isInDragSelection?: boolean }) => {
+    if (frame.kind === 'simulator') {
+        return <SimulatorFrameShell frame={frame} isInDragSelection={isInDragSelection} />;
+    }
+    return <WebFrameView frame={frame} isInDragSelection={isInDragSelection} />;
+});
+
+const WebFrameView = observer(({ frame, isInDragSelection = false }: { frame: Frame; isInDragSelection?: boolean }) => {
     const editorEngine = useEditorEngine();
     const iFrameRef = useRef<IFrameView>(null);
     const [isResizing, setIsResizing] = useState(false);
