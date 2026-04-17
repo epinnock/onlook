@@ -37,15 +37,12 @@
         "expo-secure-store": "~15.0.8",
         "react": "19.1.0",
         "react-native": "0.81.6",
-        "react-reconciler": "0.32.0",
-        "scheduler": "0.26.0",
         "zod": "^3.23.8"
     },
     "devDependencies": {
         "@onlook/eslint": "*",
         "@onlook/typescript": "*",
         "@types/react": "~19.1.0",
-        "@types/react-reconciler": "^0.28.9",
         "eslint": "^9.0.0",
         "typescript": "^5.5.4"
     },
