@@ -16,7 +16,7 @@
  * metro-config supports both CJS and ESM configs but we need ESM here
  * for the parent package type.
  */
-import { getDefaultConfig } from 'expo/metro-config';
+import { getDefaultConfig } from 'expo/metro-config.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
