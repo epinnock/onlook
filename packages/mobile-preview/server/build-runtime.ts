@@ -144,6 +144,25 @@ export async function buildRuntime() {
       process.exit(1);
     }
 
+    // Guardrail for the dispatcher-split bug fixed in 86a9d18b: if the
+    // bundle ends up with two React copies (usually from a workspace
+    // pinning a different react version than the root), the reconciler
+    // and user code land on different ReactSharedInternals and hooks
+    // throw "Cannot read property 'useState' of null" at runtime. Fail
+    // the build instead of shipping a broken runtime.
+    const reactVersionHits = rawBundle.match(/exports2?\.version = "\d+\.\d+\.\d+"/g) ?? [];
+    const uniqueReactVersions = new Set(reactVersionHits);
+    if (uniqueReactVersions.size > 1) {
+      console.error(
+        '[build-runtime] Multiple React copies detected in bundle:',
+        [...uniqueReactVersions],
+      );
+      console.error(
+        '[build-runtime] Align every workspace package pinning `react` to the same version as the root, then `rm -rf packages/*/node_modules/react && bun install --force`.',
+      );
+      process.exit(1);
+    }
+
     const preamble = `(function(g) {
   if (!g.performance) g.performance = { now: function() { return Date.now(); } };
   if (typeof g.setTimeout === "undefined") { var _t=1; g.setTimeout = function(fn,ms) { var id=_t++; if(!ms||ms<=0){fn();return id;} return id; }; g.clearTimeout = function(){}; }
