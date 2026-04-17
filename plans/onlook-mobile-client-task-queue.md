@@ -311,6 +311,7 @@ Goal: buildable app that loads a Hermes JS context and prints `[onlook-runtime] 
   - Files: `apps/mobile-client/SUPPORTED_MODULES.md`
   - Deps: MCF1
   - Validate: `test -f apps/mobile-client/SUPPORTED_MODULES.md && grep -q 'expo-camera' apps/mobile-client/SUPPORTED_MODULES.md`
+  - Status: **shipped.** 223-line doc covering the 3-module allowlist (`expo-camera`, `expo-secure-store`, `expo-haptics`), why each is carried, the React-version-pin contract that keeps the list short, illustrative rejections (`expo-router` / `expo-file-system` / `expo-updates` / etc.), the two-layer enforcement (config plugins + autolinking blocklist), and the ADR-based process for adding a new module. Kept in sync with `apps/mobile-client/src/supported-modules.ts` and the `no-restricted-imports` rule in `apps/mobile-client/eslint.config.mjs`. Validated 2026-04-17 — file present, `expo-camera` found.
 
 - **MC1.10** — Logger module (`OnlookLogger.swift` + Kotlin equivalent) for `[onlook-runtime]` prefix
   - Files: `apps/mobile-client/ios/OnlookMobileClient/OnlookLogger.swift`, ~~`apps/mobile-client/android/app/src/main/java/com/onlook/mobile/OnlookLogger.kt`~~ (Android half deferred — see MC1.10a)
