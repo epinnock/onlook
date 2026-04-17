@@ -197,6 +197,28 @@ __d(function(global,require,_imports,_exports,module,exports,_dependencyMap){
 
     const stats = await Bun.file(outPath).size;
     console.log(`[build-runtime] Output: ${outPath} (${(stats / 1024).toFixed(1)} KB)`);
+
+    // Hard ceiling companion to the `minify: false` note above. Hermes on
+    // Expo Go SDK 54 cleanly parses ~1 MB of unminified JS; the 2 MB limit
+    // is the safety margin before we have to reconsider minification
+    // (which triggered the class-declaration parser bug this file is
+    // explicitly avoiding). If a future change pushes past the ceiling,
+    // the fix is probably either a targeted shim-splitting refactor or a
+    // selective per-module minifier — not simply raising the number.
+    const MAX_BUNDLE_BYTES = 2 * 1024 * 1024;
+    if (stats > MAX_BUNDLE_BYTES) {
+      console.error(
+        `[build-runtime] Bundle size ${(stats / 1024).toFixed(1)} KB exceeds ceiling of ${(MAX_BUNDLE_BYTES / 1024).toFixed(0)} KB.`,
+      );
+      console.error(
+        '[build-runtime] Investigate recent runtime shim additions, bundled npm deps, or inadvertent source-map inclusion before raising the ceiling.',
+      );
+      process.exit(1);
+    }
+    const headroomPercent = (100 * (MAX_BUNDLE_BYTES - stats)) / MAX_BUNDLE_BYTES;
+    console.log(
+      `[build-runtime] Size OK: ${(stats / 1024).toFixed(1)} KB of ${(MAX_BUNDLE_BYTES / 1024).toFixed(0)} KB ceiling (${headroomPercent.toFixed(1)}% headroom).`,
+    );
     console.log('[build-runtime] Done.');
   } finally {
     await rm(entryPath, { force: true });

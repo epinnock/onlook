@@ -65,6 +65,10 @@ UDID `2C5C7F81-0C5F-4252-9BC5-820159F6764E`, launched via `xcrun simctl openurl 
 | `1269f58a` | shell guard | switch bootstrap gate from `window` to `OnlookRuntime` presence — unblocks Expo Go HMRClient |
 | `8034e8e9` | live-push | wrap every `renderApp` in a keyed Fragment — defeats Fabric reactTag dedupe |
 | `dc3e1d95` | regression test | extract helper + add 4 tests pinning the auto-key behavior |
+| `86a9d18b` | React dispatcher | align workspace react to 19.2.0 to collapse the two-copy split that broke hooks in eval-pushed components |
+| `0ca077c4` | build guardrail | fail the runtime build if more than one React version appears in the bundle |
+| `78929d29` | cleanup | rename `[SPIKE_B]` log prefix to `[onlook-runtime]` across 13 files |
+| TBD | build guardrail | fail the runtime build if `bundle.js` exceeds 2 MB (currently 1054 KB, 48.5% headroom) |
 
 ## How to re-verify
 
