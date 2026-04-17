@@ -25,16 +25,34 @@ export const ParsedDeepLinkSchema = z.object({
 export type ParsedDeepLink = z.infer<typeof ParsedDeepLinkSchema>;
 
 const ONLOOK_SCHEME = 'onlook:';
+const EXPO_SCHEME = 'exp:';
 
 /**
- * Parse an `onlook://` deep-link URL into a typed {@link ParsedDeepLink}
- * object. Returns `null` for non-onlook URLs, malformed input, or if the
- * parsed result fails Zod validation.
+ * Parse an Onlook deep-link URL (or an Expo-Go-compatible `exp://` URL
+ * produced by the editor's QR modal for backward compatibility) into a
+ * typed {@link ParsedDeepLink} object. Returns `null` for unrecognized
+ * schemes, malformed input, or if the parsed result fails Zod validation.
+ *
+ * Two schemes are accepted:
+ *
+ * - `onlook://` — the native scheme we registered in Info.plist. Carries
+ *   `?session=...&relay=...` query params, with the action on the
+ *   hostname.
+ * - `exp://host:port/manifest/<hash>` — Expo's own manifest URL scheme.
+ *   The editor's cf-expo-relay serves manifests at this path, so when a
+ *   user scans an Expo-Go-style QR from the editor, we treat the whole
+ *   URL as the relay address and the trailing hash as the session id.
+ *   This lets the same editor QR work with both Expo Go AND our custom
+ *   client with no editor-side change.
  *
  * @example
  * ```ts
  * parseOnlookDeepLink('onlook://launch?session=abc&relay=http://localhost:8787')
  * // => { action: 'launch', sessionId: 'abc', relay: 'http://localhost:8787' }
+ *
+ * parseOnlookDeepLink('exp://192.168.0.8:8787/manifest/c6e69884...')
+ * // => { action: 'launch', sessionId: 'c6e69884...',
+ * //      relay: 'http://192.168.0.8:8787/manifest/c6e69884...' }
  *
  * parseOnlookDeepLink('https://example.com')
  * // => null
@@ -52,7 +70,30 @@ export function parseOnlookDeepLink(url: string): ParsedDeepLink | null {
         return null;
     }
 
-    // Only accept the `onlook:` scheme.
+    // Expo Go scheme: exp://host:port/manifest/<sessionHash>. Normalize to
+    // the onlook shape so downstream consumers don't care which QR form
+    // the user scanned.
+    if (parsed.protocol === EXPO_SCHEME) {
+        const trimmed = parsed.pathname.replace(/^\/+/, '').replace(/\/+$/, '');
+        const segments = trimmed.split('/');
+        if (segments.length < 2 || segments[0] !== 'manifest') {
+            return null;
+        }
+        const sessionId = segments[segments.length - 1];
+        if (!sessionId) {
+            return null;
+        }
+        if (/[\u0000-\u001f\u007f]/.test(sessionId)) {
+            return null;
+        }
+        const relayHost = parsed.host; // host:port
+        const relay = `http://${relayHost}/manifest/${sessionId}`;
+        const candidate = { action: 'launch', sessionId, relay };
+        const expoResult = ParsedDeepLinkSchema.safeParse(candidate);
+        return expoResult.success ? expoResult.data : null;
+    }
+
+    // Only accept the `onlook:` scheme past this point.
     if (parsed.protocol !== ONLOOK_SCHEME) {
         return null;
     }
