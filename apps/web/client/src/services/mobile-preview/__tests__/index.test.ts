@@ -168,6 +168,42 @@ describe('buildMobilePreviewBundle', () => {
         expect(renderAppCalls).toHaveLength(1);
     });
 
+    test('exposes react hooks (useState/useEffect/useRef) on the wrap-eval __reactModule', async () => {
+        // Pins the wrap-eval-bundle shape so the runtime-vs-reconciler React
+        // dispatcher wiring can't silently regress. If a future change drops
+        // hooks from __reactModule, AI-generated components using useState
+        // will start throwing "Cannot read property 'useState' of null" on
+        // the sim — this test catches it at build time instead.
+        const vfs = makeFakeVfs({
+            'package.json': JSON.stringify({ main: 'App.tsx' }),
+            'App.tsx': `
+                import { useState, useEffect, useRef } from 'react';
+                import { View } from 'react-native';
+
+                export default function App() {
+                    const [count, setCount] = useState(0);
+                    const renders = useRef(0);
+                    useEffect(() => {
+                        setCount((c) => c + 1);
+                    }, []);
+                    renders.current += 1;
+                    return <View />;
+                }
+            `,
+        });
+
+        const bundle = await buildMobilePreviewBundle(vfs);
+
+        expect(bundle.code).toContain('useState: React.useState');
+        expect(bundle.code).toContain('useEffect: React.useEffect');
+        expect(bundle.code).toContain('useRef: React.useRef');
+        // The entry module should transpile the named imports into
+        // destructured accesses on the resolved react module, not direct
+        // globalThis references (which would bypass the __reactModule
+        // wrapper and re-introduce the dispatcher-null risk).
+        expect(bundle.code).toContain("require('react')");
+    });
+
     test('throws for unsupported bare imports', async () => {
         const vfs = makeFakeVfs({
             'App.tsx': `
