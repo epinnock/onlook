@@ -9,14 +9,14 @@ function bootstrapShell(target) {
   installSchedulerPolyfills(target);
 
   var log = installLogger(target);
-  log('B13 shell begin');
+  log('shell begin');
 
   setupFabric(target, log);
   installWebSocketBootstrap(target, log);
   registerCallableModules(target, log);
-  log('B13 callable modules registered');
+  log('callable modules registered');
   installAppRegistry(target, log);
-  log('B13 shell ready');
+  log('shell ready');
 
   return target;
 }

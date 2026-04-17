@@ -275,7 +275,7 @@ Goal: buildable app that loads a Hermes JS context and prints `[onlook-runtime] 
   - Files: `packages/mobile-preview/runtime/shell.js`, `packages/mobile-preview/server/build-runtime.ts` (audit only; no changes needed as of 2026-04-11)
   - Deps: MC1.4 (landed)
   - Validate: `bun run build:mobile-runtime` regenerates `bundle.js` cleanly; no remaining `[SPIKE_B]` prefix in runtime logs.
-  - Status: **Housekeeping follow-up** flagged in `plans/adr/MC1.4-MC2.10-runtime-context.md`. Wave 2 is functionally complete; refresh the log prefix and spike-era comments in `shell.js` to match the `[onlook-runtime]` / `[onlook-inspector]` convention already used elsewhere in the shell.
+  - Status: **shipped 2026-04-17.** Log prefix in `packages/mobile-preview/runtime/bootstrap/logging.js` changed from `[SPIKE_B]` to `[onlook-runtime]`, matching the JSI installer log convention. Per-message `B13 ` micro-prefixes removed across `bootstrap/*.js` (7 files); test expectations updated (4 files). All 96 runtime tests still pass; rebuilt bundle.js has zero remaining `SPIKE_B` / `B13 ` occurrences. Verified on iOS Simulator: sim logs now read `[onlook-runtime] shell begin`, `[onlook-runtime] fabric.registerEventHandler OK`, etc.
 
 - **MC1.4.2** — Use OnlookLogger.notice for non-error boot events
   - Files: `apps/mobile-client/ios/OnlookMobileClient/OnlookLogger.swift`, `apps/mobile-client/ios/OnlookMobileClient/HermesBootstrap.swift`

@@ -2,7 +2,7 @@ function registerCallableModules(target, log) {
   target.RN$registerCallableModule('HMRClient', function() {
     return {
       setup: function(platform, bundleEntry, host, port) {
-        log('B13 HMRClient.setup host=' + host + ' port=' + port);
+        log('HMRClient.setup host=' + host + ' port=' + port);
         target._tryConnectWebSocket(host, port);
       },
       enable: function() {},
@@ -24,7 +24,7 @@ function registerCallableModules(target, log) {
           if (typeof target._markWebSocketConnected === 'function') {
             target._markWebSocketConnected();
           }
-          log('B13 ws: CONNECTED');
+          log('ws: CONNECTED');
           return;
         }
 
@@ -35,7 +35,7 @@ function registerCallableModules(target, log) {
           try {
             target._handleMessage(JSON.parse(event.data));
           } catch (error) {
-            log('B13 ws parse err: ' + error.message);
+            log('ws parse err: ' + error.message);
           }
           return;
         }
@@ -45,7 +45,7 @@ function registerCallableModules(target, log) {
           if (typeof target._markWebSocketDisconnected === 'function') {
             target._markWebSocketDisconnected();
           }
-          log('B13 ws: CLOSED');
+          log('ws: CLOSED');
           if (typeof target._scheduleWebSocketReconnect === 'function') {
             target._scheduleWebSocketReconnect('closed');
           }
@@ -57,7 +57,7 @@ function registerCallableModules(target, log) {
           if (typeof target._markWebSocketDisconnected === 'function') {
             target._markWebSocketDisconnected();
           }
-          log('B13 ws: FAILED ' + event.message);
+          log('ws: FAILED ' + event.message);
           if (typeof target._scheduleWebSocketReconnect === 'function') {
             target._scheduleWebSocketReconnect(event.message || 'failed');
           }

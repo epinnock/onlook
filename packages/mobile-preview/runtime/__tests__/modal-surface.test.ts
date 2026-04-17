@@ -431,9 +431,9 @@ describe('modal surface host component', () => {
     expect(target.RN$AppRegistry.getModalSurfaces()).toEqual([]);
     expect(logs).toEqual(
       expect.arrayContaining([
-        'B13 modal surface manager initialized',
-        'B13 modal surfaces synced=1',
-        'B13 modal surfaces cleared=1',
+        'modal surface manager initialized',
+        'modal surfaces synced=1',
+        'modal surfaces cleared=1',
       ]),
     );
     expect(completeRootCalls.map((call) => call.rootTag)).toEqual([23, 23]);

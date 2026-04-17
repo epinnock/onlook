@@ -187,7 +187,7 @@ describe('websocket reconnect manager', () => {
 
     callableModules.RCTDeviceEventEmitter?.emit('websocketClosed', { id: 42 });
     expect(clock.getDelays()).toEqual([1000]);
-    expect(logs.some((message) => message.includes('B13 ws: reconnect in 2000ms'))).toBe(true);
+    expect(logs.some((message) => message.includes('ws: reconnect in 2000ms'))).toBe(true);
   });
 
   test('exports the documented reconnect delay sequence', () => {

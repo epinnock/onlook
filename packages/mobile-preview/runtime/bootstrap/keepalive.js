@@ -43,7 +43,7 @@ function createWebSocketKeepaliveManager(options) {
     waitingForActivity = false;
     connected = false;
     clearAllTimers();
-    log('B13 ws: dead connection detected (' + reason + ')');
+    log('ws: dead connection detected (' + reason + ')');
     handleDeadConnection(reason);
   }
 
@@ -64,7 +64,7 @@ function createWebSocketKeepaliveManager(options) {
         sendPing();
       } catch (error) {
         var message = error && error.message ? error.message : 'ping failed';
-        log('B13 ws: keepalive ping failed: ' + message);
+        log('ws: keepalive ping failed: ' + message);
         handleTimeout('keepalive ping failed');
         return;
       }

@@ -59,7 +59,7 @@ function installModalSurfaceSupport(target, rootTag, log) {
   target._syncModalSurfaces = function(children) {
     var committedSurfaces = manager.sync(children);
     if (committedSurfaces.length > 0) {
-      log('B13 modal surfaces synced=' + committedSurfaces.length);
+      log('modal surfaces synced=' + committedSurfaces.length);
     }
     return committedSurfaces;
   };
@@ -69,7 +69,7 @@ function installModalSurfaceSupport(target, rootTag, log) {
   target._clearModalSurfaces = function() {
     var clearedSurfaces = manager.dispose();
     if (clearedSurfaces.length > 0) {
-      log('B13 modal surfaces cleared=' + clearedSurfaces.length);
+      log('modal surfaces cleared=' + clearedSurfaces.length);
     }
     return clearedSurfaces;
   };
@@ -93,22 +93,22 @@ function installAppRegistry(target, log) {
 
   target.RN$AppRegistry = {
     runApplication: function(appKey, props) {
-      log('B13 runApplication rootTag=' + props.rootTag);
+      log('runApplication rootTag=' + props.rootTag);
       target.currentRootTag = props.rootTag;
 
       if (typeof target._initReconciler === 'function') {
         target._initReconciler(target.fab, props.rootTag);
-        log('B13 React reconciler initialized');
+        log('React reconciler initialized');
       } else {
-        log('B13 ERROR: _initReconciler not found — runtime not loaded?');
+        log('ERROR: _initReconciler not found — runtime not loaded?');
       }
 
       installModalSurfaceSupport(target, props.rootTag, log);
-      log('B13 modal surface manager initialized');
+      log('modal surface manager initialized');
 
       if (typeof target.renderApp === 'function' && typeof target.React !== 'undefined') {
         target.renderApp(createDefaultScreen(target));
-        log('B13 default screen rendered');
+        log('default screen rendered');
       }
     },
     syncModalSurfaces: function(children) {

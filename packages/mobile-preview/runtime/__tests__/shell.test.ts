@@ -156,6 +156,6 @@ describe('runtime shell bootstrap', () => {
         expect(renderedElements[0]?.type).toBe('View');
         expect(JSON.stringify(renderedElements[0])).toContain('Onlook Runtime Ready');
         expect(JSON.stringify(renderedElements[0])).toContain('Waiting for component code...');
-        expect(logs.some((message) => message.includes('B13 shell ready'))).toBe(true);
+        expect(logs.some((message) => message.includes('shell ready'))).toBe(true);
     });
 });

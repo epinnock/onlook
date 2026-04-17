@@ -217,7 +217,7 @@ describe('websocket keepalive manager', () => {
     ]);
     expect(clock.getDelays()).toEqual([1000]);
     expect(
-      logs.some((message) => message.includes('B13 ws: dead connection detected (keepalive timeout)')),
+      logs.some((message) => message.includes('ws: dead connection detected (keepalive timeout)')),
     ).toBe(true);
   });
 });

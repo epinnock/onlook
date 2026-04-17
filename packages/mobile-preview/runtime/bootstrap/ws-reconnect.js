@@ -85,7 +85,7 @@ function createWebSocketReconnectManager(options) {
       );
 
       log(
-        'B13 ws: reconnect in ' +
+        'ws: reconnect in ' +
           reconnectDelayMs +
           'ms' +
           (reason ? ' (' + reason + ')' : ''),

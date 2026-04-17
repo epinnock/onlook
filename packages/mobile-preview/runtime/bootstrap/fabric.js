@@ -5,7 +5,7 @@ function setupFabric(target, log) {
   }
 
   target.fab.registerEventHandler(function() {});
-  log('B13 fabric.registerEventHandler OK');
+  log('fabric.registerEventHandler OK');
 
   return target.fab;
 }
