@@ -134,6 +134,25 @@ const React = globalThis.React;
 if (!React || typeof globalThis.renderApp !== 'function') {
   throw new Error('Onlook mobile preview runtime is not ready.');
 }
+// Build a CJS-shape react module so transpiled named imports
+// (var _react = require('react'); _react.useState) resolve with hooks
+// as direct properties. The runtime React module sometimes exposes
+// hooks only on the .default subtree, so fall back to the runtime's
+// guaranteed globals (set by packages/mobile-preview/runtime/runtime.js).
+const __reactModule = Object.assign({}, React, {
+  default: React,
+  __esModule: true,
+  createElement: React.createElement || globalThis.createElement,
+  Fragment: React.Fragment,
+  useState: React.useState || globalThis.useState,
+  useEffect: React.useEffect || globalThis.useEffect,
+  useRef: React.useRef || globalThis.useRef,
+  useMemo: React.useMemo || globalThis.useMemo,
+  useCallback: React.useCallback || globalThis.useCallback,
+  useReducer: React.useReducer || globalThis.useReducer,
+  useContext: React.useContext || globalThis.useContext,
+  useLayoutEffect: React.useLayoutEffect || globalThis.useLayoutEffect,
+});
 // Reset the per-push flag before the runtime's AppRegistry shim can set
 // it. Without the reset, a stale 'true' from a previous push would
 // suppress the fallback on a new push that legitimately relies on a
@@ -231,7 +250,7 @@ __expoStatusBar.default = __expoStatusBar.StatusBar;
 __expoStatusBar.__esModule = true;
 function __require(specifier) {
   if (specifier === 'react') {
-    return React;
+    return __reactModule;
   }
   const __runtimeShim = __resolveRuntimeShim(specifier);
   if (__runtimeShim != null) {
