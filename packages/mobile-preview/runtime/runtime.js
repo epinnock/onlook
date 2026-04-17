@@ -53,11 +53,25 @@ function initReconciler(fab, rootTag) {
   g._log('runtime: container created');
 }
 
+let _renderSeq = 0;
 function renderApp(element) {
   if (!_reconciler || !_container) {
     throw new Error('Runtime not initialized');
   }
-  _reconciler.updateContainer(element, _container, null, null);
+  // Fabric on Expo Go SDK 54 de-dupes a commit when the root child's reactTag
+  // is unchanged — React reuses the root host instance across renders and
+  // cloneNodeWithNewProps preserves the tag, so subsequent `completeRoot`
+  // calls become no-ops and the screen never updates. Wrap every render in a
+  // Fragment and re-key the child to force a fresh host instance + new tag
+  // on every push, which breaks the dedupe. See plans/post-mortems for the
+  // full trace.
+  _renderSeq += 1;
+  const keyed = React.createElement(React.Fragment, null,
+    element && typeof element === 'object' && element.key == null
+      ? React.cloneElement(element, { key: '__onlook_render_' + _renderSeq })
+      : element,
+  );
+  _reconciler.updateContainer(keyed, _container, null, null);
 }
 
 // --- Expose on globalThis ---
