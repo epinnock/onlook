@@ -42,11 +42,12 @@ Three clusters of failures observed on this branch that existed before the merge
 - `packages/code-provider/src/providers/cloudflare/__tests__/http-provider.test.ts` uses fully mocked `fetch`; it passes clean. The failing specs are the cf-terminal / cf-watcher integration ones that depend on a live sandbox.
 - **Prerequisite to pass locally:** `@cloudflare/sandbox` installed + sandbox worker running (same environment as the CF Worker endpoints suite above).
 
-### binary-size-audit — `apps/mobile-client/scripts/binary-size-audit.sh` (4 failures)
+### binary-size-audit — `apps/mobile-client/scripts/binary-size-audit.sh` — **resolved 2026-04-17 (fca8fc70)**
 
-- The script itself is platform-neutral (POSIX bash + fixture `.app`s).
-- The 4 failures come from the wrapper `run-audit-size.ts` that conditionally runs `mobile:build:ios` (Xcode) on macOS and skips on Linux/CI. Wrapper's gate logic is what's breaking in the merge-worktree environment.
-- **Prerequisite to pass locally:** `bun run mobile:build:ios` first (populates DerivedData), or call the script directly with `--app /path/to/OnlookMobileClient.app`.
+- Earlier classified as infra-dependent; actual root cause was a latent bug in the script's `json_escape` awk: `gsub` with a NUL-byte pattern degenerates to empty-regex semantics, so every string value in the emitted JSON came back with `\u0000` inserted at every byte boundary. The synthetic fixture tests that exercise the script were always failing against the garbled output.
+- Fix: start the control-char loop at `i=1` instead of `i=0` — NUL can't reach `json_escape` via bash `"$1"` anyway (bash strings are C-terminated).
+- Post-fix: `bun test apps/mobile-client/scripts/__tests__/binary-size-audit.sh.test.ts` — 8 pass / 0 fail.
+- No downstream consumers of the garbled JSON existed in `.github/`, `apps/web/client/e2e/`, or `scripts/` — the bug was latent.
 
 ## On-device validation (iOS Simulator + Expo Go SDK 54)
 
