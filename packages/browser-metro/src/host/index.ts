@@ -27,6 +27,230 @@ import {
     type Vfs,
 } from './types';
 
+interface LocalImportShim {
+    specifier: string;
+    remoteSpecifiers?: readonly string[];
+    path: string;
+    code: string | ((baseUrlNoSlash: string) => string);
+    remoteDependencies?: (baseUrlNoSlash: string) => readonly string[];
+}
+
+const LOCAL_IMPORT_SHIMS: readonly LocalImportShim[] = [
+    {
+        specifier: 'react-native',
+        remoteSpecifiers: ['react-native', 'react-native-web'],
+        path: '__browser_metro_shims__/react-native.js',
+        remoteDependencies: (baseUrlNoSlash) => [
+            `${baseUrlNoSlash}/react?bundle`,
+            `${baseUrlNoSlash}/react-native-web?bundle`,
+        ],
+        code: (baseUrlNoSlash) => {
+            const reactUrl = `${baseUrlNoSlash}/react?bundle`;
+            const reactNativeWebUrl = `${baseUrlNoSlash}/react-native-web?bundle`;
+
+            return `const ReactModule = require(${JSON.stringify(reactUrl)});
+const React = ReactModule && ReactModule.default ? ReactModule.default : ReactModule;
+const ReactNativeWebModule = require(${JSON.stringify(reactNativeWebUrl)});
+const ReactNativeWeb = ReactNativeWebModule && ReactNativeWebModule.default && ReactNativeWebModule.default.View
+  ? ReactNativeWebModule.default
+  : ReactNativeWebModule;
+
+function flattenStyle(style) {
+  if (Array.isArray(style)) {
+    return style.reduce((acc, item) => Object.assign(acc, flattenStyle(item)), {});
+  }
+
+  if (style && typeof style === 'object') {
+    return style;
+  }
+
+  return {};
+}
+
+const Switch = React.forwardRef(function OnlookBrowserMetroSwitch(props, ref) {
+  const {
+    accessibilityLabel,
+    activeThumbColor,
+    activeTrackColor,
+    disabled,
+    ios_backgroundColor,
+    nativeID,
+    onChange,
+    onValueChange,
+    style,
+    testID,
+    thumbColor,
+    trackColor,
+    value,
+    ...rest
+  } = props || {};
+  const checked = value === true;
+  const height = 20;
+  const width = 40;
+  const trackColorValue = checked
+    ? (trackColor && typeof trackColor === 'object' ? trackColor.true : activeTrackColor) || '#22c55e'
+    : (trackColor && typeof trackColor === 'object' ? trackColor.false : trackColor) || ios_backgroundColor || '#475569';
+  const thumbColorValue = checked
+    ? activeThumbColor || thumbColor || '#f8fafc'
+    : thumbColor || '#cbd5e1';
+
+  function handleChange(event) {
+    const nextValue = Boolean(event && event.target && event.target.checked);
+    if (typeof onChange === 'function') {
+      onChange(event);
+    }
+    if (typeof onValueChange === 'function') {
+      onValueChange(nextValue);
+    }
+  }
+
+  return React.createElement('label', {
+    ...rest,
+    'aria-disabled': disabled ? 'true' : undefined,
+    'data-testid': testID,
+    id: nativeID,
+    style: {
+      ...flattenStyle(style),
+      cursor: disabled ? 'default' : 'pointer',
+      display: 'inline-block',
+      height,
+      position: 'relative',
+      userSelect: 'none',
+      width,
+    },
+  },
+    React.createElement('span', {
+      style: {
+        backgroundColor: trackColorValue,
+        borderRadius: height / 2,
+        display: 'block',
+        height: Math.round(height * 0.7),
+        left: 0,
+        position: 'absolute',
+        right: 0,
+        top: Math.round(height * 0.15),
+        transition: 'background-color 100ms ease',
+      },
+    }),
+    React.createElement('span', {
+      style: {
+        backgroundColor: thumbColorValue,
+        borderRadius: '50%',
+        boxShadow: '0 1px 3px rgba(15, 23, 42, 0.35)',
+        display: 'block',
+        height,
+        left: checked ? width - height : 0,
+        position: 'absolute',
+        top: 0,
+        transition: 'left 100ms ease, background-color 100ms ease',
+        width: height,
+      },
+    }),
+    React.createElement('input', {
+      'aria-label': accessibilityLabel,
+      checked,
+      disabled,
+      onChange: handleChange,
+      ref,
+      role: 'switch',
+      style: {
+        appearance: 'none',
+        background: 'transparent',
+        border: 0,
+        cursor: disabled ? 'default' : 'pointer',
+        height: '100%',
+        inset: 0,
+        margin: 0,
+        padding: 0,
+        position: 'absolute',
+        width: '100%',
+      },
+      type: 'checkbox',
+    }),
+  );
+});
+
+for (const key in ReactNativeWeb) {
+  exports[key] = ReactNativeWeb[key];
+}
+
+exports.Switch = Switch;
+exports.default = { ...ReactNativeWeb, Switch };
+exports.__esModule = true;`;
+        },
+    },
+    {
+        specifier: 'expo-status-bar',
+        path: '__browser_metro_shims__/expo-status-bar.js',
+        code: `function StatusBar() { return null; }
+exports.StatusBar = StatusBar;
+exports.default = StatusBar;
+exports.__esModule = true;`,
+    },
+];
+
+function getLocalShimUrl(baseUrlNoSlash: string, specifier: string): string {
+    return `${baseUrlNoSlash}/${specifier}?bundle`;
+}
+
+function getLocalShimUrls(
+    shim: LocalImportShim,
+    baseUrlNoSlash: string,
+): string[] {
+    const specifiers = shim.remoteSpecifiers ?? [shim.specifier];
+    return specifiers.map((specifier) => getLocalShimUrl(baseUrlNoSlash, specifier));
+}
+
+function getLocalShimForUrl(
+    url: string,
+    baseUrlNoSlash: string,
+): LocalImportShim | null {
+    return (
+        LOCAL_IMPORT_SHIMS.find((shim) =>
+            getLocalShimUrls(shim, baseUrlNoSlash).includes(url),
+        ) ?? null
+    );
+}
+
+function resolveLocalShimCode(
+    shim: LocalImportShim,
+    baseUrlNoSlash: string,
+): string {
+    if (typeof shim.code === 'function') {
+        return shim.code(baseUrlNoSlash);
+    }
+
+    return shim.code;
+}
+
+function collectLocalShimRemoteDependencies(
+    shim: LocalImportShim,
+    baseUrlNoSlash: string,
+): readonly string[] {
+    return shim.remoteDependencies?.(baseUrlNoSlash) ?? [];
+}
+
+function applyLocalImportShims(
+    code: string,
+    baseUrlNoSlash: string,
+    usedLocalShims: Set<string>,
+): string {
+    let nextCode = code;
+
+    for (const shim of LOCAL_IMPORT_SHIMS) {
+        for (const remoteUrl of getLocalShimUrls(shim, baseUrlNoSlash)) {
+            if (!nextCode.includes(remoteUrl)) {
+                continue;
+            }
+
+            usedLocalShims.add(shim.specifier);
+            nextCode = nextCode.split(remoteUrl).join(`/${shim.path}`);
+        }
+    }
+
+    return nextCode;
+}
+
 export class BrowserMetro {
     private readonly vfs: Vfs;
     private readonly esmUrl: string;
@@ -102,6 +326,7 @@ export class BrowserMetro {
             const baseUrlNoSlash = this.esmUrl.endsWith('/')
                 ? this.esmUrl.slice(0, -1)
                 : this.esmUrl;
+            const usedLocalShims = new Set<string>();
             const rewritePostSucraseRequires = (code: string): string => {
                 return code.replace(POST_REQUIRE_RE, (match, quote: string, spec: string) => {
                     // Skip if already a URL
@@ -114,7 +339,14 @@ export class BrowserMetro {
                         return match;
                     }
                     const url = `${baseUrlNoSlash}/${spec}?bundle`;
+                    const localShim = getLocalShimForUrl(url, baseUrlNoSlash);
                     allBares.add(spec);
+
+                    if (localShim) {
+                        usedLocalShims.add(localShim.specifier);
+                        return `require(${quote}/${localShim.path}${quote})`;
+                    }
+
                     allBareUrls.add(url);
                     return `require(${quote}${url}${quote})`;
                 });
@@ -129,9 +361,20 @@ export class BrowserMetro {
                         allBares.add(spec);
                     }
                     for (const url of rewritten.bareImportUrls) {
+                        const localShim = getLocalShimForUrl(url, baseUrlNoSlash);
+                        if (localShim) {
+                            usedLocalShims.add(localShim.specifier);
+                            continue;
+                        }
+
                         allBareUrls.add(url);
                     }
-                    const transformed = transform(rewritten.code, {
+                    const sourceWithLocalShims = applyLocalImportShims(
+                        rewritten.code,
+                        baseUrlNoSlash,
+                        usedLocalShims,
+                    );
+                    const transformed = transform(sourceWithLocalShims, {
                         transforms: ['jsx', 'typescript', 'imports'],
                         production: false,
                         jsxRuntime: 'automatic',
@@ -139,7 +382,11 @@ export class BrowserMetro {
                     });
                     // Post-sucrase rewrite: catch any require('bare-name')
                     // that the JSX runtime auto-injection added.
-                    const finalCode = rewritePostSucraseRequires(transformed.code);
+                    const finalCode = applyLocalImportShims(
+                        rewritePostSucraseRequires(transformed.code),
+                        baseUrlNoSlash,
+                        usedLocalShims,
+                    );
                     modules[file.path] = {
                         path: file.path,
                         code: finalCode,
@@ -153,6 +400,30 @@ export class BrowserMetro {
                         err,
                     );
                 }
+            }
+
+            for (const shim of LOCAL_IMPORT_SHIMS) {
+                if (!usedLocalShims.has(shim.specifier)) {
+                    continue;
+                }
+
+                for (const url of collectLocalShimRemoteDependencies(
+                    shim,
+                    baseUrlNoSlash,
+                )) {
+                    allBareUrls.add(url);
+                }
+
+                const shimCode = resolveLocalShimCode(shim, baseUrlNoSlash);
+                modules[shim.path] = {
+                    path: shim.path,
+                    code: shimCode,
+                    deps: [],
+                };
+                iifeModules.push({
+                    path: shim.path,
+                    code: shimCode,
+                });
             }
 
             // 5. Wrap the module map in a self-contained IIFE.

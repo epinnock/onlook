@@ -254,6 +254,20 @@ export class SandboxManager {
             } catch (err) {
                 console.error('[SandboxManager] BroadcastChannel publish failed:', err);
             }
+            // Same-window CustomEvent — redundant with BroadcastChannel
+            // for cross-context subscribers, but the in-window mobile
+            // preview hook prefers this because it's synchronous and
+            // unaffected by the BC `close()` delivery race observed on
+            // some browsers when post + close happen back-to-back.
+            try {
+                window.dispatchEvent(
+                    new CustomEvent('onlook-preview-bundle', {
+                        detail: { branchId, result },
+                    }),
+                );
+            } catch (err) {
+                console.error('[SandboxManager] CustomEvent dispatch failed:', err);
+            }
             if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
                 navigator.serviceWorker.getRegistration('/preview/').then((reg) => {
                     reg?.active?.postMessage({ type: 'bundle', branchId, result });

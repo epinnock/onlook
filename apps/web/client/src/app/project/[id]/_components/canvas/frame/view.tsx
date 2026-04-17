@@ -15,6 +15,7 @@ import { PENPAL_PARENT_CHANNEL } from '@onlook/penpal';
 import { WebPreview, WebPreviewBody } from '@onlook/ui/ai-elements';
 import { cn } from '@onlook/ui/utils';
 
+import { ensurePreviewServiceWorkerReady } from '@/components/preview/preview-sw-register';
 import { useEditorEngine } from '@/components/store/editor';
 
 export type IFrameView = HTMLIFrameElement & {
@@ -96,9 +97,37 @@ export const FrameComponent = observer(
                 editorEngine.branches.activeBranch;
             const previewProviderType = frameBranch?.sandbox?.providerType ?? 'code_sandbox';
             const isBrowserPreview = previewProviderType === 'expo_browser';
-            const computedSrc = isBrowserPreview
+            const previewSrc = isBrowserPreview
                 ? `${typeof window !== 'undefined' ? window.location.origin : ''}/preview/${frame.branchId}/${frame.id}/`
                 : frame.url;
+            const [computedSrc, setComputedSrc] = useState(() =>
+                isBrowserPreview ? 'about:blank' : frame.url,
+            );
+
+            useEffect(() => {
+                let cancelled = false;
+
+                if (!isBrowserPreview) {
+                    setComputedSrc(frame.url);
+                    return () => {
+                        cancelled = true;
+                    };
+                }
+
+                setComputedSrc('about:blank');
+
+                void ensurePreviewServiceWorkerReady().then(() => {
+                    if (cancelled) {
+                        return;
+                    }
+
+                    setComputedSrc(previewSrc || frame.url);
+                });
+
+                return () => {
+                    cancelled = true;
+                };
+            }, [frame.url, isBrowserPreview, previewSrc]);
 
             const setupPenpalConnection = () => {
                 try {
@@ -322,6 +351,14 @@ export const FrameComponent = observer(
                 };
             }, []);
 
+            const handleIframeLoad = () => {
+                if (isBrowserPreview && computedSrc === 'about:blank') {
+                    return;
+                }
+
+                setupPenpalConnection();
+            };
+
             return (
                 <WebPreview>
                     <WebPreviewBody
@@ -337,7 +374,7 @@ export const FrameComponent = observer(
                         sandbox="allow-modals allow-forms allow-same-origin allow-scripts allow-popups allow-downloads"
                         allow="geolocation; microphone; camera; midi; encrypted-media"
                         style={{ width: frame.dimension.width, height: frame.dimension.height }}
-                        onLoad={setupPenpalConnection}
+                        onLoad={handleIframeLoad}
                         {...props}
                     />
                 </WebPreview>

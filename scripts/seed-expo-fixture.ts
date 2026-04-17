@@ -20,6 +20,7 @@
  */
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { readFileSync } from 'node:fs';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -33,8 +34,8 @@ const LOCAL_API_URL = 'http://127.0.0.1:54321';
 const LOCAL_SERVICE_KEY =
     'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU';
 
-const PROJECT_ID = '2bff33ae-7334-457e-a69e-93a5d90b18b3';
-const BRANCH_ID = 'fcebdee5-1010-4147-9748-823a27dc36a3';
+const DEFAULT_PROJECT_ID = '2bff33ae-7334-457e-a69e-93a5d90b18b3';
+const DEFAULT_BRANCH_ID = 'fcebdee5-1010-4147-9748-823a27dc36a3';
 const BUCKET = 'expo-projects';
 
 // ---------------------------------------------------------------------------
@@ -249,16 +250,18 @@ const FIXTURE_FILES: readonly FixtureFile[] = [
  * Build a bucket key matching `SupabaseStorageAdapter.toKey` —
  * `${projectId}/${branchId}/<logicalPath>` with no leading slash.
  */
-function buildKey(logicalPath: string): string {
+function buildKey(logicalPath: string, projectId: string, branchId: string): string {
     const trimmed = logicalPath.replace(/^\/+/, '').replace(/^\.\//, '');
-    return `${PROJECT_ID}/${BRANCH_ID}/${trimmed}`;
+    return `${projectId}/${branchId}/${trimmed}`;
 }
 
 async function uploadFixtureFile(
     client: SupabaseClient,
     file: FixtureFile,
+    projectId: string,
+    branchId: string,
 ): Promise<void> {
-    const key = buildKey(file.path);
+    const key = buildKey(file.path, projectId, branchId);
     const body = new Blob([file.content], { type: 'application/octet-stream' });
     const { error } = await client.storage.from(BUCKET).upload(key, body, {
         upsert: true,
@@ -269,19 +272,76 @@ async function uploadFixtureFile(
     }
 }
 
+function readOptionalArg(name: string): string | null {
+    const index = process.argv.indexOf(name);
+    if (index === -1 || index + 1 >= process.argv.length) {
+        return null;
+    }
+    return process.argv[index + 1];
+}
+
+function readOverrideArgs(): Map<string, string> {
+    const overrides = new Map<string, string>();
+
+    for (let index = 0; index < process.argv.length; index += 1) {
+        if (process.argv[index] !== '--override-file') {
+            continue;
+        }
+
+        const value = process.argv[index + 1];
+        if (!value) {
+            throw new Error('Missing value after --override-file');
+        }
+
+        const equalsIndex = value.indexOf('=');
+        if (equalsIndex <= 0 || equalsIndex === value.length - 1) {
+            throw new Error(
+                `Invalid --override-file value "${value}". Expected logical/path=local/file`,
+            );
+        }
+
+        const logicalPath = value.slice(0, equalsIndex);
+        const localPath = value.slice(equalsIndex + 1);
+        overrides.set(logicalPath, readFileSync(localPath, 'utf8'));
+    }
+
+    return overrides;
+}
+
+function buildFixtureFiles(overrides: Map<string, string>): FixtureFile[] {
+    const files = FIXTURE_FILES.map((file) => ({
+        path: file.path,
+        content: overrides.get(file.path) ?? file.content,
+    }));
+
+    for (const [path, content] of overrides.entries()) {
+        if (files.some((file) => file.path === path)) {
+            continue;
+        }
+
+        files.push({ path, content });
+    }
+
+    return files;
+}
+
 async function main(): Promise<void> {
+    const projectId = readOptionalArg('--project-id') ?? DEFAULT_PROJECT_ID;
+    const branchId = readOptionalArg('--branch-id') ?? DEFAULT_BRANCH_ID;
+    const overrides = readOverrideArgs();
     const client: SupabaseClient = createClient(LOCAL_API_URL, LOCAL_SERVICE_KEY, {
         auth: { persistSession: false, autoRefreshToken: false },
     });
+    const files = buildFixtureFiles(overrides);
 
     let uploaded = 0;
-    for (const file of FIXTURE_FILES) {
-        await uploadFixtureFile(client, file);
+    for (const file of files) {
+        await uploadFixtureFile(client, file, projectId, branchId);
         uploaded += 1;
     }
 
     console.log(
-        `[seed-expo-fixture] uploaded ${uploaded} files to ${BUCKET}/${PROJECT_ID}/${BRANCH_ID}/`,
+        `[seed-expo-fixture] uploaded ${uploaded} files to ${BUCKET}/${projectId}/${branchId}/`,
     );
 }
 
