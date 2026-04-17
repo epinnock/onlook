@@ -23,8 +23,36 @@ export interface SpectraSessionEntry {
 }
 
 const sessions = new Map<string, SpectraSessionEntry>();
+let sweeperStarted = false;
+
+/**
+ * Start the idle sweeper on the first registration so we don't burn a
+ * setInterval in tests / fresh module loads that never see a session. The
+ * sweeper runs every minute and reaps entries idle ≥ IDLE_TEARDOWN_MS.
+ *
+ * Reaping here only drops the registry entry — the actual Spectra
+ * `DELETE /v1/devices/:id` happens in a caller (cron or cleanup route) so
+ * this file stays dependency-free for unit tests.
+ */
+const SWEEP_INTERVAL_MS = 60 * 1000;
+
+function ensureSweeper(): void {
+    if (sweeperStarted) return;
+    sweeperStarted = true;
+    if (typeof setInterval !== 'function') return;
+    const handle = setInterval(() => {
+        try {
+            sweepStaleSessions();
+        } catch {
+            // swallow — the registry must not crash the worker process.
+        }
+    }, SWEEP_INTERVAL_MS);
+    // Don't block process shutdown in Node.
+    if (typeof (handle as any)?.unref === 'function') (handle as any).unref();
+}
 
 export function registerSession(ownerId: string, deviceId: string): SpectraSessionEntry {
+    ensureSweeper();
     const now = Date.now();
     const entry: SpectraSessionEntry = {
         ownerId,
@@ -67,6 +95,17 @@ export function listStaleSessions(now: number = Date.now()): SpectraSessionEntry
 /** Exposed for tests. */
 export function __resetRegistryForTests(): void {
     sessions.clear();
+}
+
+/**
+ * Sweep: returns the list of sessions that crossed the idle threshold, and
+ * removes them from the registry in the same call. Caller is responsible
+ * for actually tearing down the Spectra device — this is a pure data op.
+ */
+export function sweepStaleSessions(now: number = Date.now()): SpectraSessionEntry[] {
+    const stale = listStaleSessions(now);
+    for (const entry of stale) sessions.delete(entry.deviceId);
+    return stale;
 }
 
 export { IDLE_TEARDOWN_MS };

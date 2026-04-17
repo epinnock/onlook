@@ -15,7 +15,7 @@
  * hook's `open()` short-circuits into an error state.
  */
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { v4 as uuid } from 'uuid';
 
 import type { CodeFileSystem } from '@onlook/file-system';
@@ -186,6 +186,33 @@ export function usePreviewInBrowser(
         setIsOpen(false);
         setStatus({ kind: 'idle' });
         await teardown();
+    }, [teardown]);
+
+    // Best-effort teardown on page unload. tRPC mutations from `beforeunload`
+    // get killed by the navigation, so we fall back to `sendBeacon` hitting
+    // the dedicated end-session Route Handler.
+    useEffect(() => {
+        function handleUnload() {
+            const sessionId = sessionIdRef.current;
+            if (!sessionId) return;
+            try {
+                const url = `/api/spectra/end-session?sessionId=${encodeURIComponent(sessionId)}`;
+                if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+                    navigator.sendBeacon(url);
+                }
+            } catch {
+                // Nothing we can do — server sweeper will eventually reap.
+            }
+        }
+        window.addEventListener('beforeunload', handleUnload);
+        return () => window.removeEventListener('beforeunload', handleUnload);
+    }, []);
+
+    // Teardown on hook unmount (route navigation inside the SPA).
+    useEffect(() => {
+        return () => {
+            void teardown();
+        };
     }, [teardown]);
 
     const retry = useCallback(async () => {
