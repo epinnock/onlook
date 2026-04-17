@@ -21,9 +21,15 @@
 
 import type { CodeFileSystem } from '@onlook/file-system';
 import { useEditorEngine } from '@/components/store/editor';
-import { QrModal } from '@/components/ui/qr-modal';
+import {
+    QrModal,
+    type SimulatorTabProps,
+    type SimulatorTabStatus,
+} from '@/components/ui/qr-modal';
 import { env } from '@/env';
 import { usePreviewOnDevice } from '@/hooks/use-preview-on-device';
+import { usePreviewInBrowser } from '@/hooks/use-preview-in-browser';
+import { api } from '@/trpc/react';
 import { Button } from '@onlook/ui/button';
 import { observer } from 'mobx-react-lite';
 
@@ -68,9 +74,43 @@ function PreviewOnDeviceInner({
         relayBaseUrl: env.NEXT_PUBLIC_CF_EXPO_RELAY_URL,
     });
 
+    const browser = usePreviewInBrowser({
+        fs,
+        projectId,
+        branchId,
+        builderBaseUrl: env.NEXT_PUBLIC_CF_ESM_BUILDER_URL,
+        relayBaseUrl: env.NEXT_PUBLIC_CF_EXPO_RELAY_URL,
+    });
+
+    const spectraEnabled = env.NEXT_PUBLIC_FEATURE_SPECTRA_PREVIEW;
+    // Only query health when the flag is on — otherwise the endpoint throws
+    // PRECONDITION_FAILED.
+    const healthQuery = api.spectra.health.useQuery(undefined, {
+        enabled: spectraEnabled,
+        // Re-check every 30s while the modal is open so we notice if Spectra
+        // goes down mid-session. tRPC will back off automatically on failure.
+        refetchInterval: preview.isOpen ? 30_000 : false,
+        // Don't retry on PRECONDITION_FAILED — the message is descriptive.
+        retry: false,
+    });
+
     const handleClick = () => {
         void preview.open();
     };
+
+    const handleClose = () => {
+        preview.close();
+        void browser.close();
+    };
+
+    const simulator: SimulatorTabProps | undefined = spectraEnabled
+        ? {
+              status: toSimulatorTabStatus(browser.status),
+              onLaunch: () => void browser.open(),
+              onRetry: () => void browser.retry(),
+              healthy: healthQuery.data?.healthy ?? false,
+          }
+        : undefined;
 
     return (
         <>
@@ -86,10 +126,23 @@ function PreviewOnDeviceInner({
             </Button>
             <QrModal
                 open={preview.isOpen}
-                onClose={preview.close}
+                onClose={handleClose}
                 status={preview.status}
                 onRetry={preview.retry}
+                simulator={simulator}
             />
         </>
     );
+}
+
+function toSimulatorTabStatus(status: ReturnType<typeof usePreviewInBrowser>['status']): SimulatorTabStatus {
+    switch (status.kind) {
+        case 'idle':
+        case 'building':
+        case 'launching':
+        case 'error':
+            return status;
+        case 'ready':
+            return { kind: 'ready', sessionId: status.sessionId };
+    }
 }
