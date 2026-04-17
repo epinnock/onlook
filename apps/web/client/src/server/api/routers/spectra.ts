@@ -74,6 +74,13 @@ export const spectraRouter = createTRPCRouter({
         )
         .mutation(async ({ ctx, input }) => {
             ensureConfigured();
+            if (!env.SPECTRA_ONLOOK_MOBILE_CLIENT_APP_ID) {
+                throw new TRPCError({
+                    code: 'PRECONDITION_FAILED',
+                    message:
+                        'SPECTRA_ONLOOK_MOBILE_CLIENT_APP_ID is not set. Upload the Onlook Mobile Client to Spectra (see plans/spectra-inline-simulator-runbook.md) and set the env var on the server.',
+                });
+            }
             const client = clientOrThrow();
 
             try {
