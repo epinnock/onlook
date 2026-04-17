@@ -31,6 +31,10 @@ Ordered top-down (oldest → newest). Each row: commit sha, one-sentence reason,
 | `78929d29` | MC1.4.1 housekeeping — rename `[SPIKE_B]` log prefix (spike-era name) to `[onlook-runtime]` across 13 files | `packages/mobile-preview/runtime/bootstrap/logging.js` + 12 companion edits |
 | `259a4906` | MC1.9 — flip `SUPPORTED_MODULES.md` task queue status to shipped (doc was already written, queue was stale) | `plans/onlook-mobile-client-task-queue.md` |
 | `13badf60` | Companion to the React-copy guardrail: fail the build if `bundle.js` exceeds 2 MB | `packages/mobile-preview/server/build-runtime.ts` |
+| `26a3444c` | This file (reviewer one-pager) | `plans/merge-summary-for-review.md` |
+| `9ce2e756` | MC1.4.1 residuals — `shell.js` header comment, `fabric.js` error string, `bundle-execution.test.ts` description | various |
+| `2a3d1190` | Rewrite 5 stale tests in `bundle-execution.test.ts` to match the current OnlookRuntime-gated architecture (was 13 pass/5 fail → now 18 pass/0 fail) | `packages/mobile-preview/server/__tests__/bundle-execution.test.ts` |
+| `f986aba7` | Absorb `c8e3e13b` from `feat/mobile-client` (dev-only Screens gallery) so "merge both PRs" stays faithful to the latest state of #10 | `apps/mobile-client/src/{navigation/AppRouter,navigation/NavigationContext,screens/ScreensGalleryScreen,screens/SettingsScreen,screens/index}.tsx` |
 
 ## Five-minute local verification
 
