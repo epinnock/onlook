@@ -1,6 +1,9 @@
-import 'server-only';
-
-import { env } from '@/env';
+// `server-only` is enforced at the ingress points that actually bundle
+// into a client: the tRPC router (`routers/spectra.ts`) and the Route
+// Handlers under `app/api/spectra/**`. Skipping it here keeps the class
+// unit-testable via `bun test` without a preload stub. The env-reading
+// factory `createSpectraClient()` lives in `factory.ts` so tests can
+// import the class without loading `@/env`.
 
 import {
     spectraDeviceSchema,
@@ -37,7 +40,7 @@ export class SpectraApiError extends Error {
 }
 
 export interface SpectraClientOptions {
-    baseUrl?: string;
+    baseUrl: string;
     token?: string;
     fetchImpl?: typeof fetch;
 }
@@ -47,15 +50,14 @@ export class SpectraClient {
     private readonly token: string | undefined;
     private readonly fetchImpl: typeof fetch;
 
-    constructor(opts: SpectraClientOptions = {}) {
-        const baseUrl = opts.baseUrl ?? env.SPECTRA_API_URL;
-        if (!baseUrl) {
+    constructor(opts: SpectraClientOptions) {
+        if (!opts.baseUrl) {
             throw new SpectraConfigError(
                 'SPECTRA_API_URL is not set — Spectra preview cannot be used without a configured API.',
             );
         }
-        this.baseUrl = baseUrl.replace(/\/+$/, '');
-        this.token = opts.token ?? env.SPECTRA_API_TOKEN;
+        this.baseUrl = opts.baseUrl.replace(/\/+$/, '');
+        this.token = opts.token;
         this.fetchImpl = opts.fetchImpl ?? fetch;
     }
 

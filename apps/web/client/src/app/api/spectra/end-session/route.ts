@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { env } from '@/env';
 import { createClient } from '@/utils/supabase/server';
-import { SpectraClient, SpectraConfigError } from '~/server/spectra/client';
+import { SpectraConfigError } from '~/server/spectra/client';
+import { createSpectraClient } from '~/server/spectra/factory';
 import { assertOwnership, dropSession } from '~/server/spectra/registry';
 
 export const runtime = 'nodejs';
@@ -45,7 +46,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     }
 
     try {
-        const client = new SpectraClient();
+        const client = createSpectraClient();
         await client.deleteDevice(sessionId).catch(() => undefined);
     } catch (err) {
         if (!(err instanceof SpectraConfigError)) throw err;

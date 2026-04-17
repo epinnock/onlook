@@ -1,4 +1,6 @@
-import 'server-only';
+// No `server-only` import here — this module is pure data (a Map + a timer)
+// and the tests exercise it directly. The SpectraClient + tRPC router guard
+// the boundary; the registry does not need a second wall.
 
 /**
  * Per-process registry mapping each authenticated user to the set of

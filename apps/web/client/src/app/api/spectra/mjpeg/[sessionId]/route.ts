@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { env } from '@/env';
 import { createClient } from '@/utils/supabase/server';
-import { SpectraClient, SpectraConfigError } from '~/server/spectra/client';
+import { SpectraConfigError, type SpectraClient } from '~/server/spectra/client';
+import { createSpectraClient } from '~/server/spectra/factory';
 import { assertOwnership, touchSession } from '~/server/spectra/registry';
 
 export const runtime = 'nodejs';
@@ -47,7 +48,7 @@ export async function GET(
 
     let client: SpectraClient;
     try {
-        client = new SpectraClient();
+        client = createSpectraClient();
     } catch (err) {
         if (err instanceof SpectraConfigError) {
             return NextResponse.json({ error: err.message }, { status: 503 });

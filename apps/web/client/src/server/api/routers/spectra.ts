@@ -5,7 +5,8 @@ import { z } from 'zod';
 
 import { env } from '@/env';
 import { createTRPCRouter, protectedProcedure } from '~/server/api/trpc';
-import { SpectraApiError, SpectraClient, SpectraConfigError } from '~/server/spectra/client';
+import { SpectraApiError, SpectraConfigError, type SpectraClient } from '~/server/spectra/client';
+import { createSpectraClient } from '~/server/spectra/factory';
 import {
     assertOwnership,
     dropSession,
@@ -40,7 +41,7 @@ function ensureConfigured(): void {
 
 function clientOrThrow(): SpectraClient {
     try {
-        return new SpectraClient();
+        return createSpectraClient();
     } catch (err) {
         if (err instanceof SpectraConfigError) {
             throw new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message });
