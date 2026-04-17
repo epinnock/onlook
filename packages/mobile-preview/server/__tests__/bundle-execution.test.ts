@@ -7,17 +7,21 @@
  * evaluate end-to-end, then inspect the sandbox to confirm behaviour in both
  * paths the bundle supports:
  *
- *   1. Hermes mode (`__turboModuleProxy` defined) — runtime/entry.js skips
- *      `require('./runtime.js')`, so React + reconciler are NEVER wired onto
- *      the sandbox globals. Main.jsbundle's React is authoritative; see
- *      plans/post-mortems/2026-04-16-runtime-d-r-clobber.md.
+ *   1. Onlook Mobile Client mode (`globalThis.OnlookRuntime` pre-installed
+ *      by the native JSI installer) — shell.js early-returns without running
+ *      `bootstrapShell`, so `RN$AppRegistry` is NOT installed. runtime.js
+ *      still runs (wire React + reconciler globals) so the wrap-eval-bundle
+ *      can call `globalThis.renderApp(React.createElement(...))`. This is
+ *      the gate that replaces the old `typeof window !== 'undefined'` check
+ *      removed in commit 1269f58a.
  *
- *   2. Browser-preview mode (`__turboModuleProxy` absent) — runtime.js loads
- *      normally and exposes `React`, `createElement`, `renderApp`,
- *      `_initReconciler` on the sandbox.
+ *   2. Browser-preview / Expo Go mode (`OnlookRuntime` absent) — shell runs
+ *      the full bootstrap (HMRClient / RCTDeviceEventEmitter / AppRegistry
+ *      stubs), and runtime.js also runs. React + reconciler + `RN$AppRegistry`
+ *      all exposed on the sandbox.
  *
- * In both paths the shell runs (so `RN$AppRegistry` is defined) and the Metro
- * module shim internals (`__d`, `__r`, `__modules`) stay IIFE-contained.
+ * In both paths runtime.js runs so React globals are always installed; the
+ * Metro module shim internals (`__d`, `__r`, `__modules`) stay IIFE-contained.
  *
  * If `runtime/bundle.js` is missing (fresh clone, failed build), all tests
  * skip gracefully with a pointer to `bun run build:runtime`.
@@ -55,35 +59,41 @@ const BUNDLE_PATH = join(import.meta.dir, '..', '..', 'runtime', 'bundle.js');
  *     the polyfills are gated by `typeof ... === 'undefined'` so they
  *     no-op if the VM already provides them.
  */
-function buildSandbox(hermes: boolean): Record<string, unknown> {
+function buildSandbox(onlookMobileClient: boolean): Record<string, unknown> {
     const sandbox: Record<string, unknown> = {
         // Fabric UIManager stub — only registerEventHandler is called at
-        // shell-eval time; createNode/appendChild/etc are reached later via
-        // renderApp() which this test never invokes.
+        // shell-eval time (when bootstrap runs); createNode/appendChild/etc
+        // are reached later via renderApp() which this test never invokes.
         nativeFabricUIManager: {
             registerEventHandler: () => {},
         },
-        // Hermes-style log hook — shell's _log() is best-effort and
-        // swallows throws, so even a throwing stub would be fine, but
-        // a no-op keeps the test output clean.
+        // Hermes-style log hook — shell's _log() is best-effort and swallows
+        // throws; no-op keeps the test output clean.
         nativeLoggingHook: (_msg: string, _level: number) => {},
-        // Metro-style registerCallableModule: shell calls this 3x eagerly
+        // Metro-style registerCallableModule: bootstrap calls this 3x eagerly
         // (HMRClient, RCTDeviceEventEmitter, RCTNativeAppEventEmitter).
         // Accepting and discarding is sufficient — we never dispatch callable
         // modules in this test.
         RN$registerCallableModule: (_name: string, _factory: () => unknown) => {},
     };
-    if (!hermes) {
-        // Browser-preview path: `window` is defined. entry.js only loads
-        // runtime.js when `typeof window !== 'undefined'`. In Hermes-mode
-        // tests (hermes=true) we leave window absent, matching what the
-        // runtime prelude sees in Hermes before InitializeCore runs.
+    if (onlookMobileClient) {
+        // Simulate the custom Onlook Mobile Client: its native JSI installer
+        // sets `globalThis.OnlookRuntime` before user JS runs. shell.js gates
+        // `bootstrapShell` on `!globalThis.OnlookRuntime`, so with it set the
+        // bootstrap (HMRClient + RN$AppRegistry + friends) is skipped. runtime.js
+        // still runs — React + reconciler + renderApp globals are installed so
+        // user code's wrap-eval-bundle can find them.
+        sandbox.OnlookRuntime = { version: 'stub' };
+    } else {
+        // Browser-preview / Expo Go path: OnlookRuntime is absent, so shell
+        // bootstrap runs. runtime.js also runs. All React/reconciler/AppRegistry
+        // globals end up on the sandbox.
         sandbox.window = sandbox;
     }
     return sandbox;
 }
 
-describe('bundle execution (Hermes mode): runtime.js skipped, React from main.jsbundle', () => {
+describe('bundle execution (Onlook Mobile Client mode): bootstrap skipped, runtime globals still installed', () => {
     if (!existsSync(BUNDLE_PATH)) {
         test.skip('bundle.js not built — run `bun run build:runtime` in packages/mobile-preview first', () => {
             /* skipped */
@@ -121,33 +131,33 @@ describe('bundle execution (Hermes mode): runtime.js skipped, React from main.js
     // failed we've already surfaced it above. We still run them so a single
     // failing build produces one actionable error rather than a cascade.
 
-    test('sandbox.React is undefined (runtime.js skipped in Hermes mode)', () => {
-        // entry.js gates runtime.js on `typeof __turboModuleProxy === 'undefined'`.
-        // With __turboModuleProxy present (Hermes), runtime.js never runs and
-        // globalThis.React is never set — leaving main.jsbundle's React as the
-        // sole copy. Prevents the dual-React hooks crash (useState of null).
-        expect(sandbox.React).toBeUndefined();
+    test('sandbox.React is defined (runtime.js ran)', () => {
+        // runtime.js always runs so user code's wrap-eval-bundle can find
+        // React via `globalThis.React`. The Hermes "skip runtime.js" gate
+        // from an earlier design was removed when we consolidated on the
+        // keyed-render path — see ADR B13-fabric-reactTag-dedupe-keyed-render.
+        expect(sandbox.React).toBeDefined();
     });
 
-    test('sandbox.createElement is undefined (runtime.js skipped in Hermes mode)', () => {
-        expect(sandbox.createElement).toBeUndefined();
+    test('sandbox.createElement is a function (runtime.js ran)', () => {
+        expect(typeof sandbox.createElement).toBe('function');
     });
 
-    test('sandbox.renderApp is undefined (runtime.js skipped in Hermes mode)', () => {
-        // renderApp is exposed by runtime.js, which is skipped in Hermes.
-        // RN's built-in Fabric reconciler handles rendering instead.
-        expect(sandbox.renderApp).toBeUndefined();
+    test('sandbox.renderApp is a function (runtime.js ran)', () => {
+        expect(typeof sandbox.renderApp).toBe('function');
     });
 
-    test('sandbox._initReconciler is undefined (runtime.js skipped in Hermes mode)', () => {
-        expect(sandbox._initReconciler).toBeUndefined();
+    test('sandbox._initReconciler is a function (runtime.js ran)', () => {
+        expect(typeof sandbox._initReconciler).toBe('function');
     });
 
-    test('sandbox.RN$AppRegistry is undefined (shell.js bootstrap skipped in Hermes)', () => {
-        // In Hermes mode, shell.js early-returns after installing
-        // OnlookRuntime + OnlookInspector TurboModules. The base render
-        // path's RN$AppRegistry shadow would break RN's real AppRegistry,
-        // so it's deliberately skipped. Main.jsbundle provides the real one.
+    test('sandbox.RN$AppRegistry is undefined (shell.js bootstrap skipped when OnlookRuntime present)', () => {
+        // shell.js gates `bootstrapShell` on `!globalThis.OnlookRuntime`.
+        // The custom Onlook Mobile Client pre-installs OnlookRuntime via
+        // its native JSI installer, so bootstrap (which shadows RN's real
+        // AppRegistry, HMRClient, RCTDeviceEventEmitter) is skipped.
+        // main.jsbundle provides the real versions of those callable
+        // modules.
         expect(sandbox.RN$AppRegistry).toBeUndefined();
     });
 
