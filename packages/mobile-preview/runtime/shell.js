@@ -92,10 +92,14 @@ module.exports = {
   bootstrapShell: bootstrapShell,
 };
 
-// Browser-preview bootstrap only runs when `window` exists. On Hermes / RN
-// (mobile client target), main.jsbundle owns AppRegistry, HMR, event emitters
-// and the Fabric event handler — the JSI installers above are the only shell
-// code that needs to run there.
-if (typeof window !== 'undefined' && !globalThis.__ONLOOK_SKIP_SHELL_BOOTSTRAP__) {
+// Skip bootstrap only when running inside the custom Onlook Mobile Client:
+// the JSI installer above sets `globalThis.OnlookRuntime`, and main.jsbundle
+// there owns AppRegistry, HMR, event emitters, and the Fabric event handler.
+// In Expo Go (Hermes, no OnlookRuntime TurboModule) and in the browser
+// preview spike (no TurboModule proxy) we still need the shell to register
+// HMRClient / RCTDeviceEventEmitter / AppRegistry and wire the eval loop —
+// otherwise Expo Go's native side calls HMRClient.setup() into a registry
+// with n=0 modules and throws.
+if (!globalThis.OnlookRuntime && !globalThis.__ONLOOK_SKIP_SHELL_BOOTSTRAP__) {
   bootstrapShell(globalThis);
 }

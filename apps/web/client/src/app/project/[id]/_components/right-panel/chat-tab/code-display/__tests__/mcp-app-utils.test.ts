@@ -85,18 +85,18 @@ describe('MCP App Utils', () => {
     describe('resolveUiResourceUri', () => {
         it('resolves ui:// URI against MCP server URL', () => {
             const result = resolveUiResourceUri(
-                'ui://charts/interactive',
-                'https://mcp.example.com',
+                'ui://charts/interactive.html',
+                'https://mcp.example.com/mcp',
             );
-            expect(result).toBe('https://mcp.example.com/_mcp/ui/charts/interactive');
+            expect(result).toBe('https://mcp.example.com/interactive.html');
         });
 
         it('strips trailing slash from server URL', () => {
             const result = resolveUiResourceUri(
-                'ui://widget/form',
+                'ui://widget/form.html',
                 'https://mcp.example.com/',
             );
-            expect(result).toBe('https://mcp.example.com/_mcp/ui/widget/form');
+            expect(result).toBe('https://mcp.example.com/form.html');
         });
 
         it('returns raw URI when no server URL provided', () => {

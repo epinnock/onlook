@@ -198,7 +198,7 @@ describe('react-native shim', () => {
         ]);
     });
 
-    test('AppRegistry renders the main component once', () => {
+    test('AppRegistry re-renders on every registerComponent("main", ...) call', () => {
         const renderAppCalls: unknown[] = [];
         const target = createTarget({
             renderApp(element) {
@@ -210,13 +210,17 @@ describe('react-native shim', () => {
         function App() {
             return React.createElement('View', { testID: 'app-root' });
         }
+        const NullApp = () => null;
 
         moduleExports.AppRegistry.registerComponent('secondary', () => App);
         moduleExports.AppRegistry.registerComponent('main', () => App);
-        moduleExports.AppRegistry.registerComponent('main', () => () => null);
+        moduleExports.AppRegistry.registerComponent('main', () => NullApp);
 
-        expect(renderAppCalls).toHaveLength(1);
+        // 'secondary' is ignored; each 'main' registration re-triggers renderApp
+        // so per-push eval can remount with the latest component definition.
+        expect(renderAppCalls).toHaveLength(2);
         expect((renderAppCalls[0] as React.ReactElement).type).toBe(App);
+        expect((renderAppCalls[1] as React.ReactElement).type).toBe(NullApp);
         expect(typeof moduleExports.Alert.alert).toBe('function');
     });
 });
