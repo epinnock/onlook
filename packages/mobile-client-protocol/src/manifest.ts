@@ -13,7 +13,13 @@
 import { z } from 'zod';
 
 export const ManifestAssetSchema = z.object({
-    hash: z.string().min(1),
+    // `hash` is marked OPTIONAL per Expo Updates v2 spec — it's used for
+    // integrity verification on production OTA builds, but local Metro
+    // (via cf-expo-relay / `expo start`) doesn't compute it ahead of time
+    // and omits the field entirely. Our mobile-client treats a present
+    // hash as advisory; bundle integrity on a LAN session is already
+    // bounded by the relay WS's sessionId scope.
+    hash: z.string().min(1).optional(),
     key: z.string().min(1),
     contentType: z.string().min(1),
     url: z.string().url(),
