@@ -40,8 +40,11 @@ export type ManifestResult =
 function extractManifestJson(contentType: string, body: string): string {
     if (contentType.includes('multipart/mixed')) {
         // Grab everything between the manifest part headers and the next boundary.
+        // HTTP header names are case-insensitive (RFC 7230 §3.2) — both Expo Go
+        // SDK 50+ (Content-Type) and cf-expo-relay running under local Metro
+        // (content-type) are seen in the wild. Use /i to accept either.
         const match = body.match(
-            /name="manifest"[\r\n]+Content-Type:[^\r\n]+\r?\n\r?\n([\s\S]*?)\r?\n--/,
+            /name="manifest"[\r\n]+content-type:[^\r\n]+\r?\n\r?\n([\s\S]*?)\r?\n--/i,
         );
         if (!match?.[1]) {
             throw new Error('Failed to extract manifest from multipart response');
