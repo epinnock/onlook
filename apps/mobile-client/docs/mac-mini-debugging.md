@@ -132,23 +132,14 @@ enumerate via usbmuxd and work regardless.
 
 ## 9. Full build + install chain
 
-Run from `apps/mobile-client/` on the Mac mini (after `bun install` at repo
-root):
+Run from `apps/mobile-client/` on the Mac mini (after `bun install` at root):
 
 ```bash
-# 1. Emit the JS bundle that ships inside the .app.
-bun run bundle-runtime
+bun run bundle-runtime                                # JS bundle into .app
+bun x expo prebuild --platform ios                    # regen ios/ from app.config.ts
+(cd ios && pod install)                               # CocoaPods
+security unlock-keychain -p "<pw>" ~/Library/Keychains/login.keychain-db  # §2
 
-# 2. Regenerate the native iOS project from app.config.ts.
-bun x expo prebuild --platform ios
-
-# 3. Install CocoaPods into the generated workspace.
-(cd ios && pod install)
-
-# 4. Unlock keychain (see section 2) before signing.
-security unlock-keychain -p "<pw>" ~/Library/Keychains/login.keychain-db
-
-# 5. Build signed Debug-iphoneos .app into local derivedData.
 xcodebuild \
   -workspace ios/OnlookMobileClient.xcworkspace \
   -scheme OnlookMobileClient \
@@ -157,17 +148,15 @@ xcodebuild \
   -derivedDataPath build \
   -allowProvisioningUpdates
 
-# 6. Install to the device.
 ios-deploy \
   --bundle build/Build/Products/Debug-iphoneos/OnlookMobileClient.app \
-  --id <UDID> \
-  --debug
+  --id <UDID> --debug
 ```
 
 `-derivedDataPath build` keeps output under `apps/mobile-client/build/` so
 Xcode's global DerivedData doesn't shadow your artifacts. The
 `mobile:install:device` script (see `install-on-device.md` §4a) automates
-steps 5–6 after the first successful signing.
+the last two steps after the first successful signing.
 
 ## 10. Boot marker grep
 
