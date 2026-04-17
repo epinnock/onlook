@@ -13,8 +13,10 @@
  *   renderApp(React.createElement(View, {style:{flex:1}}, ...))
  *
  * Two runtime targets:
- *   1. Browser preview shell (Spike B): full bootstrap (websocket eval loop,
- *      Fabric stub, AppRegistry shadow). Triggered when `window` is defined.
+ *   1. Browser preview shell (base render path): full bootstrap (websocket
+ *      eval loop, Fabric stub, AppRegistry shadow). Triggered when
+ *      `globalThis.OnlookRuntime` is absent — i.e. Expo Go and the Next.js
+ *      browser canvas preview.
  *   2. Onlook Mobile Client (Hermes/RN, MC*): only the JSI installers run.
  *      The browser-preview machinery shadows RN's own primitives and breaks
  *      the reconciler — see plans/post-mortems/2026-04-16-runtime-d-r-clobber.md.

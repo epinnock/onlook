@@ -143,11 +143,11 @@ describe('bundle execution (Hermes mode): runtime.js skipped, React from main.js
         expect(sandbox._initReconciler).toBeUndefined();
     });
 
-    test('sandbox.RN$AppRegistry is undefined (shell.js B13 block skipped in Hermes)', () => {
+    test('sandbox.RN$AppRegistry is undefined (shell.js bootstrap skipped in Hermes)', () => {
         // In Hermes mode, shell.js early-returns after installing
-        // OnlookRuntime + OnlookInspector TurboModules. The B13
-        // RN$AppRegistry shadow would break RN's real AppRegistry, so
-        // it's deliberately skipped. Main.jsbundle provides the real one.
+        // OnlookRuntime + OnlookInspector TurboModules. The base render
+        // path's RN$AppRegistry shadow would break RN's real AppRegistry,
+        // so it's deliberately skipped. Main.jsbundle provides the real one.
         expect(sandbox.RN$AppRegistry).toBeUndefined();
     });
 
