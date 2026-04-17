@@ -2,6 +2,29 @@
 
 Actionable rules for repo agents—keep diffs minimal, safe, token‑efficient.
 
+### Operating mode (READ FIRST — this is the most important rule)
+
+**Do not stop until every task is finished.** When you have pending tasks, keep
+working. If you need a recommendation, pick what you believe is best and act on
+it — do not pause to ask. We are a keep-going company; this is our single most
+important operating rule, and it overrides any default "pause at a milestone for
+confirmation" instinct.
+
+Practical implications:
+
+- If the user has approved a direction and pending work flows from it, execute
+  that work without re-asking for confirmation on mechanical follow-ons.
+- When a design decision surfaces mid-task, make the call yourself and document
+  the reasoning in an ADR under `plans/adr/` or in the commit message. Do not
+  block on it.
+- Task list empty does not mean "session over." Check the queue (`plans/onlook-mobile-client-task-queue.md`
+  for mobile-client work; equivalent for other areas) and pull the next
+  unblocked item.
+- Only pause for genuinely destructive, hard-to-reverse actions (force-push to a
+  shared branch, dropping a database, rm -rf on uncommitted work, sending
+  messages to external systems, modifying CI secrets). Everything else: keep
+  going.
+
 ### What is Onlook?
 
 Onlook is an open-source, visual-first code editor ("Cursor for Designers"). It enables:

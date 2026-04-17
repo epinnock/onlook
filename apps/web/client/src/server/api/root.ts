@@ -16,6 +16,7 @@ import {
     userRouter,
     utilsRouter,
 } from './routers';
+import { mobileInspectorRouter } from './routers/mobile-inspector';
 import { branchRouter } from './routers/project/branch';
 import { cfSandboxRouter } from './routers/project/cf-sandbox';
 
@@ -42,6 +43,7 @@ export const appRouter = createTRPCRouter({
     subscription: subscriptionRouter,
     usage: usageRouter,
     publish: publishRouter,
+    mobileInspector: mobileInspectorRouter,
 });
 
 // export type definition of API

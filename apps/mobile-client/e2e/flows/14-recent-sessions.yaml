@@ -1,0 +1,16 @@
+# 14-recent-sessions.yaml — Wave 3 task MC3.9 of plans/onlook-mobile-client-task-queue.md.
+#
+# Asserts the recent sessions list renders its empty state or section header.
+#
+# NOTE: This flow will timeout on the bare-scaffold app because App.tsx
+# doesn't yet mount RecentSessionsList via the router. The wiring lands in
+# MC3.20 (app router). The flow file is authored now so validate-task.ts can
+# locate it and the maestro YAML is ready when the router is in place.
+
+appId: com.onlook.mobile
+---
+- launchApp:
+    clearState: true
+- waitForAnimationToEnd:
+    timeout: 8000
+- assertVisible: "No recent sessions"

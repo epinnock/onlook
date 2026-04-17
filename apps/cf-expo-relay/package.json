@@ -7,6 +7,9 @@
         "dev": "wrangler dev",
         "deploy": "wrangler deploy"
     },
+    "dependencies": {
+        "@onlook/mobile-client-protocol": "*"
+    },
     "devDependencies": {
         "@cloudflare/workers-types": "latest",
         "typescript": "latest",

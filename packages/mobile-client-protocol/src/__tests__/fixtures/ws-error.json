@@ -1,0 +1,13 @@
+{
+    "type": "onlook:error",
+    "sessionId": "s1",
+    "kind": "react",
+    "message": "Cannot read property 'id' of undefined",
+    "stack": "at Button (Button.tsx:3:0)\nat App (App.tsx:10:5)",
+    "source": {
+        "fileName": "Button.tsx",
+        "lineNumber": 3,
+        "columnNumber": 0
+    },
+    "timestamp": 1744934400000
+}

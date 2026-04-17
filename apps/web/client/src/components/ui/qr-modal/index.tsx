@@ -30,7 +30,7 @@ export type QrModalStatus =
     | { kind: 'idle' }
     | { kind: 'preparing' }
     | { kind: 'building' }
-    | { kind: 'ready'; manifestUrl: string; qrSvg: string }
+    | { kind: 'ready'; manifestUrl: string; onlookUrl: string; qrSvg: string }
     | { kind: 'error'; message: string };
 
 export interface QrModalProps {
@@ -88,13 +88,13 @@ export function QrModalBody({ status, onRetry, onCopy }: QrModalBodyProps) {
                         dangerouslySetInnerHTML={{ __html: status.qrSvg }}
                     />
                     <p className="text-center text-sm text-foreground-secondary">
-                        Scan with Expo Go on your phone, or open this URL:
+                        Scan with the Onlook Mobile app, or open one of these URLs:
                     </p>
                     <code
-                        data-testid="qr-manifest-url"
+                        data-testid="qr-onlook-url"
                         className="w-full break-all rounded-md bg-background-secondary px-3 py-2 text-xs"
                     >
-                        {status.manifestUrl}
+                        {status.onlookUrl}
                     </code>
                     <button
                         type="button"
@@ -102,7 +102,7 @@ export function QrModalBody({ status, onRetry, onCopy }: QrModalBodyProps) {
                         className={BUTTON_CLS}
                         onClick={() => {
                             if (onCopy) {
-                                onCopy(status.manifestUrl);
+                                onCopy(status.onlookUrl);
                                 return;
                             }
                             if (
@@ -110,13 +110,24 @@ export function QrModalBody({ status, onRetry, onCopy }: QrModalBodyProps) {
                                 navigator.clipboard
                             ) {
                                 void navigator.clipboard.writeText(
-                                    status.manifestUrl,
+                                    status.onlookUrl,
                                 );
                             }
                         }}
                     >
-                        Copy URL
+                        Copy Onlook URL
                     </button>
+                    <details className="w-full">
+                        <summary className="cursor-pointer text-xs text-foreground-secondary">
+                            Expo Go fallback URL
+                        </summary>
+                        <code
+                            data-testid="qr-manifest-url"
+                            className="mt-1 block w-full break-all rounded-md bg-background-secondary px-3 py-2 text-xs"
+                        >
+                            {status.manifestUrl}
+                        </code>
+                    </details>
                 </div>
             )}
             {status.kind === 'error' && (
@@ -155,7 +166,7 @@ export function QrModal({ open, onClose, status, onRetry }: QrModalProps) {
                 <DialogHeader>
                     <DialogTitle>Preview on device</DialogTitle>
                     <DialogDescription>
-                        Scan the QR code with Expo Go to open this project on your phone.
+                        Scan the QR code with the Onlook Mobile app to open this project on your phone.
                     </DialogDescription>
                 </DialogHeader>
                 <QrModalBody status={status} onRetry={onRetry} />

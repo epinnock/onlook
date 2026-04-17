@@ -1,0 +1,41 @@
+{
+    "name": "@onlook/mobile-client-protocol",
+    "description": "Shared protocol package: bundle envelope, relay manifest schema, WebSocket message union, inspector descriptors, and runtime version constant. Consumed by apps/mobile-client and apps/cf-expo-relay. See plans/onlook-mobile-client-plan.md.",
+    "main": "./src/index.ts",
+    "type": "module",
+    "module": "src/index.ts",
+    "types": "src/index.ts",
+    "version": "0.0.0",
+    "private": true,
+    "scripts": {
+        "clean": "rm -rf node_modules",
+        "lint": "eslint . --max-warnings 0",
+        "format": "eslint --fix .",
+        "typecheck": "tsc --noEmit",
+        "test": "bun test"
+    },
+    "devDependencies": {
+        "@onlook/eslint": "*",
+        "@onlook/typescript": "*",
+        "eslint": "^9.0.0",
+        "typescript": "^5.5.4"
+    },
+    "dependencies": {
+        "zod": "^3.23.8"
+    },
+    "keywords": [
+        "onlook",
+        "mobile-client",
+        "protocol"
+    ],
+    "author": {
+        "name": "Onlook",
+        "email": "contact@onlook.com"
+    },
+    "license": "Apache-2.0",
+    "homepage": "https://onlook.com",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/onlook-dev/onlook.git"
+    }
+}

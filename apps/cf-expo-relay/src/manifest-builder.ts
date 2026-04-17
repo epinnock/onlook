@@ -11,6 +11,9 @@
  *   - `launchAsset.url` and each `assets[].url` — rewritten against the
  *     environment's public `cf-esm-cache` host so the same builder output
  *     can be served from any environment without re-rendering
+ *   - `extra.expoClient.onlookRuntimeVersion` — stamped with the protocol
+ *     package's `ONLOOK_RUNTIME_VERSION` (MC6.2) so the mobile client can
+ *     check bundle/binary compatibility before mounting
  *
  * Everything else is forwarded verbatim from `manifest-fields.json` so the
  * relay never disagrees with the builder about what a build "is".
@@ -20,6 +23,8 @@
  * with frozen inputs and re-used by both the HTTP route (TQ1.2) and any
  * scenario harness that wants to assert manifest shape (TQ4.1 / scenario 10).
  */
+
+import { ONLOOK_RUNTIME_VERSION } from '@onlook/mobile-client-protocol';
 
 /** The internal field set written by cf-esm-builder per TH0.3 (manifest-fields.json). */
 export interface ManifestFields {
@@ -130,6 +135,13 @@ export interface ExpoManifestExtra {
             packageJsonPath: string;
         };
         hostUri: string;
+        /**
+         * Semver string sourced from `ONLOOK_RUNTIME_VERSION` in
+         * `@onlook/mobile-client-protocol`. The mobile client reads this at
+         * manifest-fetch time (MCF7/MC6.2) and refuses to mount when its own
+         * binary version is incompatible per `isCompatible()`.
+         */
+        onlookRuntimeVersion: string;
     };
     expoGo: {
         debuggerHost: string;
@@ -267,6 +279,12 @@ export function buildManifest(input: BuildManifestInput): ExpoManifest {
                     packageJsonPath: '/private/tmp/onlook-fixture/package.json',
                 },
                 hostUri: relayHostUri,
+                // MC6.2: stamp the binary/bundle compatibility version so the
+                // Onlook mobile client can gate its mount on semver match
+                // (see packages/mobile-client-protocol/src/runtime-version.ts).
+                // Sourced from the protocol package directly — never hardcoded,
+                // so a single bump in MCF7/MC6.1 propagates to every consumer.
+                onlookRuntimeVersion: ONLOOK_RUNTIME_VERSION,
             } as ExpoManifest['extra']['expoClient'],
             expoGo: {
                 debuggerHost: relayHostUri,

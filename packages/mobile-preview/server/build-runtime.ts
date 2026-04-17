@@ -153,10 +153,17 @@ export async function buildRuntime() {
   if (!g.process) g.process = { env: { NODE_ENV: "production" } };
   g._log = function(msg) { try { if (typeof g.nativeLoggingHook === "function") g.nativeLoggingHook("[ONLOOK] " + msg, 1); } catch(_) {} };
 })(typeof globalThis !== "undefined" ? globalThis : typeof self !== "undefined" ? self : this);
+(function(){
 var __modules={};function __d(f,i,d){__modules[i]={factory:f,hasError:false,importedAll:false,exports:{}};}function __r(i){var m=__modules[i];if(!m)throw new Error("Module "+i+" not registered");if(!m.importedAll){m.importedAll=true;try{m.factory.call(m.exports,typeof globalThis!=="undefined"?globalThis:typeof self!=="undefined"?self:this,__r,null,m.exports,m,m.exports,null);}catch(e){m.hasError=true;if(typeof globalThis.nativeLoggingHook==="function"){globalThis.nativeLoggingHook("[ONLOOK] Module error: "+(e&&e.message),1);}throw e;}}return m.exports;}
 __d(function(global,require,_imports,_exports,module,exports,_dependencyMap){
 `;
-    const suffix = '\n}, 0, []);\n__r(0);\n';
+    // runtime/entry.js gates the runtime.js require on `typeof
+    // globalThis.__turboModuleProxy === 'undefined'`, so in Hermes (where
+    // main.jsbundle ships its own React) we skip the React + reconciler
+    // setup entirely. No post-__r(0) cleanup needed — those globals are
+    // simply never set. The closing `})();` balances the `(function(){`
+    // opened in the preamble above.
+    const suffix = '\n}, 0, []);\n__r(0);\n})();\n';
 
     await Bun.write(outPath, preamble + rawBundle + suffix);
     await Bun.write(
