@@ -34,7 +34,7 @@ describe('fetchMobilePreviewConnection', () => {
     test('returns waiting when the server is reachable with no clients', async () => {
         const status = await fetchMobilePreviewConnection({
             serverBaseUrl: 'http://localhost:8787/',
-            fetchFn: async (input, init) => {
+            fetchFn: (async (input: URL | RequestInfo, init?: RequestInit) => {
                 expect(input).toBe('http://localhost:8787/status');
                 expect(init).toEqual({
                     method: 'GET',
@@ -44,7 +44,7 @@ describe('fetchMobilePreviewConnection', () => {
                     clients: 0,
                     runtimeHash: 'runtime_hash',
                 });
-            },
+            }) as unknown as typeof fetch,
         });
 
         expect(status).toEqual({
@@ -57,11 +57,11 @@ describe('fetchMobilePreviewConnection', () => {
     test('returns connected when at least one client is attached', async () => {
         const status = await fetchMobilePreviewConnection({
             serverBaseUrl: 'http://localhost:8787',
-            fetchFn: async () =>
+            fetchFn: (async () =>
                 makeJsonResponse({
                     clients: 3,
                     runtimeHash: 'runtime_hash',
-                }),
+                })) as unknown as typeof fetch,
         });
 
         expect(status).toEqual({
@@ -74,7 +74,8 @@ describe('fetchMobilePreviewConnection', () => {
     test('returns an error when /status returns a non-2xx response', async () => {
         const status = await fetchMobilePreviewConnection({
             serverBaseUrl: 'http://localhost:8787',
-            fetchFn: async () => makeJsonResponse({}, { ok: false, status: 503 }),
+            fetchFn: (async () =>
+                makeJsonResponse({}, { ok: false, status: 503 })) as unknown as typeof fetch,
         });
 
         expect(status).toEqual({
@@ -88,9 +89,9 @@ describe('fetchMobilePreviewConnection', () => {
     test('returns an error when the request throws', async () => {
         const status = await fetchMobilePreviewConnection({
             serverBaseUrl: 'http://localhost:8787',
-            fetchFn: async () => {
+            fetchFn: (async () => {
                 throw new Error('network down');
-            },
+            }) as unknown as typeof fetch,
         });
 
         expect(status).toEqual({

@@ -3,8 +3,37 @@ import React from 'react';
 
 import { wrapEvalBundle } from '../bundler/wrap-eval-bundle';
 
-const installExpoRouterShim = require('../../../../../../../packages/mobile-preview/runtime/shims/expo/expo-router.js');
-const installOnlookPreloadScriptShim = require('../../../../../../../packages/mobile-preview/runtime/shims/core/onlook-preload-script.js');
+type ExpoRouterElement = React.ReactElement<Record<string, unknown>>;
+
+type ExpoRouterModule = {
+    Link: (props: {
+        accessibilityLabel?: string;
+        children?: React.ReactNode;
+        style?: React.CSSProperties;
+        testID?: string;
+    }) => ExpoRouterElement;
+    Redirect: () => ExpoRouterElement | null;
+    Stack: (props: { children?: React.ReactNode }) => ExpoRouterElement;
+    Slot: (props: { children?: React.ReactNode }) => ExpoRouterElement;
+    Tabs: (props: { children?: React.ReactNode }) => ExpoRouterElement;
+    useRouter: () => {
+        back: () => void;
+        push: (path: string) => void;
+        replace: (path?: string) => void;
+    };
+    useLocalSearchParams: () => Record<string, string>;
+    default?: unknown;
+    __esModule?: boolean;
+};
+
+type ShimInstaller<TModule> = {
+    (target: object): TModule;
+    MODULE_ID: string;
+    RUNTIME_SHIM_REGISTRY_KEY: '__onlookShims';
+};
+
+const installExpoRouterShim = require('../../../../../../../packages/mobile-preview/runtime/shims/expo/expo-router.js') as ShimInstaller<ExpoRouterModule>;
+const installOnlookPreloadScriptShim = require('../../../../../../../packages/mobile-preview/runtime/shims/core/onlook-preload-script.js') as ShimInstaller<Record<string, unknown>>;
 
 const {
     MODULE_ID: EXPO_ROUTER_MODULE_ID,
@@ -23,7 +52,11 @@ type RuntimeGlobalState = {
     renderApp?: (element: unknown) => void;
 };
 
-function createTarget() {
+function createTarget(): {
+    React: typeof React;
+    TextC: string;
+    __onlookShims?: Record<string, Record<string, unknown>>;
+} {
     return {
         React,
         TextC: 'Text',
@@ -37,9 +70,10 @@ function resolveRenderedElement(
         return element as React.ReactElement<Record<string, unknown>>;
     }
 
-    return element.type(
-        element.props,
-    ) as React.ReactElement<Record<string, unknown>>;
+    const component = element.type as (
+        props: unknown,
+    ) => React.ReactElement<Record<string, unknown>>;
+    return component(element.props);
 }
 
 function withRuntimeGlobals(
@@ -83,7 +117,7 @@ describe('expo-router shim', () => {
 
         const moduleExports = installExpoRouterShim(target);
 
-        expect(target[RUNTIME_SHIM_REGISTRY_KEY][EXPO_ROUTER_MODULE_ID]).toBe(
+        expect(target[RUNTIME_SHIM_REGISTRY_KEY]?.[EXPO_ROUTER_MODULE_ID]).toBe(
             moduleExports,
         );
         expect(moduleExports.default).toBe(moduleExports);

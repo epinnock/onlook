@@ -12,8 +12,72 @@ const {
     RUNTIME_SHIM_REGISTRY_KEY,
 } = installDeviceMetadataShim;
 
+type AnyFn = (...args: never[]) => unknown;
+type Listener = { remove: AnyFn };
+
+interface ConstantsModule {
+    default: {
+        appOwnership: unknown;
+        executionEnvironment: unknown;
+        expoConfig: Record<string, unknown>;
+        getWebViewUserAgentAsync: () => Promise<unknown>;
+        linkingUri?: unknown;
+        sessionId?: unknown;
+    };
+    AppOwnership: Record<string, unknown>;
+    [key: string]: unknown;
+}
+
+interface DeviceModule {
+    default: unknown;
+    __esModule: boolean;
+    DeviceType: Record<string, unknown>;
+    modelName: unknown;
+    osName: unknown;
+    osVersion?: unknown;
+    isDevice: boolean;
+    brand?: unknown;
+    manufacturer?: unknown;
+    getDeviceTypeAsync: () => Promise<unknown>;
+    getPlatformFeaturesAsync: () => Promise<unknown[]>;
+    hasPlatformFeatureAsync: (feature: string) => Promise<boolean>;
+    isRootedExperimentalAsync: () => Promise<boolean>;
+    [key: string]: unknown;
+}
+
+interface NetworkModule {
+    default: unknown;
+    NetworkStateType: Record<string, unknown>;
+    getNetworkStateAsync: () => Promise<Record<string, unknown>>;
+    getIpAddressAsync: () => Promise<string>;
+    isAirplaneModeEnabledAsync: () => Promise<boolean>;
+    useNetworkState: () => Record<string, unknown>;
+    addNetworkStateListener: (listener: AnyFn) => Listener;
+    [key: string]: unknown;
+}
+
+interface BatteryModule {
+    default: unknown;
+    BatteryState: Record<string, unknown>;
+    isAvailableAsync: () => Promise<boolean>;
+    getBatteryLevelAsync: () => Promise<number>;
+    getBatteryStateAsync: () => Promise<unknown>;
+    getPowerStateAsync: () => Promise<Record<string, unknown>>;
+    isLowPowerModeEnabledAsync: () => Promise<boolean>;
+    usePowerState: () => Record<string, unknown>;
+    addBatteryLevelListener: (listener: AnyFn) => Listener;
+    [key: string]: unknown;
+}
+
+type ShimRegistry = Record<string, Record<string, unknown>> & {
+    'expo-constants'?: ConstantsModule;
+    'expo-device'?: DeviceModule;
+    'expo-network'?: NetworkModule;
+    'expo-battery'?: BatteryModule;
+};
+
 type RuntimeTarget = {
-    __onlookShims?: Record<string, Record<string, unknown>>;
+    __onlookShims?: ShimRegistry;
     __turboModuleProxy?: ((moduleId: string) => unknown) | Record<string, unknown>;
     nativeModuleProxy?: Record<string, unknown>;
 };
@@ -22,21 +86,24 @@ describe('expo device metadata shim group', () => {
     test('installs expo-constants, expo-device, expo-network, and expo-battery into __onlookShims', async () => {
         const target: RuntimeTarget = {};
 
-        const installedModules = installDeviceMetadataShim(target);
-        const runtimeShims = target[RUNTIME_SHIM_REGISTRY_KEY] ?? {};
-        const constantsModule = runtimeShims[MODULE_IDS.constants];
-        const deviceModule = runtimeShims[MODULE_IDS.device];
-        const networkModule = runtimeShims[MODULE_IDS.network];
-        const batteryModule = runtimeShims[MODULE_IDS.battery];
+        const installedModules = installDeviceMetadataShim(target) as Record<
+            string,
+            unknown
+        >;
+        const runtimeShims = target.__onlookShims ?? {};
+        const constantsModule = runtimeShims['expo-constants']!;
+        const deviceModule = runtimeShims['expo-device']!;
+        const networkModule = runtimeShims['expo-network']!;
+        const batteryModule = runtimeShims['expo-battery']!;
 
         expect(Object.keys(installedModules).sort()).toEqual(
-            Object.values(MODULE_IDS).sort(),
+            (Object.values(MODULE_IDS) as string[]).sort(),
         );
 
-        expect(installedModules[MODULE_IDS.constants]).toBe(constantsModule);
-        expect(installedModules[MODULE_IDS.device]).toBe(deviceModule);
-        expect(installedModules[MODULE_IDS.network]).toBe(networkModule);
-        expect(installedModules[MODULE_IDS.battery]).toBe(batteryModule);
+        expect(installedModules['expo-constants']).toBe(constantsModule);
+        expect(installedModules['expo-device']).toBe(deviceModule);
+        expect(installedModules['expo-network']).toBe(networkModule);
+        expect(installedModules['expo-battery']).toBe(batteryModule);
 
         expect(constantsModule.default.expoConfig).toEqual({
             name: 'Onlook Preview',
@@ -171,11 +238,11 @@ describe('expo device metadata shim group', () => {
 
         installDeviceMetadataShim(target);
 
-        const runtimeShims = target[RUNTIME_SHIM_REGISTRY_KEY] ?? {};
-        const constantsModule = runtimeShims[MODULE_IDS.constants];
-        const deviceModule = runtimeShims[MODULE_IDS.device];
-        const networkModule = runtimeShims[MODULE_IDS.network];
-        const batteryModule = runtimeShims[MODULE_IDS.battery];
+        const runtimeShims = target.__onlookShims ?? {};
+        const constantsModule = runtimeShims['expo-constants']!;
+        const deviceModule = runtimeShims['expo-device']!;
+        const networkModule = runtimeShims['expo-network']!;
+        const batteryModule = runtimeShims['expo-battery']!;
 
         expect(constantsModule.default.appOwnership).toBeNull();
         expect(constantsModule.default.executionEnvironment).toBe(
@@ -246,27 +313,27 @@ describe('expo device metadata shim group', () => {
                 'expo-network': {
                     customNetworkFlag: true,
                 },
-            },
+            } as unknown as ShimRegistry,
         };
 
         installDeviceMetadataShim(target);
 
-        const runtimeShims = target[RUNTIME_SHIM_REGISTRY_KEY] ?? {};
+        const runtimeShims = target.__onlookShims ?? {};
+        const constantsModule = runtimeShims['expo-constants']!;
+        const deviceModule = runtimeShims['expo-device']!;
+        const networkModule = runtimeShims['expo-network']!;
+        const batteryModule = runtimeShims['expo-battery']!;
 
-        expect(runtimeShims['expo-constants'].default).toBe(
-            existingConstantsDefault,
+        expect(constantsModule.default).toBe(
+            existingConstantsDefault as unknown as ConstantsModule['default'],
         );
-        expect(runtimeShims['expo-constants'].AppOwnership).toEqual(
-            APP_OWNERSHIP,
-        );
-        expect(runtimeShims['expo-device'].customDeviceFlag).toBe(true);
-        expect(runtimeShims['expo-device'].getDeviceTypeAsync).toBeFunction();
-        expect(runtimeShims['expo-device'].default).toBe(
-            runtimeShims['expo-device'],
-        );
-        expect(runtimeShims['expo-network'].customNetworkFlag).toBe(true);
-        expect(runtimeShims['expo-network'].getNetworkStateAsync).toBeFunction();
-        expect(runtimeShims['expo-battery'].customBatteryFlag).toBe(true);
-        expect(runtimeShims['expo-battery'].getPowerStateAsync).toBeFunction();
+        expect(constantsModule.AppOwnership).toEqual(APP_OWNERSHIP);
+        expect(deviceModule.customDeviceFlag).toBe(true);
+        expect(deviceModule.getDeviceTypeAsync).toBeFunction();
+        expect(deviceModule.default).toBe(deviceModule);
+        expect(networkModule.customNetworkFlag).toBe(true);
+        expect(networkModule.getNetworkStateAsync).toBeFunction();
+        expect(batteryModule.customBatteryFlag).toBe(true);
+        expect(batteryModule.getPowerStateAsync).toBeFunction();
     });
 });

@@ -3,9 +3,18 @@ import React from 'react';
 
 const installReactNativeScreens = require('../../../../../../../packages/mobile-preview/runtime/shims/third-party/react-native-screens.js');
 
-const { MODULE_ID, RUNTIME_SHIM_REGISTRY_KEY } = installReactNativeScreens;
+const { MODULE_ID, RUNTIME_SHIM_REGISTRY_KEY } = installReactNativeScreens as {
+    MODULE_ID: string;
+    RUNTIME_SHIM_REGISTRY_KEY: '__onlookShims';
+};
 
-function createTarget() {
+type ShimTarget = {
+    React: typeof React;
+    View: string;
+    __onlookShims?: Record<string, Record<string, unknown>>;
+};
+
+function createTarget(): ShimTarget {
     return {
         React,
         View: 'View',
@@ -18,7 +27,7 @@ describe('react-native-screens shim', () => {
 
         const moduleExports = installReactNativeScreens(target);
 
-        expect(target[RUNTIME_SHIM_REGISTRY_KEY][MODULE_ID]).toBe(moduleExports);
+        expect(target[RUNTIME_SHIM_REGISTRY_KEY]?.[MODULE_ID]).toBe(moduleExports);
         expect(moduleExports.default).toBe(moduleExports);
         expect(moduleExports.__esModule).toBe(true);
         expect(Object.keys(moduleExports)).toEqual(

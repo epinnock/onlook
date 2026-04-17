@@ -13,11 +13,26 @@ const installReactNativeGestureHandlerEvents = require('../../../../../../../pac
 const { MODULE_ID, RUNTIME_SHIM_REGISTRY_KEY, State } =
     installReactNativeGestureHandlerEvents;
 
-function createTarget() {
+interface SyntheticHostEvent {
+    currentTarget: number | null;
+    target: number | null;
+    type: string;
+    timeStamp: number;
+    nativeEvent: Record<string, unknown> & {
+        changedTouches?: Array<Record<string, unknown>>;
+    };
+}
+
+type ShimTarget = {
+    React: typeof React;
+    View: string;
+} & Record<string, Record<string, unknown>>;
+
+function createTarget(): ShimTarget {
     return {
         React,
         View: 'View',
-    };
+    } as ShimTarget;
 }
 
 describe('react-native-gesture-handler events shim', () => {
@@ -31,7 +46,7 @@ describe('react-native-gesture-handler events shim', () => {
 
         const moduleExports = installReactNativeGestureHandlerEvents(target);
 
-        expect(target[RUNTIME_SHIM_REGISTRY_KEY][MODULE_ID]).toBe(moduleExports);
+        expect(target[RUNTIME_SHIM_REGISTRY_KEY]?.[MODULE_ID]).toBe(moduleExports);
         expect(moduleExports).toBe(rootModule);
         expect(moduleExports.GestureHandlerRootView).toBeDefined();
         expect(moduleExports.State).toEqual(State);
@@ -52,7 +67,7 @@ describe('react-native-gesture-handler events shim', () => {
         }> = [];
 
         registerHostInstanceEventHandlers(101, {
-            onPressIn(event) {
+            onPressIn(event: SyntheticHostEvent) {
                 calls.push({
                     eventName: 'onPressIn',
                     currentTarget: event.currentTarget,
@@ -60,7 +75,7 @@ describe('react-native-gesture-handler events shim', () => {
                     type: event.type,
                 });
             },
-            onPressOut(event) {
+            onPressOut(event: SyntheticHostEvent) {
                 calls.push({
                     eventName: 'onPressOut',
                     currentTarget: event.currentTarget,
@@ -68,7 +83,7 @@ describe('react-native-gesture-handler events shim', () => {
                     type: event.type,
                 });
             },
-            onPress(event) {
+            onPress(event: SyntheticHostEvent) {
                 calls.push({
                     eventName: 'onPress',
                     currentTarget: event.currentTarget,
@@ -78,7 +93,7 @@ describe('react-native-gesture-handler events shim', () => {
             },
         });
         registerHostInstanceEventHandlers(202, {
-            onPress(event) {
+            onPress(event: SyntheticHostEvent) {
                 calls.push({
                     eventName: 'parent:onPress',
                     currentTarget: event.currentTarget,
@@ -202,7 +217,7 @@ describe('react-native-gesture-handler events shim', () => {
         }> = [];
 
         registerHostInstanceEventHandlers(404, {
-            onScroll(event) {
+            onScroll(event: SyntheticHostEvent) {
                 calls.push({
                     currentTarget: event.currentTarget,
                     target: event.target,

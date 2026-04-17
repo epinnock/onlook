@@ -6,7 +6,13 @@ const installReactNavigationBottomTabs = require('../../../../../../../packages/
 const { MODULE_ID, RUNTIME_SHIM_REGISTRY_KEY } =
     installReactNavigationBottomTabs;
 
-function createTarget() {
+interface ShimTarget {
+    React: typeof React;
+    View: string;
+    [key: string]: unknown;
+}
+
+function createTarget(): ShimTarget {
     return {
         React,
         View: 'View',
@@ -18,8 +24,9 @@ describe('react-navigation bottom-tabs shim', () => {
         const target = createTarget();
 
         const moduleExports = installReactNavigationBottomTabs(target);
+        const registry = target[RUNTIME_SHIM_REGISTRY_KEY] as Record<string, unknown>;
 
-        expect(target[RUNTIME_SHIM_REGISTRY_KEY][MODULE_ID]).toBe(moduleExports);
+        expect(registry[MODULE_ID]).toBe(moduleExports);
         expect(moduleExports.default).toBe(moduleExports);
         expect(moduleExports.__esModule).toBe(true);
         expect(Object.keys(moduleExports)).toEqual(

@@ -118,17 +118,6 @@ export async function readProjectExpoSdkVersion(
 
     for (let attempt = 0; attempt < PACKAGE_JSON_SYNC_RETRY_COUNT; attempt += 1) {
         try {
-            if (
-                'exists' in fileSystem &&
-                typeof fileSystem.exists === 'function' &&
-                !(await fileSystem.exists('package.json'))
-            ) {
-                await new Promise((resolve) =>
-                    setTimeout(resolve, PACKAGE_JSON_SYNC_RETRY_DELAY_MS),
-                );
-                continue;
-            }
-
             const packageJson = await fileSystem.readFile('package.json');
             const contents =
                 typeof packageJson === 'string'
@@ -385,6 +374,10 @@ export function useMobilePreviewStatus(
             const readyStatus = {
                 kind: 'ready',
                 manifestUrl: body.manifestUrl,
+                // Browser-only path has no bundleHash/relay split — the
+                // manifest URL itself is the canonical target for both the
+                // Onlook Mobile Client and Expo Go fallback.
+                onlookUrl: body.manifestUrl,
                 qrSvg,
             } satisfies ReadyQrModalStatus;
             readyStatusRef.current = readyStatus;

@@ -1,3 +1,4 @@
+// @ts-nocheck — runtime shim, dynamically typed via JSDoc TODO; suppress checkJs in editor consumer.
 function cloneObject(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return value;

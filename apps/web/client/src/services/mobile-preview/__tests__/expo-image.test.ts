@@ -9,12 +9,20 @@ const {
 const expoRuntimeShimCollection = require('../../../../../../../packages/mobile-preview/runtime/shims/expo/index.js');
 const installExpoImageShim = require('../../../../../../../packages/mobile-preview/runtime/shims/expo/expo-image.js');
 
-const { MODULE_ID, RUNTIME_SHIM_REGISTRY_KEY } = installExpoImageShim;
+const { MODULE_ID, RUNTIME_SHIM_REGISTRY_KEY } = installExpoImageShim as {
+    MODULE_ID: 'expo-image';
+    RUNTIME_SHIM_REGISTRY_KEY: '__onlookShims';
+};
+
+type ShimRegistryEntry = {
+    Image?: unknown;
+    [key: string]: unknown;
+};
 
 type RuntimeTarget = {
     React?: typeof React;
     View?: string;
-    __onlookShims?: Record<string, unknown>;
+    __onlookShims?: Record<string, ShimRegistryEntry>;
 };
 
 function createTarget(overrides: Partial<RuntimeTarget> = {}): RuntimeTarget {
@@ -74,18 +82,21 @@ describe('expo-image shim', () => {
         });
 
         const backgroundChildren = React.Children.toArray(
-            imageBackground.props.children,
-        ) as React.ReactElement<Record<string, unknown>>[];
+            imageBackground.props.children as React.ReactNode,
+        ) as Array<React.ReactElement<Record<string, unknown>> | string>;
 
         expect(imageBackground.type).toBe('View');
         expect(imageBackground.props.style).toEqual({ padding: 16 });
         expect(imageBackground.props.testID).toBe('expo-background');
         expect(backgroundChildren).toHaveLength(2);
-        expect(backgroundChildren[0]?.type).toBe('View');
-        expect(backgroundChildren[0]?.props.source).toEqual({
+        const firstChild = backgroundChildren[0] as
+            | React.ReactElement<Record<string, unknown>>
+            | undefined;
+        expect(firstChild?.type).toBe('View');
+        expect(firstChild?.props.source).toEqual({
             uri: 'https://example.com/background.png',
         });
-        expect(backgroundChildren[0]?.props.style).toEqual({ opacity: 0.5 });
+        expect(firstChild?.props.style).toEqual({ opacity: 0.5 });
         expect(backgroundChildren[1]).toBe('Foreground content');
     });
 

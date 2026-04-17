@@ -3,13 +3,21 @@ import React from 'react';
 
 const installReactNativeSvgShapes = require('../../../../../../../packages/mobile-preview/runtime/shims/third-party/react-native-svg-shapes.js');
 
-const { MODULE_ID, RUNTIME_SHIM_REGISTRY_KEY } = installReactNativeSvgShapes;
+const { MODULE_ID, RUNTIME_SHIM_REGISTRY_KEY } = installReactNativeSvgShapes as {
+    MODULE_ID: string;
+    RUNTIME_SHIM_REGISTRY_KEY: string;
+};
 
-function createTarget() {
+type ShimTarget = {
+    React: typeof React;
+    View: string;
+} & Record<string, Record<string, unknown>>;
+
+function createTarget(): ShimTarget {
     return {
         React,
         View: 'View',
-    };
+    } as ShimTarget;
 }
 
 describe('react-native-svg shapes shim', () => {
@@ -18,7 +26,7 @@ describe('react-native-svg shapes shim', () => {
 
         const moduleExports = installReactNativeSvgShapes(target);
 
-        expect(target[RUNTIME_SHIM_REGISTRY_KEY][MODULE_ID]).toBe(moduleExports);
+        expect(target[RUNTIME_SHIM_REGISTRY_KEY]?.[MODULE_ID]).toBe(moduleExports);
         expect(moduleExports.default).toBe(moduleExports.Svg);
         expect(moduleExports.__esModule).toBe(true);
         expect(Object.keys(moduleExports)).toEqual(

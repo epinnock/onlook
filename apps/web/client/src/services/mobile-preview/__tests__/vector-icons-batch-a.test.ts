@@ -1,11 +1,56 @@
 import { describe, expect, test } from 'bun:test';
 import React from 'react';
 
-const installVectorIconsBatchA = require('../../../../../../../packages/mobile-preview/runtime/shims/third-party/vector-icons-batch-a.js');
+type FamilyModule = {
+    getFontFamily: () => string;
+    loadFont: () => Promise<undefined>;
+    getRawGlyphMap: () => Record<string, number | string>;
+    getImageSource: (
+        name: string,
+        size: number,
+        color: string,
+    ) => Promise<{ uri: string; width: number; height: number; scale: number }>;
+    hasIcon: (name: string) => boolean;
+    default: FamilyModule;
+    __esModule: boolean;
+    (props: Record<string, unknown>): {
+        type: string;
+        props: { children: string | number };
+    };
+};
+
+type BatchAModuleIds = {
+    readonly antDesign: '@expo/vector-icons/AntDesign';
+    readonly entypo: '@expo/vector-icons/Entypo';
+    readonly feather: '@expo/vector-icons/Feather';
+    readonly fontAwesome: '@expo/vector-icons/FontAwesome';
+    readonly ionicons: '@expo/vector-icons/Ionicons';
+    readonly materialIcons: '@expo/vector-icons/MaterialIcons';
+};
+
+type BatchAModuleId = BatchAModuleIds[keyof BatchAModuleIds];
+
+type InstalledModules = { [K in BatchAModuleId]: FamilyModule };
+
+type ShimRegistry = { [K in BatchAModuleId]?: FamilyModule | unknown };
+
+type BatchATarget = {
+    React: typeof React;
+    TextC: string;
+    View: string;
+    __onlookShims?: ShimRegistry;
+};
+
+type InstallVectorIconsBatchA = ((target: BatchATarget) => InstalledModules) & {
+    MODULE_IDS: BatchAModuleIds;
+    RUNTIME_SHIM_REGISTRY_KEY: '__onlookShims';
+};
+
+const installVectorIconsBatchA: InstallVectorIconsBatchA = require('../../../../../../../packages/mobile-preview/runtime/shims/third-party/vector-icons-batch-a.js');
 
 const { MODULE_IDS, RUNTIME_SHIM_REGISTRY_KEY } = installVectorIconsBatchA;
 
-function createTarget() {
+function createTarget(): BatchATarget {
     return {
         React,
         TextC: 'Text',
@@ -15,8 +60,11 @@ function createTarget() {
 
 function resolveGlyph(moduleExports: {
     getRawGlyphMap: () => Record<string, number | string>;
-}, name: string) {
+}, name: string): string {
     const glyph = moduleExports.getRawGlyphMap()[name];
+    if (glyph === undefined) {
+        throw new Error(`glyph '${name}' not found in glyph map`);
+    }
     return typeof glyph === 'number' ? String.fromCodePoint(glyph) : glyph;
 }
 
@@ -32,24 +80,17 @@ describe('vector icons batch A shim', () => {
         const antDesign = installedModules[MODULE_IDS.antDesign];
         const entypo = installedModules[MODULE_IDS.entypo];
 
-        expect(target[RUNTIME_SHIM_REGISTRY_KEY][MODULE_IDS.ionicons]).toBe(
-            ionicons,
-        );
-        expect(target[RUNTIME_SHIM_REGISTRY_KEY][MODULE_IDS.materialIcons]).toBe(
-            materialIcons,
-        );
-        expect(target[RUNTIME_SHIM_REGISTRY_KEY][MODULE_IDS.fontAwesome]).toBe(
-            fontAwesome,
-        );
-        expect(target[RUNTIME_SHIM_REGISTRY_KEY][MODULE_IDS.feather]).toBe(
-            feather,
-        );
-        expect(target[RUNTIME_SHIM_REGISTRY_KEY][MODULE_IDS.antDesign]).toBe(
-            antDesign,
-        );
-        expect(target[RUNTIME_SHIM_REGISTRY_KEY][MODULE_IDS.entypo]).toBe(
-            entypo,
-        );
+        const registry = target[RUNTIME_SHIM_REGISTRY_KEY];
+        if (!registry) {
+            throw new Error('expected runtime shim registry to be installed');
+        }
+
+        expect(registry[MODULE_IDS.ionicons]).toBe(ionicons);
+        expect(registry[MODULE_IDS.materialIcons]).toBe(materialIcons);
+        expect(registry[MODULE_IDS.fontAwesome]).toBe(fontAwesome);
+        expect(registry[MODULE_IDS.feather]).toBe(feather);
+        expect(registry[MODULE_IDS.antDesign]).toBe(antDesign);
+        expect(registry[MODULE_IDS.entypo]).toBe(entypo);
 
         expect(ionicons.getFontFamily()).toBe('ionicons');
         expect(materialIcons.getFontFamily()).toBe('material');
@@ -94,8 +135,8 @@ describe('vector icons batch A shim', () => {
     });
 
     test('preserves existing family modules already present in the registry', () => {
-        const existingIonicons = { existing: true };
-        const target = {
+        const existingIonicons = { existing: true } as unknown as FamilyModule;
+        const target: BatchATarget = {
             ...createTarget(),
             __onlookShims: {
                 [MODULE_IDS.ionicons]: existingIonicons,

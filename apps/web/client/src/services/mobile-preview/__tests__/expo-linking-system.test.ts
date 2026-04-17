@@ -1,20 +1,91 @@
 import { describe, expect, test } from 'bun:test';
 
-const installExpoLinkingSystemShims = require('../../../../../../../packages/mobile-preview/runtime/shims/expo/linking-system.js');
+// Shim module shape mirrors the JS installer's runtime output. Methods are
+// declared as concrete (non-optional) properties so that `noUncheckedIndexedAccess`
+// doesn't widen them to `T | undefined` at call sites. `unknown` arg/return
+// types keep call sites loose without leaking `any`.
+type Fn = (...args: unknown[]) => unknown;
+type AsyncFn = (...args: unknown[]) => Promise<unknown>;
+
+interface ExpoLinkingShim {
+    createURL: Fn;
+    parse: Fn;
+    useURL: Fn;
+    useLinkingURL: Fn;
+    getLinkingURL: Fn;
+    collectManifestSchemes: Fn;
+    resolveScheme: Fn;
+    hasConstantsManifest: Fn;
+    hasCustomScheme: Fn;
+    addEventListener: Fn;
+    getInitialURL: AsyncFn;
+    parseInitialURLAsync: AsyncFn;
+    canOpenURL: AsyncFn;
+    openURL: AsyncFn;
+    openSettings: AsyncFn;
+    sendIntent: AsyncFn;
+    default: unknown;
+    __esModule: boolean;
+    [key: string]: unknown;
+}
+
+interface ExpoSystemUIShim {
+    getBackgroundColorAsync: AsyncFn;
+    setBackgroundColorAsync: AsyncFn;
+    default: unknown;
+    __esModule: boolean;
+    [key: string]: unknown;
+}
+
+interface ExpoSplashScreenShim {
+    hide: Fn;
+    setOptions: Fn;
+    preventAutoHideAsync: AsyncFn;
+    hideAsync: AsyncFn;
+    default: unknown;
+    __esModule: boolean;
+    [key: string]: unknown;
+}
+
+type LinkingSystemModuleIds = {
+    expoLinking: string;
+    expoSystemUI: string;
+    expoSplashScreen: string;
+};
+
+type InstalledModules = {
+    expoLinking: ExpoLinkingShim;
+    expoSystemUI: ExpoSystemUIShim;
+    expoSplashScreen: ExpoSplashScreenShim;
+};
+
+type ExpoLinkingSystemShimInstaller = {
+    (target: Record<string, unknown>): InstalledModules;
+    MODULE_IDS: LinkingSystemModuleIds;
+    RUNTIME_SHIM_REGISTRY_KEY: string;
+};
+
+const installExpoLinkingSystemShims =
+    require('../../../../../../../packages/mobile-preview/runtime/shims/expo/linking-system.js') as ExpoLinkingSystemShimInstaller;
 
 const { MODULE_IDS, RUNTIME_SHIM_REGISTRY_KEY } = installExpoLinkingSystemShims;
 
 describe('expo linking/system/splash shim group', () => {
     test('installs expo-linking, expo-system-ui, and expo-splash-screen into __onlookShims', async () => {
-        const target = {};
+        const target: Record<string, unknown> = {};
 
         const installedModules = installExpoLinkingSystemShims(target);
-        const registry = target[
-            RUNTIME_SHIM_REGISTRY_KEY
-        ] as Record<string, Record<string, unknown>>;
-        const expoLinking = registry[MODULE_IDS.expoLinking];
-        const expoSystemUI = registry[MODULE_IDS.expoSystemUI];
-        const expoSplashScreen = registry[MODULE_IDS.expoSplashScreen];
+        const registry = target[RUNTIME_SHIM_REGISTRY_KEY] as Record<
+            string,
+            unknown
+        >;
+        const expoLinking = registry[MODULE_IDS.expoLinking] as ExpoLinkingShim;
+        const expoSystemUI = registry[
+            MODULE_IDS.expoSystemUI
+        ] as ExpoSystemUIShim;
+        const expoSplashScreen = registry[
+            MODULE_IDS.expoSplashScreen
+        ] as ExpoSplashScreenShim;
 
         expect(installedModules.expoLinking).toBe(expoLinking);
         expect(installedModules.expoSystemUI).toBe(expoSystemUI);
@@ -111,45 +182,41 @@ describe('expo linking/system/splash shim group', () => {
             },
         };
 
-        const installedModules = installExpoLinkingSystemShims(target);
-        const registry = target.__onlookShims as Record<
-            string,
-            Record<string, unknown>
-        >;
+        const installedModules = installExpoLinkingSystemShims(
+            target as unknown as Record<string, unknown>,
+        );
+        const registry = target.__onlookShims as Record<string, unknown>;
+        const linking = registry['expo-linking'] as ExpoLinkingShim & {
+            ExistingLinking: string;
+        };
+        const systemUI = registry['expo-system-ui'] as ExpoSystemUIShim & {
+            ExistingSystemUI: string;
+        };
+        const splashScreen = registry[
+            'expo-splash-screen'
+        ] as ExpoSplashScreenShim & { ExistingSplashScreen: string };
 
-        expect(installedModules.expoLinking).toBe(registry['expo-linking']);
-        expect(installedModules.expoSystemUI).toBe(registry['expo-system-ui']);
-        expect(installedModules.expoSplashScreen).toBe(
-            registry['expo-splash-screen'],
-        );
-        expect(registry['expo-linking'].ExistingLinking).toBe('linking');
-        expect(registry['expo-system-ui'].ExistingSystemUI).toBe('system-ui');
-        expect(registry['expo-splash-screen'].ExistingSplashScreen).toBe(
-            'splash-screen',
-        );
-        expect(registry['expo-linking'].createURL).toBeFunction();
-        expect(registry['expo-system-ui'].setBackgroundColorAsync).toBeFunction();
-        expect(
-            registry['expo-splash-screen'].preventAutoHideAsync,
-        ).toBeFunction();
-        expect(registry['expo-linking'].default).toBe(
-            registry['expo-linking'],
-        );
-        expect(registry['expo-system-ui'].default).toBe(
-            registry['expo-system-ui'],
-        );
-        expect(registry['expo-splash-screen'].default).toBe(
-            registry['expo-splash-screen'],
-        );
-        expect(registry['expo-linking'].__esModule).toBe(true);
-        expect(registry['expo-system-ui'].__esModule).toBe(true);
-        expect(registry['expo-splash-screen'].__esModule).toBe(true);
+        expect(installedModules.expoLinking).toBe(linking);
+        expect(installedModules.expoSystemUI).toBe(systemUI);
+        expect(installedModules.expoSplashScreen).toBe(splashScreen);
+        expect(linking.ExistingLinking).toBe('linking');
+        expect(systemUI.ExistingSystemUI).toBe('system-ui');
+        expect(splashScreen.ExistingSplashScreen).toBe('splash-screen');
+        expect(linking.createURL).toBeFunction();
+        expect(systemUI.setBackgroundColorAsync).toBeFunction();
+        expect(splashScreen.preventAutoHideAsync).toBeFunction();
+        expect(linking.default).toBe(linking);
+        expect(systemUI.default).toBe(systemUI);
+        expect(splashScreen.default).toBe(splashScreen);
+        expect(linking.__esModule).toBe(true);
+        expect(systemUI.__esModule).toBe(true);
+        expect(splashScreen.__esModule).toBe(true);
 
         await expect(
-            registry['expo-system-ui'].setBackgroundColorAsync('#222222'),
+            systemUI.setBackgroundColorAsync('#222222'),
         ).resolves.toBeUndefined();
-        await expect(
-            registry['expo-system-ui'].getBackgroundColorAsync(),
-        ).resolves.toBe('#222222');
+        await expect(systemUI.getBackgroundColorAsync()).resolves.toBe(
+            '#222222',
+        );
     });
 });

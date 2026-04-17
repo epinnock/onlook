@@ -1,21 +1,26 @@
 import { describe, expect, test } from 'bun:test';
 import React from 'react';
 
+type FlatListComponent = (
+    props: Record<string, unknown>,
+) => React.ReactElement<Record<string, unknown>>;
+
 const flatListShim = require('../../../../../../../packages/mobile-preview/runtime/shims/core/flat-list.js') as {
     REACT_NATIVE_MODULE_ID: string;
     RUNTIME_SHIM_REGISTRY_KEY: string;
     SHIM_ID: string;
-    createFlatListComponent: (target: RuntimeTarget) => React.ComponentType<Record<string, unknown>>;
-    install: (target: RuntimeTarget) => { FlatList: React.ComponentType<Record<string, unknown>> };
+    createFlatListComponent: (target: RuntimeTarget) => FlatListComponent;
+    install: (target: RuntimeTarget) => { FlatList: FlatListComponent };
 };
 
-type RuntimeTarget = Record<string, unknown> & {
+type RuntimeTarget = {
     React?: typeof React;
     Text?: string;
     TextC?: (props: { children?: React.ReactNode; testID?: string }) => React.ReactElement;
     RawText?: string;
     View?: string;
     __onlookShims?: Record<string, unknown>;
+    [key: string]: unknown;
 };
 
 function createTarget(overrides: Partial<RuntimeTarget> = {}): RuntimeTarget {
@@ -37,13 +42,18 @@ function resolveRenderedElement(
         return element as React.ReactElement<Record<string, unknown>>;
     }
 
-    return element.type(
-        element.props,
-    ) as React.ReactElement<Record<string, unknown>>;
+    const renderFn = element.type as (
+        props: unknown,
+    ) => React.ReactElement<Record<string, unknown>>;
+    return renderFn(element.props);
 }
 
 function ScrollMarker(props: Record<string, unknown>) {
-    return React.createElement('ScrollViewMarker', props, props.children);
+    return React.createElement(
+        'ScrollViewMarker',
+        props,
+        props.children as React.ReactNode,
+    );
 }
 
 function TextMarker(props: { children?: React.ReactNode; testID?: string }) {
@@ -64,11 +74,14 @@ describe('flat-list shim', () => {
         });
 
         const installed = flatListShim.install(target);
-        const reactNativeModule = target[flatListShim.RUNTIME_SHIM_REGISTRY_KEY]?.[
+        const registry = target[flatListShim.RUNTIME_SHIM_REGISTRY_KEY] as
+            | Record<string, Record<string, unknown>>
+            | undefined;
+        const reactNativeModule = registry?.[
             flatListShim.REACT_NATIVE_MODULE_ID
         ] as Record<string, unknown>;
 
-        expect(installed.FlatList).toBe(reactNativeModule.FlatList);
+        expect(installed.FlatList as unknown).toBe(reactNativeModule.FlatList);
         expect(reactNativeModule.Existing).toBe(true);
         expect(typeof reactNativeModule.FlatList).toBe('function');
         expect(reactNativeModule.default).toBe(reactNativeModule);
@@ -101,32 +114,32 @@ describe('flat-list shim', () => {
             renderItem: ({ item, index }: { item: { label: string }; index: number }) =>
                 React.createElement('RowMarker', { index, label: item.label }),
             testID: 'feed',
-        }) as React.ReactElement;
+        });
 
         expect(element.type).toBe(ScrollMarker);
         expect(element.props.testID).toBe('feed');
         const children = React.Children.toArray(
-            element.props.children,
+            element.props.children as React.ReactNode,
         ) as React.ReactElement[];
 
         expect(children).toHaveLength(5);
-        expect(resolveRenderedElement(children[0]).type).toBe('HeaderMarker');
-        expect(children[1].type).toBe(React.Fragment);
-        expect(String(children[1].key)).toContain('a');
+        expect(resolveRenderedElement(children[0]!).type).toBe('HeaderMarker');
+        expect(children[1]!.type).toBe(React.Fragment);
+        expect(String(children[1]!.key)).toContain('a');
         expect(
-            (children[1].props as { children: React.ReactElement }).children.props,
+            (children[1]!.props as { children: React.ReactElement }).children.props,
         ).toMatchObject({
             index: 0,
             label: 'Alpha',
         });
-        expect(resolveRenderedElement(children[2]).type).toBe('SeparatorMarker');
+        expect(resolveRenderedElement(children[2]!).type).toBe('SeparatorMarker');
         expect(
-            (children[3].props as { children: React.ReactElement }).children.props,
+            (children[3]!.props as { children: React.ReactElement }).children.props,
         ).toMatchObject({
             index: 1,
             label: 'Beta',
         });
-        expect(resolveRenderedElement(children[4]).type).toBe('FooterMarker');
+        expect(resolveRenderedElement(children[4]!).type).toBe('FooterMarker');
     });
 
     test('supports empty state, key extraction, and custom cell renderers', () => {
@@ -143,14 +156,14 @@ describe('flat-list shim', () => {
         const emptyElement = FlatList({
             ListEmptyComponent: React.createElement('EmptyMarker', { role: 'empty' }),
             data: [],
-        }) as React.ReactElement;
+        });
 
         const emptyChildren = React.Children.toArray(
-            emptyElement.props.children,
+            emptyElement.props.children as React.ReactNode,
         ) as React.ReactElement[];
 
         expect(emptyChildren).toHaveLength(1);
-        expect(emptyChildren[0].type).toBe('EmptyMarker');
+        expect(emptyChildren[0]!.type).toBe('EmptyMarker');
 
         const populatedElement = FlatList({
             CellRendererComponent: ({
@@ -171,19 +184,19 @@ describe('flat-list shim', () => {
             keyExtractor: (item: { slug: string }) => `key:${item.slug}`,
             renderItem: ({ item }: { item: { slug: string } }) =>
                 React.createElement('RowMarker', { slug: item.slug }),
-        }) as React.ReactElement;
+        });
 
         const populatedChildren = React.Children.toArray(
-            populatedElement.props.children,
+            populatedElement.props.children as React.ReactNode,
         ) as React.ReactElement[];
 
         expect(populatedChildren).toHaveLength(1);
-        expect(resolveRenderedElement(populatedChildren[0]).type).toBe(
+        expect(resolveRenderedElement(populatedChildren[0]!).type).toBe(
             'CellMarker',
         );
-        expect(String(populatedChildren[0].key)).toContain('key');
-        expect(String(populatedChildren[0].key)).toContain('first');
-        expect(resolveRenderedElement(populatedChildren[0]).props).toMatchObject({
+        expect(String(populatedChildren[0]!.key)).toContain('key');
+        expect(String(populatedChildren[0]!.key)).toContain('first');
+        expect(resolveRenderedElement(populatedChildren[0]!).props).toMatchObject({
             index: 0,
             slug: 'first',
         });

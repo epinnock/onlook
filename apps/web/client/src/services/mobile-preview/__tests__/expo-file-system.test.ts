@@ -19,14 +19,59 @@ afterEach(() => {
     resetRuntimeShimRegistry();
 });
 
+type FsFile = {
+    uri: string;
+    create: () => FsFile;
+    write: (contents: string) => void;
+    textSync: () => string;
+};
+
+type FsDirectory = {
+    create: () => FsDirectory;
+};
+
+type FileSystemModule = {
+    default: FileSystemModule;
+    __esModule: boolean;
+    Paths: { bundle: string; cache: string; document: string };
+    cacheDirectory: string;
+    documentDirectory: string;
+    Directory: new (base: string, name: string) => FsDirectory;
+    File: new (parent: FsDirectory, name: string) => FsFile;
+    writeAsStringAsync: (uri: string, contents: string) => Promise<undefined>;
+    readDirectoryAsync: (uri: string) => Promise<string[]>;
+    getInfoAsync: (
+        uri: string,
+    ) => Promise<{ exists: boolean; isDirectory: boolean; size: number; uri: string }>;
+    readAsStringAsync: (uri: string) => Promise<string>;
+    deleteAsync: (uri: string) => Promise<undefined>;
+};
+
+type LegacyFileSystemModule = {
+    default: LegacyFileSystemModule;
+    __esModule: boolean;
+    readAsStringAsync: (uri: string) => Promise<string>;
+    copyAsync: (options: { from: string; to: string }) => Promise<undefined>;
+    moveAsync: (options: { from: string; to: string }) => Promise<undefined>;
+    downloadAsync: (
+        url: string,
+        destination: string,
+    ) => Promise<{ headers: Record<string, string>; md5: null; status: number; uri: string }>;
+};
+
+type ShimRegistry = {
+    [MODULE_ID: string]: FileSystemModule | LegacyFileSystemModule | undefined;
+};
+type ShimTarget = { [key: string]: ShimRegistry };
+
 describe('expo-file-system shim', () => {
     test('installs expo-file-system and expo-file-system/legacy into __onlookShims', async () => {
-        const target = {};
+        const target: ShimTarget = {};
 
         const installed = installExpoFileSystemShim(target);
-        const moduleExports = target[RUNTIME_SHIM_REGISTRY_KEY][MODULE_ID];
-        const legacyModuleExports =
-            target[RUNTIME_SHIM_REGISTRY_KEY][LEGACY_MODULE_ID];
+        const registry = target[RUNTIME_SHIM_REGISTRY_KEY] as ShimRegistry;
+        const moduleExports = registry[MODULE_ID] as FileSystemModule;
+        const legacyModuleExports = registry[LEGACY_MODULE_ID] as LegacyFileSystemModule;
 
         expect(installed.module).toBe(moduleExports);
         expect(installed.legacy).toBe(legacyModuleExports);
@@ -152,7 +197,7 @@ describe('expo-file-system shim', () => {
         );
         registerRuntimeShim(expoRuntimeShimCollection, './shims/expo/index.js');
 
-        const target = {
+        const target: { __onlookShims: Record<string, unknown> } = {
             __onlookShims: {},
         };
 

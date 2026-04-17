@@ -13,7 +13,14 @@ const {
 const { AV_STATE_KEY, MODULE_ID, RUNTIME_SHIM_REGISTRY_KEY } =
     installExpoAvShim;
 
-function createTarget() {
+type RuntimeTarget = {
+    React: typeof React;
+    View: string;
+    __onlookShims?: Record<string, Record<string, unknown>>;
+    __onlookExpoAvState?: Record<string, unknown>;
+};
+
+function createTarget(): RuntimeTarget {
     return {
         React,
         View: 'View',
@@ -30,7 +37,8 @@ describe('expo-av shim', () => {
 
         const moduleExports = installExpoAvShim(target);
 
-        expect(target[RUNTIME_SHIM_REGISTRY_KEY][MODULE_ID]).toBe(moduleExports);
+        const shimRegistry = target.__onlookShims ?? {};
+        expect(shimRegistry[MODULE_ID as string]).toBe(moduleExports);
         expect(moduleExports.default).toBe(moduleExports);
         expect(moduleExports.__esModule).toBe(true);
         expect(moduleExports.Audio.Sound).toBeFunction();
@@ -94,7 +102,7 @@ describe('expo-av shim', () => {
         });
         await moduleExports.Audio.setIsEnabledAsync(false);
 
-        expect(target[AV_STATE_KEY]).toEqual(
+        expect(target.__onlookExpoAvState).toEqual(
             expect.objectContaining({
                 audioMode: {
                     playsInSilentModeIOS: true,

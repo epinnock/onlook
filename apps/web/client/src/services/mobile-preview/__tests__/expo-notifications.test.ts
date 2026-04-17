@@ -19,13 +19,20 @@ afterEach(() => {
     resetRuntimeShimRegistry();
 });
 
+type ShimRegistryTarget = {
+    __onlookShims?: Record<string, Record<string, unknown>>;
+};
+
 describe('expo-notifications shim', () => {
     test('installs the module into __onlookShims with preview-safe async helpers', async () => {
-        const target = {};
+        const target: ShimRegistryTarget = {};
 
         const moduleExports = installExpoNotificationsShim(target);
 
-        expect(target[RUNTIME_SHIM_REGISTRY_KEY][MODULE_ID]).toBe(moduleExports);
+        const registry = (target as Record<string, Record<string, unknown>>)[
+            RUNTIME_SHIM_REGISTRY_KEY as string
+        ];
+        expect(registry?.[MODULE_ID as string]).toBe(moduleExports);
         expect(moduleExports.default).toBe(moduleExports);
         expect(moduleExports.__esModule).toBe(true);
         await expect(moduleExports.getPermissionsAsync()).resolves.toEqual({
@@ -189,15 +196,16 @@ describe('expo-notifications shim', () => {
         );
         registerRuntimeShim(expoRuntimeShimCollection, './shims/expo/index.js');
 
-        const target = {
+        const target: { __onlookShims: Record<string, Record<string, unknown>> } = {
             __onlookShims: {},
         };
 
         applyRuntimeShims(target);
 
         expect(getRegisteredRuntimeShimIds()).toEqual(['expo-notifications']);
-        expect(target.__onlookShims[MODULE_ID]).toBeDefined();
-        expect(target.__onlookShims[MODULE_ID].DEFAULT_ACTION_IDENTIFIER).toBe(
+        const installedModule = target.__onlookShims[MODULE_ID as string];
+        expect(installedModule).toBeDefined();
+        expect(installedModule?.DEFAULT_ACTION_IDENTIFIER).toBe(
             DEFAULT_ACTION_IDENTIFIER,
         );
     });

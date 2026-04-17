@@ -11,7 +11,14 @@ const {
     RUNTIME_SHIM_REGISTRY_KEY,
 } = installReactNavigationStack
 
-function createTarget() {
+interface ShimTarget {
+    React: typeof React
+    TextC: string
+    View: string
+    [key: string]: unknown
+}
+
+function createTarget(): ShimTarget {
     return {
         React,
         TextC: 'Text',
@@ -24,10 +31,17 @@ describe('react-navigation stack shim', () => {
         const target = createTarget()
 
         const installedModules = installReactNavigationStack(target)
-        const nativeModule =
-            target[RUNTIME_SHIM_REGISTRY_KEY][NAVIGATION_NATIVE_MODULE_ID]
-        const stackModule =
-            target[RUNTIME_SHIM_REGISTRY_KEY][NAVIGATION_STACK_MODULE_ID]
+        const registry = target[RUNTIME_SHIM_REGISTRY_KEY] as {
+            [key: string]: {
+                default: unknown
+                __esModule: unknown
+                NavigationContainer: { displayName: string }
+                createStackNavigator: unknown
+                [key: string]: unknown
+            }
+        }
+        const nativeModule = registry[NAVIGATION_NATIVE_MODULE_ID]!
+        const stackModule = registry[NAVIGATION_STACK_MODULE_ID]!
 
         expect(MODULE_IDS).toEqual([
             '@react-navigation/native',
@@ -50,20 +64,28 @@ describe('react-navigation stack shim', () => {
         const installedModules = installReactNavigationStack(target)
         const nativeModule = installedModules[NAVIGATION_NATIVE_MODULE_ID]
         const stackModule = installedModules[NAVIGATION_STACK_MODULE_ID]
+        interface CapturedNavigation {
+            navigate: unknown
+            push: unknown
+            replace: unknown
+            goBack: unknown
+            canGoBack: () => boolean
+            [key: string]: unknown
+        }
         const captured: {
-            navigation?: Record<string, unknown>
+            navigation?: CapturedNavigation
             route?: Record<string, unknown>
-            hookNavigation?: Record<string, unknown>
+            hookNavigation?: CapturedNavigation
             hookRoute?: Record<string, unknown>
         } = {}
 
         const Stack = stackModule.createStackNavigator()
 
         function HomeScreen(props: Record<string, unknown>) {
-            captured.navigation = props.navigation as Record<string, unknown>
+            captured.navigation = props.navigation as CapturedNavigation
             captured.route = props.route as Record<string, unknown>
-            captured.hookNavigation = nativeModule.useNavigation()
-            captured.hookRoute = nativeModule.useRoute()
+            captured.hookNavigation = nativeModule.useNavigation() as CapturedNavigation
+            captured.hookRoute = nativeModule.useRoute() as Record<string, unknown>
 
             return React.createElement(
                 target.TextC,

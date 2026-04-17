@@ -44,7 +44,7 @@ export function extractGeneratedPositionFromRuntimeError(
         match = candidate;
     }
 
-    if (!match) {
+    if (!match || match[1] == null || match[2] == null) {
         return null;
     }
 

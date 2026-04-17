@@ -1,11 +1,20 @@
 import { describe, expect, test } from 'bun:test';
 import React from 'react';
 
+type ShimRegistry = Record<string, unknown>;
+
+type BatchBTarget = {
+    React: typeof React;
+    TextC: string;
+    View: string;
+    __onlookShims?: ShimRegistry;
+};
+
 const installVectorIconsBatchB = require('../../../../../../../packages/mobile-preview/runtime/shims/third-party/vector-icons-batch-b.js');
 
 const { MODULE_IDS } = installVectorIconsBatchB;
 
-function createTarget() {
+function createTarget(): BatchBTarget {
     return {
         React,
         TextC: 'Text',
@@ -27,10 +36,14 @@ describe('vector-icons batch B shim', () => {
             MODULE_IDS.SimpleLineIcons,
             MODULE_IDS.Zocial,
         ]);
-        expect(target.__onlookShims[MODULE_IDS.EvilIcons]).toBe(
+        const registry = target.__onlookShims;
+        if (!registry) {
+            throw new Error('expected runtime shim registry to be installed');
+        }
+        expect(registry[MODULE_IDS.EvilIcons]).toBe(
             installed[MODULE_IDS.EvilIcons],
         );
-        expect(target.__onlookShims[MODULE_IDS.Zocial]).toBe(
+        expect(registry[MODULE_IDS.Zocial]).toBe(
             installed[MODULE_IDS.Zocial],
         );
 

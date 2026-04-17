@@ -1,11 +1,31 @@
 import { describe, expect, test } from 'bun:test';
 import React from 'react';
 
-const installSafeAreaShim = require('../../../../../../../packages/mobile-preview/runtime/shims/core/react-native-safe-area-context.js');
+type SafeAreaShimModule = ((target: Record<string, unknown>) => {
+    default: unknown;
+    __esModule: boolean;
+    SafeAreaProvider: (props: {
+        children?: React.ReactNode;
+    }) => React.ReactElement<Record<string, unknown>>;
+    SafeAreaView: (
+        props: Record<string, unknown>,
+    ) => React.ReactElement<Record<string, unknown>>;
+    useSafeAreaInsets: () => {
+        top: number;
+        right: number;
+        bottom: number;
+        left: number;
+    };
+}) & {
+    MODULE_ID: string;
+    RUNTIME_SHIM_REGISTRY_KEY: string;
+};
+
+const installSafeAreaShim = require('../../../../../../../packages/mobile-preview/runtime/shims/core/react-native-safe-area-context.js') as SafeAreaShimModule;
 
 const { MODULE_ID, RUNTIME_SHIM_REGISTRY_KEY } = installSafeAreaShim;
 
-function createTarget() {
+function createTarget(): Record<string, unknown> {
     return {
         React,
         View: 'View',
@@ -18,7 +38,8 @@ describe('react-native-safe-area-context shim', () => {
 
         const moduleExports = installSafeAreaShim(target);
 
-        expect(target[RUNTIME_SHIM_REGISTRY_KEY][MODULE_ID]).toBe(moduleExports);
+        const registry = target[RUNTIME_SHIM_REGISTRY_KEY] as Record<string, unknown>;
+        expect(registry[MODULE_ID]).toBe(moduleExports);
         expect(moduleExports.default).toBe(moduleExports);
         expect(moduleExports.__esModule).toBe(true);
         expect(moduleExports.SafeAreaProvider).toBeDefined();

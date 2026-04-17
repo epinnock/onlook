@@ -9,7 +9,7 @@ const browserUtilsShim = require('../../../../../../../packages/mobile-preview/r
         haptics: string;
         webBrowser: string;
     };
-    RUNTIME_SHIM_REGISTRY_KEY: string;
+    RUNTIME_SHIM_REGISTRY_KEY: '__onlookShims';
     install: (target: RuntimeGlobalState) => Record<string, BrowserUtilsModule>;
 };
 
@@ -25,7 +25,7 @@ type RuntimeGlobalState = {
         | string
         | ((props: { children?: React.ReactNode }) => React.ReactElement);
     View?: string;
-    __onlookShims?: Record<string, unknown>;
+    __onlookShims?: Record<string, BrowserUtilsModule>;
     __turboModuleProxy?:
         | ((name: string) => unknown)
         | Record<string, unknown>;
@@ -75,13 +75,15 @@ function withRuntimeGlobals(
 function resolveRenderedElement(
     element: React.ReactElement,
 ): React.ReactElement<Record<string, unknown>> {
-    if (typeof element.type !== 'function') {
+    const elementType = element.type;
+    if (typeof elementType !== 'function') {
         return element as React.ReactElement<Record<string, unknown>>;
     }
 
-    return element.type(
-        element.props,
-    ) as React.ReactElement<Record<string, unknown>>;
+    const functionComponent = elementType as (
+        props: unknown,
+    ) => React.ReactElement<Record<string, unknown>>;
+    return functionComponent(element.props);
 }
 
 describe('expo browser utils shim', () => {
@@ -235,9 +237,9 @@ describe('expo browser utils shim', () => {
             openBrowserAsync: () => Promise<{ type: string }>;
         };
 
-        expect(clipboardModule).toBe(existingClipboardModule);
-        expect(hapticsModule).toBe(existingHapticsModule);
-        expect(webBrowserModule).toBe(existingWebBrowserModule);
+        expect(clipboardModule as unknown).toBe(existingClipboardModule);
+        expect(hapticsModule as unknown).toBe(existingHapticsModule);
+        expect(webBrowserModule as unknown).toBe(existingWebBrowserModule);
 
         expect(await clipboardModule.getStringAsync()).toBe('existing-copy');
         expect(await clipboardModule.hasStringAsync()).toBe(false);

@@ -16,17 +16,24 @@ const {
     SECURE_STORE_STATE_KEY,
 } = installExpoSecureStoreShim;
 
+type ShimTarget = {
+    __onlookShims?: Record<string, Record<string, unknown>>;
+    [key: string | symbol]: unknown;
+};
+
 afterEach(() => {
     resetRuntimeShimRegistry();
 });
 
 describe('expo-secure-store shim', () => {
     test('installs the module into __onlookShims', async () => {
-        const target = {};
+        const target: ShimTarget = {};
 
         const moduleExports = installExpoSecureStoreShim(target);
 
-        expect(target[RUNTIME_SHIM_REGISTRY_KEY][MODULE_ID]).toBe(moduleExports);
+        expect(
+            (target[RUNTIME_SHIM_REGISTRY_KEY] as Record<string, unknown>)[MODULE_ID],
+        ).toBe(moduleExports);
         expect(moduleExports.default).toBe(moduleExports);
         expect(moduleExports.__esModule).toBe(true);
         expect(await moduleExports.isAvailableAsync()).toBe(true);
@@ -38,7 +45,7 @@ describe('expo-secure-store shim', () => {
     });
 
     test('persists values across async and sync helpers on the target store', async () => {
-        const target = {};
+        const target: ShimTarget = {};
         const moduleExports = installExpoSecureStoreShim(target);
 
         await moduleExports.setItemAsync('session-token', 'abc123');
@@ -48,7 +55,9 @@ describe('expo-secure-store shim', () => {
         moduleExports.setItem('refresh-token', 'def456');
         expect(await moduleExports.getItemAsync('refresh-token')).toBe('def456');
         expect(target[SECURE_STORE_STATE_KEY]).toBeInstanceOf(Map);
-        expect(target[SECURE_STORE_STATE_KEY].get('session-token')).toBe('abc123');
+        expect(
+            (target[SECURE_STORE_STATE_KEY] as Map<string, string>).get('session-token'),
+        ).toBe('abc123');
 
         await moduleExports.deleteItemAsync('session-token');
         expect(await moduleExports.getItemAsync('session-token')).toBeNull();
@@ -87,15 +96,14 @@ describe('expo-secure-store runtime shim auto-discovery', () => {
         );
         registerRuntimeShim(expoRuntimeShimCollection, './shims/expo/index.js');
 
-        const target = {};
+        const target: ShimTarget = {};
         applyRuntimeShims(target);
 
         expect(getRegisteredRuntimeShimIds()).toEqual(['expo-secure-store']);
         expect(target.__onlookShims?.['expo-secure-store']).toBeDefined();
-        expect(
-            await target.__onlookShims?.['expo-secure-store']?.getItemAsync(
-                'missing',
-            ),
-        ).toBeNull();
+        const shim = target.__onlookShims?.['expo-secure-store'] as
+            | { getItemAsync: (key: string) => Promise<string | null> }
+            | undefined;
+        expect(await shim?.getItemAsync('missing')).toBeNull();
     });
 });

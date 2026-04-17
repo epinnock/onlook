@@ -94,7 +94,10 @@ describe('expo-local-authentication shim', () => {
 
         const moduleExports = installExpoLocalAuthenticationShim.install(target);
 
-        expect(target[RUNTIME_SHIM_REGISTRY_KEY]?.[MODULE_ID]).toBe(moduleExports);
+        const registry = (target as Record<string, unknown>)[
+            RUNTIME_SHIM_REGISTRY_KEY
+        ] as Record<string, unknown> | undefined;
+        expect(registry?.[MODULE_ID]).toBe(moduleExports);
         expect(moduleExports.default).toBe(moduleExports);
         expect(moduleExports.__esModule).toBe(true);
         expect(moduleExports.AuthenticationType).toEqual({
@@ -182,7 +185,9 @@ describe('expo-local-authentication shim', () => {
 
         const moduleExports = installExpoLocalAuthenticationShim.install(target);
 
-        expect(moduleExports).toBe(target.__onlookShims?.['expo-local-authentication']);
+        expect(moduleExports).toBe(
+            target.__onlookShims?.['expo-local-authentication'] as ExpoLocalAuthenticationModule,
+        );
         expect(moduleExports.authenticateAsync).toBe(existingAuthenticateAsync);
         expect(await moduleExports.hasHardwareAsync()).toBe(false);
         expect(moduleExports.default).toBe(moduleExports);

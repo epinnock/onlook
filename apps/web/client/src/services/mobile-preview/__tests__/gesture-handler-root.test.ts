@@ -4,13 +4,21 @@ import React from 'react';
 const installReactNativeGestureHandlerRoot = require('../../../../../../../packages/mobile-preview/runtime/shims/third-party/react-native-gesture-handler-root.js');
 
 const { MODULE_ID, RUNTIME_SHIM_REGISTRY_KEY } =
-    installReactNativeGestureHandlerRoot;
+    installReactNativeGestureHandlerRoot as {
+        MODULE_ID: string;
+        RUNTIME_SHIM_REGISTRY_KEY: string;
+    };
 
-function createTarget() {
+type ShimTarget = {
+    React: typeof React;
+    View: string;
+} & Record<string, Record<string, unknown>>;
+
+function createTarget(): ShimTarget {
     return {
         React,
         View: 'View',
-    };
+    } as ShimTarget;
 }
 
 describe('react-native-gesture-handler root shim', () => {
@@ -19,7 +27,7 @@ describe('react-native-gesture-handler root shim', () => {
 
         const moduleExports = installReactNativeGestureHandlerRoot(target);
 
-        expect(target[RUNTIME_SHIM_REGISTRY_KEY][MODULE_ID]).toBe(moduleExports);
+        expect(target[RUNTIME_SHIM_REGISTRY_KEY]?.[MODULE_ID]).toBe(moduleExports);
         expect(moduleExports.default).toBe(moduleExports);
         expect(moduleExports.__esModule).toBe(true);
         expect(Object.keys(moduleExports)).toEqual(
@@ -63,7 +71,7 @@ describe('react-native-gesture-handler root shim', () => {
                 'react-native-gesture-handler': {
                     Existing: existingToken,
                 },
-            },
+            } as Record<string, Record<string, unknown>>,
         };
 
         const moduleExports = installReactNativeGestureHandlerRoot(target);

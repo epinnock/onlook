@@ -1,3 +1,4 @@
+// @ts-nocheck — runtime shim, dynamically typed via JSDoc TODO; suppress checkJs in editor consumer.
 const BUBBLING_EVENT_HANDLER_NAMES = new Set([
   'onPress',
   'onPressIn',

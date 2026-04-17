@@ -1,6 +1,66 @@
 import { describe, expect, test } from 'bun:test';
 
-const installExpoLocationSensorsShim = require('../../../../../../../packages/mobile-preview/runtime/shims/expo/location-sensors.js');
+type Subscription = { remove(): void };
+type LocationReading = {
+    coords: {
+        accuracy: number;
+        altitude: number | null;
+        altitudeAccuracy: number | null;
+        heading: number;
+        latitude: number;
+        longitude: number;
+        speed: number;
+    };
+    mocked: boolean;
+    timestamp: number;
+};
+type HeadingReading = { accuracy: number; magHeading: number; trueHeading: number };
+type AxesReading = { x: number; y: number; z: number };
+type StepReading = { steps: number };
+
+type LocationModule = {
+    default: unknown;
+    __esModule: boolean;
+    requestForegroundPermissionsAsync: () => Promise<unknown>;
+    getCurrentPositionAsync: () => Promise<unknown>;
+    reverseGeocodeAsync: () => Promise<unknown>;
+    watchPositionAsync: (
+        options: unknown,
+        callback: (reading: LocationReading) => void,
+    ) => Promise<Subscription>;
+    watchHeadingAsync: (
+        callback: (reading: HeadingReading) => void,
+    ) => Promise<Subscription>;
+};
+
+type SensorsModule = {
+    default: unknown;
+    __esModule: boolean;
+    Accelerometer: {
+        isAvailableAsync: () => Promise<boolean>;
+        addListener: (callback: (reading: AxesReading) => void) => Subscription;
+    };
+    Gyroscope: unknown;
+    Pedometer: {
+        getStepCountAsync: () => Promise<StepReading>;
+        watchStepCount: (callback: (reading: StepReading) => void) => Subscription;
+    };
+    SensorTypes: Record<string, string>;
+};
+
+type ShimInstallResult = { location: LocationModule; sensors: SensorsModule };
+
+type ShimInstaller = ((target: object) => ShimInstallResult) & {
+    LOCATION_MODULE_ID: string;
+    SENSORS_MODULE_ID: string;
+    RUNTIME_SHIM_REGISTRY_KEY: string;
+};
+
+type ShimTarget = {
+    [registryKey: string]: Record<string, LocationModule | SensorsModule>;
+};
+
+const installExpoLocationSensorsShim = require('../../../../../../../packages/mobile-preview/runtime/shims/expo/location-sensors.js') as ShimInstaller;
 
 const {
     LOCATION_MODULE_ID,
@@ -16,13 +76,12 @@ function waitForScheduledCallbacks() {
 
 describe('expo location/sensors shim', () => {
     test('installs expo-location and expo-sensors into __onlookShims', async () => {
-        const target = {};
+        const target: ShimTarget = {};
 
         const installed = installExpoLocationSensorsShim(target);
-        const locationModule =
-            target[RUNTIME_SHIM_REGISTRY_KEY][LOCATION_MODULE_ID];
-        const sensorsModule =
-            target[RUNTIME_SHIM_REGISTRY_KEY][SENSORS_MODULE_ID];
+        const registry = target[RUNTIME_SHIM_REGISTRY_KEY]!;
+        const locationModule = registry[LOCATION_MODULE_ID] as LocationModule;
+        const sensorsModule = registry[SENSORS_MODULE_ID] as SensorsModule;
 
         expect(installed.location).toBe(locationModule);
         expect(installed.sensors).toBe(sensorsModule);
@@ -64,29 +123,29 @@ describe('expo location/sensors shim', () => {
 
     test('dispatches preview-safe location and sensor readings once per subscription', async () => {
         const { location, sensors } = installExpoLocationSensorsShim({});
-        const locationEvents = [];
-        const headingEvents = [];
-        const accelerometerEvents = [];
-        const stepEvents = [];
+        const locationEvents: LocationReading[] = [];
+        const headingEvents: HeadingReading[] = [];
+        const accelerometerEvents: AxesReading[] = [];
+        const stepEvents: StepReading[] = [];
 
         const positionSubscription = await location.watchPositionAsync(
             {},
-            (reading) => {
+            (reading: LocationReading) => {
                 locationEvents.push(reading);
             },
         );
         const headingSubscription = await location.watchHeadingAsync(
-            (reading) => {
+            (reading: HeadingReading) => {
                 headingEvents.push(reading);
             },
         );
         const accelerometerSubscription = sensors.Accelerometer.addListener(
-            (reading) => {
+            (reading: AxesReading) => {
                 accelerometerEvents.push(reading);
             },
         );
         const pedometerSubscription = sensors.Pedometer.watchStepCount(
-            (reading) => {
+            (reading: StepReading) => {
                 stepEvents.push(reading);
             },
         );
@@ -137,14 +196,14 @@ describe('expo location/sensors shim', () => {
                 longitude: -87.623177,
             },
         });
-        const existingLocationModule = {
+        const existingLocationModule: Record<string, unknown> = {
             default: 'keep-location-default',
             getCurrentPositionAsync: customGetCurrentPositionAsync,
         };
         const existingAccelerometer = {
             addListener: () => ({ remove() {} }),
         };
-        const existingSensorsModule = {
+        const existingSensorsModule: Record<string, unknown> = {
             Accelerometer: existingAccelerometer,
             default: 'keep-sensors-default',
         };
@@ -157,8 +216,8 @@ describe('expo location/sensors shim', () => {
 
         const installed = installExpoLocationSensorsShim(target);
 
-        expect(installed.location).toBe(existingLocationModule);
-        expect(installed.sensors).toBe(existingSensorsModule);
+        expect(installed.location as unknown).toBe(existingLocationModule);
+        expect(installed.sensors as unknown).toBe(existingSensorsModule);
         expect(existingLocationModule.getCurrentPositionAsync).toBe(
             customGetCurrentPositionAsync,
         );

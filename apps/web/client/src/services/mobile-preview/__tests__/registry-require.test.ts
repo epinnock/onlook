@@ -28,9 +28,10 @@ function resolveRenderedElement(
         return element as React.ReactElement<Record<string, unknown>>;
     }
 
-    return element.type(
-        element.props,
-    ) as React.ReactElement<Record<string, unknown>>;
+    const functionComponent = element.type as (
+        props: unknown,
+    ) => React.ReactElement<Record<string, unknown>>;
+    return functionComponent(element.props);
 }
 
 function withRuntimeGlobals(

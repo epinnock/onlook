@@ -1,3 +1,4 @@
+// @ts-nocheck — runtime shim, dynamically typed via JSDoc TODO; suppress checkJs in editor consumer.
 const STYLE_HELPERS_GLOBAL_KEY = '__onlookStyleHelpers';
 const COLOR_STYLE_KEYS = new Set([
   'color',

@@ -24,6 +24,7 @@ type RuntimeGlobalState = {
     View?: string;
     __onlookShims?: Record<string, unknown>;
     renderApp?: (element: unknown) => void;
+    [key: string]: unknown;
 };
 
 type ReactNativeModule = Record<string, unknown> & {
@@ -54,9 +55,10 @@ function resolveRenderedElement(
         return element as React.ReactElement<Record<string, unknown>>;
     }
 
-    return element.type(
-        element.props,
-    ) as React.ReactElement<Record<string, unknown>>;
+    const renderFn = element.type as (
+        props: unknown,
+    ) => React.ReactElement<Record<string, unknown>>;
+    return renderFn(element.props);
 }
 
 function resolveRenderedChildren(
@@ -67,7 +69,7 @@ function resolveRenderedChildren(
             ? resolveRenderedElement(
                   child as React.ReactElement<Record<string, unknown>>,
               )
-            : (child as React.ReactElement<Record<string, unknown>>),
+            : (child as unknown as React.ReactElement<Record<string, unknown>>),
     );
 }
 
@@ -170,7 +172,9 @@ describe('section-list shim', () => {
         expect(element.type).toBe(reactNativeModule.ScrollView);
 
         const rendered = resolveRenderedElement(element);
-        const children = resolveRenderedChildren(rendered.props.children);
+        const children = resolveRenderedChildren(
+            rendered.props.children as React.ReactNode,
+        );
 
         expect(rendered.type).toBe('View');
         expect(rendered.props.testID).toBe('section-list');
@@ -237,7 +241,9 @@ describe('section-list shim', () => {
                 renderAppCalls[0] as React.ReactElement,
             );
             const rendered = resolveRenderedElement(appElement);
-            const children = resolveRenderedChildren(rendered.props.children);
+            const children = resolveRenderedChildren(
+                rendered.props.children as React.ReactNode,
+            );
 
             expect(children).toHaveLength(1);
             expect(children[0]?.type).toBe('EmptyState');

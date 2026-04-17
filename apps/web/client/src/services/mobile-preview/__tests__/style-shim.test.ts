@@ -29,9 +29,10 @@ function resolveRenderedElement(
         return element as React.ReactElement<Record<string, unknown>>;
     }
 
-    return element.type(
-        element.props,
-    ) as React.ReactElement<Record<string, unknown>>;
+    const renderFn = element.type as (
+        props: unknown,
+    ) => React.ReactElement<Record<string, unknown>>;
+    return renderFn(element.props);
 }
 
 function makeFakeVfs(files: Record<string, string>): MobilePreviewVfs {
@@ -136,7 +137,7 @@ describe('mobile preview style helpers', () => {
                 createStyleSheet: (styles: Record<string, unknown>) => ({
                     root: {
                         marker: 'create',
-                        ...styles.root,
+                        ...(styles.root as Record<string, unknown>),
                     },
                 }),
                 cssColorToArgb: (value: unknown) => value,

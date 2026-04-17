@@ -9,7 +9,14 @@ const {
     resetRuntimeShimRegistry,
 } = require('../../../../../../../packages/mobile-preview/runtime/registry.js');
 
-const { MODULE_ID, RUNTIME_SHIM_REGISTRY_KEY } = installExpoFontShim;
+const { MODULE_ID, RUNTIME_SHIM_REGISTRY_KEY } = installExpoFontShim as {
+    MODULE_ID: string;
+    RUNTIME_SHIM_REGISTRY_KEY: '__onlookShims';
+};
+
+type ShimTarget = {
+    __onlookShims?: Record<string, Record<string, unknown>>;
+};
 
 afterEach(() => {
     resetRuntimeShimRegistry();
@@ -17,11 +24,11 @@ afterEach(() => {
 
 describe('expo-font shim', () => {
     test('installs the module into __onlookShims with preview-safe font helpers', async () => {
-        const target = {};
+        const target: ShimTarget = {};
 
         const moduleExports = installExpoFontShim(target);
 
-        expect(target[RUNTIME_SHIM_REGISTRY_KEY][MODULE_ID]).toBe(moduleExports);
+        expect(target[RUNTIME_SHIM_REGISTRY_KEY]?.[MODULE_ID]).toBe(moduleExports);
         expect(moduleExports.default).toBe(moduleExports);
         expect(moduleExports.__esModule).toBe(true);
         expect(moduleExports.useFonts({ Inter: 'mock-font' })).toEqual([

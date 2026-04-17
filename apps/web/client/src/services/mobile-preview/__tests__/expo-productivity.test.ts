@@ -3,7 +3,15 @@ import React from 'react';
 
 import { wrapEvalBundle } from '../bundler/wrap-eval-bundle';
 
-const installExpoProductivityShim = require('../../../../../../../packages/mobile-preview/runtime/shims/expo/productivity.js');
+type ProductivityShimInstaller = {
+    (target: Record<string, unknown>): Record<string, Record<string, unknown>>;
+    CALENDAR_MODULE_ID: string;
+    CONTACTS_MODULE_ID: string;
+    RUNTIME_SHIM_REGISTRY_KEY: string;
+};
+
+const installExpoProductivityShim =
+    require('../../../../../../../packages/mobile-preview/runtime/shims/expo/productivity.js') as ProductivityShimInstaller;
 
 const {
     CALENDAR_MODULE_ID,
@@ -25,13 +33,14 @@ type RuntimeGlobalState = {
 function resolveRenderedElement(
     element: React.ReactElement,
 ): React.ReactElement<Record<string, unknown>> {
-    if (typeof element.type !== 'function') {
+    const elementType = element.type as
+        | string
+        | ((props: unknown) => React.ReactElement<Record<string, unknown>>);
+    if (typeof elementType !== 'function') {
         return element as React.ReactElement<Record<string, unknown>>;
     }
 
-    return element.type(
-        element.props,
-    ) as React.ReactElement<Record<string, unknown>>;
+    return elementType(element.props);
 }
 
 function withRuntimeGlobals(
@@ -71,7 +80,8 @@ function withRuntimeGlobals(
 
 describe('expo productivity shim', () => {
     test('installs expo-contacts and expo-calendar into __onlookShims', async () => {
-        const target = {};
+        const target: Record<string, Record<string, Record<string, unknown>>> =
+            {};
 
         const installedModules = installExpoProductivityShim(target);
         const contactsModule = installedModules[CONTACTS_MODULE_ID] as {
@@ -111,12 +121,12 @@ describe('expo productivity shim', () => {
             ];
         };
 
-        expect(target[RUNTIME_SHIM_REGISTRY_KEY][CONTACTS_MODULE_ID]).toBe(
-            contactsModule,
-        );
-        expect(target[RUNTIME_SHIM_REGISTRY_KEY][CALENDAR_MODULE_ID]).toBe(
-            calendarModule,
-        );
+        const registry = target[RUNTIME_SHIM_REGISTRY_KEY] as Record<
+            string,
+            Record<string, unknown>
+        >;
+        expect(registry[CONTACTS_MODULE_ID]).toBe(contactsModule);
+        expect(registry[CALENDAR_MODULE_ID]).toBe(calendarModule);
         expect(contactsModule.default).toBe(contactsModule);
         expect(calendarModule.default).toBe(calendarModule);
         expect(contactsModule.__esModule).toBe(true);
@@ -173,7 +183,9 @@ describe('expo productivity shim', () => {
     test('merges productivity exports into existing expo registry entries', () => {
         const existingContactsToken = Symbol('contacts');
         const existingCalendarToken = Symbol('calendar');
-        const target = {
+        const target: {
+            __onlookShims: Record<string, Record<string, unknown>>;
+        } = {
             __onlookShims: {
                 'expo-contacts': {
                     ExistingContactsToken: existingContactsToken,
@@ -198,8 +210,12 @@ describe('expo productivity shim', () => {
             __esModule?: boolean;
         };
 
-        expect(contactsModule).toBe(target.__onlookShims[CONTACTS_MODULE_ID]);
-        expect(calendarModule).toBe(target.__onlookShims[CALENDAR_MODULE_ID]);
+        expect(contactsModule as unknown).toBe(
+            target.__onlookShims[CONTACTS_MODULE_ID],
+        );
+        expect(calendarModule as unknown).toBe(
+            target.__onlookShims[CALENDAR_MODULE_ID],
+        );
         expect(contactsModule.ExistingContactsToken).toBe(existingContactsToken);
         expect(calendarModule.ExistingCalendarToken).toBe(existingCalendarToken);
         expect(contactsModule.Fields.PhoneNumbers).toBe('phoneNumbers');
@@ -218,8 +234,12 @@ describe('wrapEvalBundle runtime shim resolution', () => {
             const installedModules = installExpoProductivityShim(
                 runtimeGlobal,
             ) as Record<string, Record<string, unknown>>;
-            const contactsModule = installedModules[CONTACTS_MODULE_ID];
-            const calendarModule = installedModules[CALENDAR_MODULE_ID];
+            const contactsModule = installedModules[
+                CONTACTS_MODULE_ID
+            ] as Record<string, unknown>;
+            const calendarModule = installedModules[
+                CALENDAR_MODULE_ID
+            ] as Record<string, unknown>;
 
             contactsModule.previewSentinel = 'contacts-registry';
             calendarModule.previewSentinel = 'calendar-registry';

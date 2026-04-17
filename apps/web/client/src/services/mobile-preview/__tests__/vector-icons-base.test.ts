@@ -1,6 +1,15 @@
 import { describe, expect, test } from 'bun:test';
 import React from 'react';
 
+type ShimRegistry = Record<string, unknown>;
+
+type BaseTarget = {
+    React: typeof React;
+    TextC: string;
+    View: string;
+    __onlookShims?: ShimRegistry;
+};
+
 const installVectorIconsBase = require('../../../../../../../packages/mobile-preview/runtime/shims/third-party/vector-icons-base.js');
 
 const {
@@ -8,9 +17,14 @@ const {
     DEFAULT_ICON_SIZE,
     MODULE_ID,
     RUNTIME_SHIM_REGISTRY_KEY,
+}: {
+    DEFAULT_ICON_COLOR: string;
+    DEFAULT_ICON_SIZE: number;
+    MODULE_ID: string;
+    RUNTIME_SHIM_REGISTRY_KEY: '__onlookShims';
 } = installVectorIconsBase;
 
-function createTarget() {
+function createTarget(): BaseTarget {
     return {
         React,
         TextC: 'Text',

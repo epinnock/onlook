@@ -148,9 +148,14 @@ describe('react-native shim', () => {
         });
 
         expect(element.type).toBe('View');
-        expect(element.props.children).toBe(child);
-        expect(element.props.style).toEqual({ flex: 1 });
-        expect(element.props.testID).toBe('touchable');
+        const touchableProps = element.props as {
+            children: unknown;
+            style: unknown;
+            testID: unknown;
+        };
+        expect(touchableProps.children).toBe(child);
+        expect(touchableProps.style).toEqual({ flex: 1 });
+        expect(touchableProps.testID).toBe('touchable');
         expect(element.props).not.toHaveProperty('onPress');
         expect(element.props).not.toHaveProperty('activeOpacity');
         expect(moduleExports.Platform.OS).toBe('ios');
@@ -182,8 +187,12 @@ describe('react-native shim', () => {
         });
 
         expect(element.type).toBe('RCTText');
-        expect(element.props.testID).toBe('label');
-        expect(element.props.children).toEqual([
+        const textProps = element.props as {
+            testID: unknown;
+            children: unknown;
+        };
+        expect(textProps.testID).toBe('label');
+        expect(textProps.children).toEqual([
             React.createElement('RCTRawText', { key: 0, text: 'hello' }),
             child,
         ]);

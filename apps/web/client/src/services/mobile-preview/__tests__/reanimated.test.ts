@@ -3,15 +3,25 @@ import React from 'react';
 
 const installReactNativeReanimated = require('../../../../../../../packages/mobile-preview/runtime/shims/third-party/react-native-reanimated.js');
 
-const { MODULE_ID, RUNTIME_SHIM_REGISTRY_KEY } = installReactNativeReanimated;
+const { MODULE_ID, RUNTIME_SHIM_REGISTRY_KEY } = installReactNativeReanimated as {
+    MODULE_ID: string;
+    RUNTIME_SHIM_REGISTRY_KEY: string;
+};
 
-function createTarget() {
+type ShimTarget = {
+    React: typeof React;
+    View: string;
+    Text: string;
+    RawText: string;
+} & Record<string, Record<string, unknown>>;
+
+function createTarget(): ShimTarget {
     return {
         React,
         View: 'View',
         Text: 'RCTText',
         RawText: 'RCTRawText',
-    };
+    } as ShimTarget;
 }
 
 describe('react-native-reanimated shim', () => {
@@ -23,12 +33,12 @@ describe('react-native-reanimated shim', () => {
                 'react-native-reanimated': {
                     Existing: existingToken,
                 },
-            },
+            } as Record<string, Record<string, unknown>>,
         };
 
         const moduleExports = installReactNativeReanimated(target);
 
-        expect(target[RUNTIME_SHIM_REGISTRY_KEY][MODULE_ID]).toBe(moduleExports);
+        expect(target.__onlookShims[MODULE_ID]).toBe(moduleExports);
         expect(moduleExports.Existing).toBe(existingToken);
         expect(moduleExports.default).toBe(moduleExports);
         expect(moduleExports.Animated).toBe(moduleExports);

@@ -3,7 +3,78 @@ import React from 'react';
 
 import { wrapEvalBundle } from '../bundler/wrap-eval-bundle';
 
-const installExpoMediaCaptureShim = require('../../../../../../../packages/mobile-preview/runtime/shims/expo/media-capture.js');
+type PermissionResponse = {
+    canAskAgain: boolean;
+    expires: 'never';
+    granted: boolean;
+    status: 'granted' | 'denied' | 'undetermined';
+    accessPrivileges?: 'all' | 'limited' | 'none';
+};
+
+type UsePermissionsHook = () => [
+    PermissionResponse,
+    () => Promise<PermissionResponse>,
+    () => Promise<PermissionResponse>,
+];
+
+type CameraViewComponent = (props: Record<string, unknown>) => React.ReactElement;
+
+type CameraModule = {
+    Camera: unknown;
+    CameraView: CameraViewComponent;
+    CameraType: { back: 'back'; front: 'front' };
+    FlashMode: Record<string, string>;
+    PermissionStatus: Record<string, string>;
+    useCameraPermissions: UsePermissionsHook;
+    useMicrophonePermissions: UsePermissionsHook;
+    default: unknown;
+    __esModule: true;
+    [extraKey: string]: unknown;
+};
+
+type ImagePickerModule = {
+    CameraType: { back: 'back'; front: 'front' };
+    MediaType: Record<string, string>;
+    MediaTypeOptions: { All: 'all'; Images: 'images'; Videos: 'videos' };
+    UIImagePickerPresentationStyle: Record<string, string>;
+    getPendingResultAsync: () => Promise<unknown[]>;
+    launchCameraAsync: () => Promise<{
+        assets: null;
+        canceled: true;
+        cancelled: true;
+    }>;
+    launchImageLibraryAsync: () => Promise<{
+        assets: null;
+        canceled: true;
+        cancelled: true;
+    }>;
+    useCameraPermissions: UsePermissionsHook;
+    useMediaLibraryPermissions: UsePermissionsHook;
+    default: unknown;
+    __esModule: true;
+    [extraKey: string]: unknown;
+};
+
+type MediaCaptureRegistry = {
+    'expo-camera': CameraModule;
+    'expo-image-picker': ImagePickerModule;
+};
+
+type RuntimeShimTarget = {
+    React?: typeof React;
+    TextC?: string;
+    View?: string;
+    __onlookShims?: Record<string, unknown>;
+};
+
+type MediaCaptureShim = {
+    (target: RuntimeShimTarget): MediaCaptureRegistry;
+    CAMERA_MODULE_ID: 'expo-camera';
+    IMAGE_PICKER_MODULE_ID: 'expo-image-picker';
+    RUNTIME_SHIM_REGISTRY_KEY: '__onlookShims';
+};
+
+const installExpoMediaCaptureShim = require('../../../../../../../packages/mobile-preview/runtime/shims/expo/media-capture.js') as MediaCaptureShim;
 
 const {
     CAMERA_MODULE_ID,
@@ -11,7 +82,7 @@ const {
     RUNTIME_SHIM_REGISTRY_KEY,
 } = installExpoMediaCaptureShim;
 
-function createTarget() {
+function createTarget(): RuntimeShimTarget {
     return {
         React,
         TextC: 'Text',
@@ -19,24 +90,34 @@ function createTarget() {
     };
 }
 
-function resolveRenderedElement(element: React.ReactElement) {
+type FunctionalReactElement = Omit<React.ReactElement, 'type'> & {
+    type: (props: unknown) => React.ReactElement;
+};
+
+function resolveRenderedElement(element: React.ReactElement): React.ReactElement {
     if (typeof element.type !== 'function') {
         return element;
     }
 
-    return element.type(element.props);
+    return (element as FunctionalReactElement).type(element.props);
 }
 
-function withRuntimeGlobals(run: (runtimeGlobal: typeof globalThis) => Promise<void> | void) {
-    const runtimeGlobal = globalThis as typeof globalThis & {
-        React?: typeof React;
-        RawText?: string;
-        TextC?: string;
-        View?: string;
-        __imagePickerPromise?: Promise<unknown>;
-        __onlookShims?: Record<string, unknown>;
-        renderApp?: (element: unknown) => void;
-    };
+type RuntimeGlobalState = {
+    React?: typeof React;
+    RawText?: string;
+    TextC?: string;
+    View?: string;
+    __imagePickerPromise?: Promise<unknown>;
+    __onlookShims?: Record<string, unknown>;
+    renderApp?: (element: unknown) => void;
+};
+
+function withRuntimeGlobals(
+    run: (
+        runtimeGlobal: typeof globalThis & RuntimeGlobalState,
+    ) => Promise<void> | void,
+) {
+    const runtimeGlobal = globalThis as typeof globalThis & RuntimeGlobalState;
     const previousState = {
         React: runtimeGlobal.React,
         RawText: runtimeGlobal.RawText,
@@ -80,10 +161,14 @@ describe('expo media-capture shim', () => {
         const target = createTarget();
 
         const installedModules = installExpoMediaCaptureShim(target);
-        const cameraModule =
-            target[RUNTIME_SHIM_REGISTRY_KEY][CAMERA_MODULE_ID];
-        const imagePickerModule =
-            target[RUNTIME_SHIM_REGISTRY_KEY][IMAGE_PICKER_MODULE_ID];
+        const runtimeShims = target[RUNTIME_SHIM_REGISTRY_KEY];
+        if (!runtimeShims) {
+            throw new Error('expected runtime shim registry to be installed');
+        }
+        const cameraModule = runtimeShims[CAMERA_MODULE_ID] as CameraModule;
+        const imagePickerModule = runtimeShims[
+            IMAGE_PICKER_MODULE_ID
+        ] as ImagePickerModule;
 
         expect(installedModules[CAMERA_MODULE_ID]).toBe(cameraModule);
         expect(installedModules[IMAGE_PICKER_MODULE_ID]).toBe(
@@ -114,10 +199,15 @@ describe('expo media-capture shim', () => {
         });
         expect(await requestCameraPermission()).toEqual(cameraPermission);
         expect(await getCameraPermission()).toEqual(cameraPermission);
+        const cameraViewProps = cameraView.props as {
+            children?: React.ReactNode;
+            style?: { flex?: number };
+            testID?: string;
+        };
         expect(cameraView.type).toBe('View');
-        expect(cameraView.props.children).toBe('Camera preview');
-        expect(cameraView.props.style).toEqual({ flex: 1 });
-        expect(cameraView.props.testID).toBe('camera-view');
+        expect(cameraViewProps.children).toBe('Camera preview');
+        expect(cameraViewProps.style).toEqual({ flex: 1 });
+        expect(cameraViewProps.testID).toBe('camera-view');
         expect(cameraView.props).not.toHaveProperty('enableTorch');
         expect(cameraView.props).not.toHaveProperty('facing');
 
@@ -147,7 +237,7 @@ describe('expo media-capture shim', () => {
         const existingImagePicker = Symbol('existingImagePicker');
         const customLaunchImageLibraryAsync = () =>
             Promise.resolve({ canceled: false });
-        const target = {
+        const target: RuntimeShimTarget = {
             ...createTarget(),
             __onlookShims: {
                 'expo-camera': {
@@ -163,18 +253,19 @@ describe('expo media-capture shim', () => {
         const installedModules = installExpoMediaCaptureShim(target);
         const cameraModule = installedModules[CAMERA_MODULE_ID];
         const imagePickerModule = installedModules[IMAGE_PICKER_MODULE_ID];
+        const registry = target.__onlookShims as Record<string, unknown>;
 
-        expect(cameraModule).toBe(target.__onlookShims['expo-camera']);
-        expect(cameraModule.CameraView).toBe(existingCamera);
+        expect(cameraModule).toBe(registry['expo-camera'] as CameraModule);
+        expect(cameraModule.CameraView).toBe(existingCamera as unknown as CameraViewComponent);
         expect(cameraModule.Camera).toBe(existingCamera);
         expect(cameraModule.useCameraPermissions).toBeFunction();
         expect(cameraModule.default).toBe(existingCamera);
         expect(cameraModule.__esModule).toBe(true);
 
-        expect(imagePickerModule).toBe(target.__onlookShims['expo-image-picker']);
+        expect(imagePickerModule).toBe(registry['expo-image-picker'] as ImagePickerModule);
         expect(imagePickerModule.Existing).toBe(existingImagePicker);
         expect(imagePickerModule.launchImageLibraryAsync).toBe(
-            customLaunchImageLibraryAsync,
+            customLaunchImageLibraryAsync as unknown as ImagePickerModule['launchImageLibraryAsync'],
         );
         expect(imagePickerModule.launchCameraAsync).toBeFunction();
         expect(imagePickerModule.default).toBe(imagePickerModule);
@@ -220,10 +311,14 @@ describe('wrapEvalBundle runtime shim resolution', () => {
                 appElement as React.ReactElement,
             );
             const imagePickerResult = await runtimeGlobal.__imagePickerPromise;
+            const renderedProps = rendered.props as {
+                children?: React.ReactNode;
+                testID?: string;
+            };
 
             expect(rendered.type).toBe('View');
-            expect(rendered.props.testID).toBe('camera-root');
-            expect(rendered.props.children).toBe('granted');
+            expect(renderedProps.testID).toBe('camera-root');
+            expect(renderedProps.children).toBe('granted');
             expect(imagePickerResult).toEqual({
                 assets: null,
                 canceled: true,
