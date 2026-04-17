@@ -63,6 +63,14 @@ export const env = createEnv({
         GITHUB_APP_ID: z.string().optional(),
         GITHUB_APP_PRIVATE_KEY: z.string().optional(),
         GITHUB_APP_SLUG: z.string().optional(),
+
+        // Spectra inline-simulator preview — server-side only. Never
+        // exposed to the browser; the tRPC router + Next.js MJPEG proxy
+        // handle all traffic on behalf of the client. See
+        // plans/adr/ADR-spectra-inline-simulator.md.
+        SPECTRA_API_URL: z.string().url().optional(),
+        SPECTRA_API_TOKEN: z.string().optional(),
+        SPECTRA_ONLOOK_MOBILE_CLIENT_APP_ID: z.string().uuid().optional(),
     },
     /**
      * Specify your client-side environment variables schema here. This way you can ensure the app
@@ -88,6 +96,10 @@ export const env = createEnv({
         // deployed cf-esm-builder + cf-expo-relay Worker URLs.
         NEXT_PUBLIC_CF_ESM_BUILDER_URL: z.string().optional(),
         NEXT_PUBLIC_CF_EXPO_RELAY_URL: z.string().optional(),
+        // Feature flag for the Spectra inline-simulator preview tab in the
+        // QR modal. Off by default — turning on additionally requires the
+        // three SPECTRA_* server vars to be set.
+        NEXT_PUBLIC_FEATURE_SPECTRA_PREVIEW: z.coerce.boolean().default(false),
     },
 
     /**
@@ -175,6 +187,12 @@ export const env = createEnv({
         GITHUB_APP_ID: process.env.GITHUB_APP_ID,
         GITHUB_APP_PRIVATE_KEY: process.env.GITHUB_APP_PRIVATE_KEY,
         GITHUB_APP_SLUG: process.env.GITHUB_APP_SLUG,
+
+        // Spectra inline-simulator preview
+        SPECTRA_API_URL: process.env.SPECTRA_API_URL,
+        SPECTRA_API_TOKEN: process.env.SPECTRA_API_TOKEN,
+        SPECTRA_ONLOOK_MOBILE_CLIENT_APP_ID: process.env.SPECTRA_ONLOOK_MOBILE_CLIENT_APP_ID,
+        NEXT_PUBLIC_FEATURE_SPECTRA_PREVIEW: process.env.NEXT_PUBLIC_FEATURE_SPECTRA_PREVIEW,
     },
     /**
      * Run `build` or `dev` with `SKIP_ENV_VALIDATION` to skip env validation. This is especially
