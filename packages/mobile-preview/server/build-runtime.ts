@@ -127,7 +127,10 @@ export async function buildRuntime() {
       // shims/expo/expo-file-system.js after Bun's minifier collapses
       // whitespace). Keeping the build unminified keeps the per-class
       // identifiers stable and avoids the parser regression. The cost is
-      // bundle size — ~+1MB but still under the 2MB ceiling.
+      // bundle size — ~+1MB but still under the 2MB ceiling. After the
+      // react-copy dedupe fix (86a9d18b) the bundle is ~1054 KB with a
+      // single React 19.2.0 instance; previously it was ~1093 KB with
+      // two copies (19.1 + 19.2) from the workspace hoisting split.
       minify: false,
     });
 
