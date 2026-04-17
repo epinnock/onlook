@@ -171,9 +171,14 @@ human_bytes() {
 }
 
 # JSON string escaper (handles backslash + double quote + control chars).
+# Skip i=0 (NUL): bash strings can't contain NUL (they're C strings),
+# and awk's gsub with a NUL pattern degenerates to empty-regex semantics
+# — it matches between every character, producing \u0000 between every
+# byte of the input (UTF-16-like garble). Skipping NUL is safe because
+# no NUL can ever reach json_escape via "$1".
 json_escape() {
     awk 'BEGIN {
-        for (i = 0; i < 32; i++) ctrl[sprintf("%c", i)] = sprintf("\\u%04x", i);
+        for (i = 1; i < 32; i++) ctrl[sprintf("%c", i)] = sprintf("\\u%04x", i);
     }
     {
         s = $0;
