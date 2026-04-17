@@ -23,6 +23,7 @@ import {
 } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { clearRecentSessions } from '../storage';
+import { useNavigation } from '../navigation/NavigationContext';
 import { APP_VERSION } from '../version';
 
 const RELAY_HOST_KEY = 'onlook_relay_host_override';
@@ -36,6 +37,7 @@ interface SettingsScreenProps {
 export default function SettingsScreen({ onGoBack }: SettingsScreenProps) {
     const [relayHost, setRelayHost] = useState('');
     const [devMenuEnabled, setDevMenuEnabled] = useState(false);
+    const { navigate } = useNavigation();
 
     // ── Load persisted values on mount ──
     useEffect(() => {
@@ -163,6 +165,18 @@ export default function SettingsScreen({ onGoBack }: SettingsScreenProps) {
                     <Text style={styles.valueText}>{APP_VERSION}</Text>
                 </View>
             </View>
+
+            {/* ── Dev: Screens gallery ── */}
+            <View style={styles.section}>
+                <Pressable
+                    style={styles.linkRow}
+                    onPress={() => navigate('gallery')}
+                    accessibilityRole="button"
+                >
+                    <Text style={styles.linkText}>Screens gallery →</Text>
+                    <Text style={styles.linkHint}>Jump to any screen (dev)</Text>
+                </Pressable>
+            </View>
         </SafeAreaView>
     );
 }
@@ -241,5 +255,18 @@ const styles = StyleSheet.create({
     valueText: {
         fontSize: 15,
         color: '#666666',
+    },
+    linkRow: {
+        paddingVertical: 12,
+    },
+    linkText: {
+        fontSize: 16,
+        fontWeight: '500',
+        color: '#FFFFFF',
+    },
+    linkHint: {
+        fontSize: 13,
+        color: '#666666',
+        marginTop: 4,
     },
 });

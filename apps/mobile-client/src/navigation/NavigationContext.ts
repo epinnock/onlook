@@ -13,7 +13,9 @@ export type Screen =
     | 'scan'
     | 'settings'
     | 'error'
-    | 'versionMismatch';
+    | 'versionMismatch'
+    | 'crash'
+    | 'gallery';
 
 /**
  * Optional parameters passed alongside a screen transition.

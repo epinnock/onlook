@@ -19,9 +19,11 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import {
+    CrashScreen,
     ErrorScreen,
     LauncherScreen,
     ScanScreen,
+    ScreensGalleryScreen,
     SettingsScreen,
     VersionMismatchScreen,
 } from '../screens';
@@ -141,6 +143,28 @@ function renderScreen(
                     onGoBack={() => actions.goBack()}
                 />
             );
+
+        case 'crash': {
+            // Synthesize an Error from the generic NavigationParams so the
+            // Screen Gallery can preview this screen without needing to
+            // capture a real exception. On the happy path (MC5.6 error
+            // boundary), CrashScreen is rendered imperatively with a real
+            // Error + component stack rather than through the navigator.
+            const crashError = new Error(
+                params?.errorMessage ?? 'Unknown runtime error',
+            );
+            crashError.name = params?.errorTitle ?? 'Error';
+            return (
+                <CrashScreen
+                    error={crashError}
+                    componentStack={params?.errorDetails ?? null}
+                    onReload={() => actions.resetTo('launcher')}
+                />
+            );
+        }
+
+        case 'gallery':
+            return <ScreensGalleryScreen />;
     }
 }
 
