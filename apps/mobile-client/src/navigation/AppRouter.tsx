@@ -25,6 +25,7 @@ import {
     SettingsScreen,
     VersionMismatchScreen,
 } from '../screens';
+import { qrToMount } from '../flow/qrToMount';
 import {
     NavigationContext,
     type Screen,
@@ -88,10 +89,27 @@ function renderScreen(
             return (
                 <ScanScreen
                     onScan={(data: string) => {
-                        // After scanning, return to launcher. The scan-to-mount
-                        // flow (MC3.21) will handle the actual bundle load.
-                        void data;
-                        actions.goBack();
+                        // Drive the full QR → mount pipeline. Until this was
+                        // wired, `onScan` just discarded the data and bounced
+                        // the user back to the launcher — see MCF-BUG-QR.
+                        console.log('[AppRouter] onScan received, starting qrToMount');
+                        void qrToMount(data).then((result) => {
+                            if (result.ok) {
+                                console.log(
+                                    `[AppRouter] qrToMount ok sessionId=${result.sessionId}`,
+                                );
+                                // Successful mount happens via OnlookRuntime.runApplication —
+                                // it takes over the React tree. We don't need to navigate.
+                                return;
+                            }
+                            console.log(
+                                `[AppRouter] qrToMount failed stage=${result.stage} error=${result.error}`,
+                            );
+                            actions.navigate('error', {
+                                errorTitle: `Scan failed (${result.stage})`,
+                                errorMessage: result.error,
+                            });
+                        });
                     }}
                     onCancel={() => actions.goBack()}
                 />

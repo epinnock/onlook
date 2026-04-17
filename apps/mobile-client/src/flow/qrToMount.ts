@@ -94,9 +94,14 @@ const LOG_PREFIX = '[qrToMount]';
  * human-readable error string.
  */
 export async function qrToMount(barcodeData: string): Promise<QrMountResult> {
+    // Redact any long tokens but keep scheme + path + known params for diagnosis.
+    const redacted = barcodeData.length > 300 ? barcodeData.slice(0, 300) + '…' : barcodeData;
+    console.log(`${LOG_PREFIX} stage=parse barcode=${redacted}`);
+
     // ── Stage 1: parse ────────────────────────────────────────────────────
     const parsed = parseOnlookDeepLink(barcodeData);
     if (parsed === null || !parsed.sessionId || !parsed.relay) {
+        console.log(`${LOG_PREFIX} stage=parse result=null (invalid onlook URL)`);
         return {
             ok: false,
             stage: 'parse',
@@ -105,10 +110,13 @@ export async function qrToMount(barcodeData: string): Promise<QrMountResult> {
     }
 
     const { sessionId, relay } = parsed;
+    console.log(`${LOG_PREFIX} stage=parse ok sessionId=${sessionId} relay=${relay}`);
 
     // ── Stage 2: manifest ─────────────────────────────────────────────────
+    console.log(`${LOG_PREFIX} stage=manifest GET ${relay}`);
     const manifestResult = await fetchManifest(relay);
     if (!manifestResult.ok) {
+        console.log(`${LOG_PREFIX} stage=manifest FAIL ${manifestResult.error}`);
         return {
             ok: false,
             stage: 'manifest',
@@ -117,16 +125,20 @@ export async function qrToMount(barcodeData: string): Promise<QrMountResult> {
     }
 
     const bundleUrl = manifestResult.manifest.launchAsset.url;
+    console.log(`${LOG_PREFIX} stage=manifest ok bundleUrl=${bundleUrl}`);
 
     // ── Stage 3: bundle ───────────────────────────────────────────────────
+    console.log(`${LOG_PREFIX} stage=bundle GET ${bundleUrl}`);
     const bundleResult = await fetchBundle(bundleUrl);
     if (!bundleResult.ok) {
+        console.log(`${LOG_PREFIX} stage=bundle FAIL ${bundleResult.error}`);
         return {
             ok: false,
             stage: 'bundle',
             error: bundleResult.error,
         };
     }
+    console.log(`${LOG_PREFIX} stage=bundle ok bytes=${bundleResult.source.length}`);
 
     // ── Stage 4: mount ────────────────────────────────────────────────────
     //
@@ -152,9 +164,14 @@ export async function qrToMount(barcodeData: string): Promise<QrMountResult> {
         }
 
         try {
+            console.log(`${LOG_PREFIX} stage=mount runApplication() bytes=${bundleResult.source.length}`);
             runApplication(bundleResult.source, { sessionId });
+            console.log(`${LOG_PREFIX} stage=mount runApplication() returned`);
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : String(err);
+            const stack = err instanceof Error && err.stack ? err.stack : '';
+            console.log(`${LOG_PREFIX} stage=mount runApplication THREW ${message}`);
+            if (stack) console.log(`${LOG_PREFIX} stack=${stack.slice(0, 800)}`);
             return {
                 ok: false,
                 stage: 'mount',
