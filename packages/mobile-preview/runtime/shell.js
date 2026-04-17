@@ -78,6 +78,25 @@
   }
 })();
 
+// Everything below this line is the B13 browser-preview shell machinery:
+// RN$AppRegistry shadow, RN$registerCallableModule overrides for HMR /
+// RCTDeviceEventEmitter, Fabric registerEventHandler with empty stub,
+// websocket-eval loop. It's designed for the Spike B browser preview
+// pipeline where no main.jsbundle exists. Running it inside the Onlook
+// Mobile Client (Hermes) shadows RN's own primitives and breaks RN's
+// reconciler — in particular, an empty fab.registerEventHandler and a
+// stubbed RCTDeviceEventEmitter prevent React hook dispatchers from
+// being assigned, yielding "Cannot read property 'useState' of null".
+// See plans/post-mortems/2026-04-16-runtime-d-r-clobber.md. The JSI
+// installers above this line are the only shell code that must run in
+// both modes; they're always safe because TurboModule install() calls
+// are idempotent and do not touch RN bootstrap primitives.
+if (typeof window === 'undefined') {
+  // Hermes / RN path — let main.jsbundle own AppRegistry, HMR, event
+  // emitters, Fabric event handler. Our JSI bindings are already installed.
+  return;
+}
+
 // Scheduler polyfill — react-reconciler needs setTimeout/clearTimeout
 if (typeof globalThis.setTimeout === 'undefined') {
   // Use the native timer module if available
