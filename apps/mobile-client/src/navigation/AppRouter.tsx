@@ -98,8 +98,11 @@ function renderScreen(
                                 console.log(
                                     `[AppRouter] qrToMount ok sessionId=${result.sessionId}`,
                                 );
-                                // Successful mount happens via OnlookRuntime.runApplication —
-                                // it takes over the React tree. We don't need to navigate.
+                                // Close ScanScreen so the remote bundle mounted
+                                // by OnlookRuntime.runApplication is visible.
+                                // Leaving ScanScreen's camera active covers the
+                                // rendered UI with a live preview overlay.
+                                actions.resetTo('launcher');
                                 return;
                             }
                             console.log(

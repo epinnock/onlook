@@ -70,18 +70,36 @@ jsi::Value runApplicationImpl(
               err.getMessage());
     }
 
-    // Resolve `globalThis.onlookMount` — the bundle's entry point convention.
-    // Defensive guards so a bundle that forgot to call
-    // `globalThis.onlookMount = ...` surfaces a clear error rather than
-    // throwing "undefined is not a function" from deep inside JSI.
+    // Two mount conventions supported:
+    //
+    // 1. `globalThis.onlookMount(props)` — the native Onlook convention.
+    //    Bundles emitted by MCF3's browser-metro pipeline expose this
+    //    function; we call it with the props pushed from qrToMount.
+    //
+    // 2. cf-esm-builder's `require_runtime()` / self-mounting bundle —
+    //    the bundle evaluates its own entry at top level (e.g. via
+    //    `AppRegistry.registerComponent` + `AppRegistry.runApplication`).
+    //    No onlookMount symbol is defined; the eval above already did
+    //    all the mount work as a side effect.
+    //
+    // If neither convention is present, log a notice via nativeLoggingHook
+    // so the scan flow can surface it without throwing — the bundle may
+    // still have mounted something during eval that we can't observe.
     jsi::Value mountVal = rt.global().getProperty(rt, "onlookMount");
-    if (!mountVal.isObject() || !mountVal.getObject(rt).isFunction(rt)) {
-      throw jsi::JSError(
-          rt,
-          "OnlookRuntime.runApplication: user bundle did not define globalThis.onlookMount");
+    if (mountVal.isObject() && mountVal.getObject(rt).isFunction(rt)) {
+      jsi::Function mountFn = mountVal.getObject(rt).getFunction(rt);
+      mountFn.call(rt, jsi::Value(rt, props));
+    } else {
+      auto hook = rt.global().getProperty(rt, "nativeLoggingHook");
+      if (hook.isObject() && hook.getObject(rt).isFunction(rt)) {
+        hook.getObject(rt).getFunction(rt).call(
+            rt,
+            jsi::String::createFromUtf8(
+                rt,
+                "[onlook-runtime] runApplication: globalThis.onlookMount not defined — assuming self-mounting bundle (cf-esm-builder convention)"),
+            jsi::Value(1));
+      }
     }
-    jsi::Function mountFn = mountVal.getObject(rt).getFunction(rt);
-    mountFn.call(rt, jsi::Value(rt, props));
   });
 
   return jsi::Value::undefined();
