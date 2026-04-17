@@ -3,6 +3,16 @@
  */
 
 /**
+ * Which preview surface the bundle targets.
+ *
+ * - `expo-go`        — standard Expo Go preview (no Onlook inspector wiring).
+ * - `onlook-client`  — Onlook's native mobile client; in dev mode the bundler
+ *                       injects `__source` metadata so the inspector can map
+ *                       taps back to source locations (MC4.12 / MC4.13).
+ */
+export type BundleTarget = 'expo-go' | 'onlook-client';
+
+/**
  * Minimal filesystem interface the bundler expects. Matches the relevant
  * subset of @onlook/file-system's CodeFileSystem so the host package can
  * pass its existing instance directly.
@@ -27,12 +37,38 @@ export interface BrowserMetroOptions {
      * serves the latest bundle to /preview/<branchId>/bundle.js.
      */
     broadcastChannel?: string;
+    /**
+     * Which preview surface this bundler targets. Defaults to `'expo-go'`.
+     *
+     * When set to `'onlook-client'` **and** `isDev` is true, the pipeline
+     * injects `__source` metadata into every JSX element so the Onlook
+     * inspector can resolve taps to source locations (MC4.13).
+     */
+    target?: BundleTarget;
+    /**
+     * Set to `false` for production builds. Defaults to `true`.
+     * Gates dev-only transforms such as `__source` injection.
+     */
+    isDev?: boolean;
     /** Optional logger. Defaults to console. */
     logger?: {
         debug: (msg: string) => void;
         info: (msg: string) => void;
         error: (msg: string, err?: unknown) => void;
     };
+}
+
+/**
+ * Per-bundle options for `BrowserMetro.bundle()`.
+ *
+ * - `projectDependencies`: if provided, the bundler runs `checkReactVersions`
+ *   (MC6.4) before transpiling and throws a `BundleError` on mismatch. Pass
+ *   the combined `dependencies` + `devDependencies` map from the project's
+ *   `package.json`. Omitting it skips the check — back-compat path for callers
+ *   that don't have access to the project manifest.
+ */
+export interface BundleOptions {
+    projectDependencies?: Record<string, string>;
 }
 
 export interface BundleModule {

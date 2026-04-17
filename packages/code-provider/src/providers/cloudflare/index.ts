@@ -167,7 +167,7 @@ export class CloudflareSandboxProvider extends Provider {
             path: input.args.path,
             content: input.args.content,
         });
-        return {};
+        return { success: true };
     }
 
     async readFile(input: ReadFileInput): Promise<ReadFileOutput> {
@@ -175,7 +175,14 @@ export class CloudflareSandboxProvider extends Provider {
             sandboxId: this.sandboxId,
             path: input.args.path,
         });
-        return { content };
+        return {
+            file: {
+                type: 'text',
+                path: input.args.path,
+                content,
+                toString: () => content,
+            },
+        };
     }
 
     async listFiles(input: ListFilesInput): Promise<ListFilesOutput> {
@@ -185,16 +192,16 @@ export class CloudflareSandboxProvider extends Provider {
         );
         return {
             files: entries.map(e => ({
-                path: `${input.args.path}/${e.name}`,
+                name: e.name,
                 type: e.type as 'file' | 'directory',
+                isSymlink: false,
             })),
         };
     }
 
     async deleteFiles(input: DeleteFilesInput): Promise<DeleteFilesOutput> {
-        for (const p of input.args.paths) {
-            await this.exec(`rm -rf ${JSON.stringify(p)}`);
-        }
+        const flag = input.args.recursive === false ? '-f' : '-rf';
+        await this.exec(`rm ${flag} ${JSON.stringify(input.args.path)}`);
         return {};
     }
 
@@ -204,20 +211,14 @@ export class CloudflareSandboxProvider extends Provider {
     }
 
     async copyFiles(input: CopyFilesInput): Promise<CopyFileOutput> {
-        await this.exec(`cp -r ${JSON.stringify(input.args.src)} ${JSON.stringify(input.args.dest)}`);
+        await this.exec(`cp -r ${JSON.stringify(input.args.sourcePath)} ${JSON.stringify(input.args.targetPath)}`);
         return {};
     }
 
-    async downloadFiles(input: DownloadFilesInput): Promise<DownloadFilesOutput> {
-        const results: Record<string, string> = {};
-        for (const p of input.args.paths) {
-            const { content } = await workerFetch<{ content: string }>(this.workerUrl, '/sandbox/file/read', {
-                sandboxId: this.sandboxId,
-                path: p,
-            });
-            results[p] = content;
-        }
-        return { files: results };
+    async downloadFiles(_input: DownloadFilesInput): Promise<DownloadFilesOutput> {
+        // CF sandbox provider does not yet expose a native zip download endpoint.
+        // Returning an empty object signals the caller to fall back to listing + reading.
+        return {};
     }
 
     async createDirectory(input: CreateDirectoryInput): Promise<CreateDirectoryOutput> {
@@ -229,20 +230,23 @@ export class CloudflareSandboxProvider extends Provider {
         const result = await this.exec(`stat -c '{"size":%s,"isDir":"%F"}' ${JSON.stringify(input.args.path)} 2>/dev/null || echo '{"error":true}'`);
         try {
             const parsed = JSON.parse(result.stdout.trim());
-            if (parsed.error) return { stat: null };
+            if (parsed.error) {
+                return { type: 'file' };
+            }
             return {
-                stat: {
-                    size: parsed.size,
-                    isDirectory: parsed.isDir === 'directory',
-                },
+                type: parsed.isDir === 'directory' ? 'directory' : 'file',
+                size: parsed.size,
+                isSymlink: false,
             };
-        } catch { return { stat: null }; }
+        } catch {
+            return { type: 'file' };
+        }
     }
 
     // -- terminal & commands -------------------------------------------------
 
-    async createTerminal(input: CreateTerminalInput): Promise<CreateTerminalOutput> {
-        const id = input?.args?.id || 'default';
+    async createTerminal(_input: CreateTerminalInput): Promise<CreateTerminalOutput> {
+        const id = 'default';
         const adapter = this.createTerminalAdapter(id);
         const terminal = new CloudflareTerminal(adapter);
         return { terminal };

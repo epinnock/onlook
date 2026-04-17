@@ -1,0 +1,84 @@
+function registerCallableModules(target, log) {
+  target.RN$registerCallableModule('HMRClient', function() {
+    return {
+      setup: function(platform, bundleEntry, host, port) {
+        log('HMRClient.setup host=' + host + ' port=' + port);
+        target._tryConnectWebSocket(host, port);
+      },
+      enable: function() {},
+      disable: function() {},
+      registerBundle: function() {},
+      log: function() {},
+      unstable_notifyFuseboxJsBundleLoaded: function() {},
+    };
+  });
+
+  target.RN$registerCallableModule('RCTDeviceEventEmitter', function() {
+    return {
+      emit: function(eventName) {
+        var args = Array.prototype.slice.call(arguments, 1);
+        var event = args[0] || {};
+
+        if (eventName === 'websocketOpen' && event.id === 42) {
+          target.wsConnected = true;
+          if (typeof target._markWebSocketConnected === 'function') {
+            target._markWebSocketConnected();
+          }
+          log('ws: CONNECTED');
+          return;
+        }
+
+        if (eventName === 'websocketMessage' && event.id === 42) {
+          if (typeof target._markWebSocketAlive === 'function') {
+            target._markWebSocketAlive();
+          }
+          try {
+            target._handleMessage(JSON.parse(event.data));
+          } catch (error) {
+            log('ws parse err: ' + error.message);
+          }
+          return;
+        }
+
+        if (eventName === 'websocketClosed' && event.id === 42) {
+          target.wsConnected = false;
+          if (typeof target._markWebSocketDisconnected === 'function') {
+            target._markWebSocketDisconnected();
+          }
+          log('ws: CLOSED');
+          if (typeof target._scheduleWebSocketReconnect === 'function') {
+            target._scheduleWebSocketReconnect('closed');
+          }
+          return;
+        }
+
+        if (eventName === 'websocketFailed' && event.id === 42) {
+          target.wsConnected = false;
+          if (typeof target._markWebSocketDisconnected === 'function') {
+            target._markWebSocketDisconnected();
+          }
+          log('ws: FAILED ' + event.message);
+          if (typeof target._scheduleWebSocketReconnect === 'function') {
+            target._scheduleWebSocketReconnect(event.message || 'failed');
+          }
+        }
+      },
+      addListener: function() {},
+      removeListener: function() {},
+      removeAllListeners: function() {},
+    };
+  });
+
+  target.RN$registerCallableModule('RCTNativeAppEventEmitter', function() {
+    return {
+      emit: function() {},
+      addListener: function() {},
+      removeListener: function() {},
+      removeAllListeners: function() {},
+    };
+  });
+}
+
+module.exports = {
+  registerCallableModules: registerCallableModules,
+};

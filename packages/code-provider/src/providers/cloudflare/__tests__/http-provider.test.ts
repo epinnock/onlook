@@ -152,7 +152,10 @@ describe('CloudflareSandboxProvider', () => {
                 args: { path: '/workspace/app.tsx' },
             });
 
-            expect(result).toEqual({ content: 'hello world' });
+            expect(result.file.type).toBe('text');
+            expect(result.file.path).toBe('/workspace/app.tsx');
+            expect(result.file.content).toBe('hello world');
+            expect(result.file.toString()).toBe('hello world');
             expect(fetchUrl()).toBe(`${WORKER_URL}/sandbox/file/read`);
 
             const body = fetchBody();
@@ -172,7 +175,7 @@ describe('CloudflareSandboxProvider', () => {
                 args: { path: '/workspace/index.ts', content: 'const x = 1;' },
             });
 
-            expect(result).toEqual({});
+            expect(result).toEqual({ success: true });
             expect(fetchUrl()).toBe(`${WORKER_URL}/sandbox/file/write`);
 
             const body = fetchBody();
@@ -203,8 +206,8 @@ describe('CloudflareSandboxProvider', () => {
             expect(fetchUrl()).toBe(`${WORKER_URL}/sandbox/file/list`);
             expect(fetchBody().path).toBe('/workspace');
             expect(result.files).toEqual([
-                { path: '/workspace/app.tsx', type: 'file' },
-                { path: '/workspace/components', type: 'directory' },
+                { name: 'app.tsx', type: 'file', isSymlink: false },
+                { name: 'components', type: 'directory', isSymlink: false },
             ]);
         });
 
@@ -222,20 +225,26 @@ describe('CloudflareSandboxProvider', () => {
 
     // 6. deleteFiles
     describe('deleteFiles', () => {
-        test('calls exec with rm -rf for each path', async () => {
+        test('calls exec with rm -rf for the given path', async () => {
             const provider = makeProvider();
             const result = await provider.deleteFiles({
-                args: { paths: ['/workspace/old.ts', '/workspace/tmp'] } as any,
+                args: { path: '/workspace/old.ts' },
             });
 
             expect(result).toEqual({});
-            expect(mockFetch).toHaveBeenCalledTimes(2);
+            expect(mockFetch).toHaveBeenCalledTimes(1);
 
-            const body0 = fetchBody(0);
-            expect(body0.command).toBe('rm -rf "/workspace/old.ts"');
+            const body = fetchBody(0);
+            expect(body.command).toBe('rm -rf "/workspace/old.ts"');
+        });
 
-            const body1 = fetchBody(1);
-            expect(body1.command).toBe('rm -rf "/workspace/tmp"');
+        test('uses rm -f when recursive is false', async () => {
+            const provider = makeProvider();
+            await provider.deleteFiles({
+                args: { path: '/workspace/file.ts', recursive: false },
+            });
+
+            expect(fetchBody(0).command).toBe('rm -f "/workspace/file.ts"');
         });
     });
 
@@ -287,12 +296,10 @@ describe('CloudflareSandboxProvider', () => {
     describe('createTerminal', () => {
         test('returns a terminal with expected methods', async () => {
             const provider = makeProvider();
-            const { terminal } = await provider.createTerminal({
-                args: { id: 'my-term' },
-            } as any);
+            const { terminal } = await provider.createTerminal({});
 
-            expect(terminal.id).toBe('my-term');
-            expect(terminal.name).toBe('cf-terminal-my-term');
+            expect(terminal.id).toBe('default');
+            expect(terminal.name).toBe('cf-terminal-default');
             expect(typeof terminal.open).toBe('function');
             expect(typeof terminal.write).toBe('function');
             expect(typeof terminal.run).toBe('function');
@@ -305,9 +312,7 @@ describe('CloudflareSandboxProvider', () => {
                 Promise.resolve(execResponse('output line', '')),
             );
             const provider = makeProvider();
-            const { terminal } = await provider.createTerminal({
-                args: { id: 't1' },
-            } as any);
+            const { terminal } = await provider.createTerminal({});
 
             const received: string[] = [];
             terminal.onOutput((data) => received.push(data));
@@ -322,9 +327,7 @@ describe('CloudflareSandboxProvider', () => {
                 Promise.resolve(execResponse('run result', 'run err')),
             );
             const provider = makeProvider();
-            const { terminal } = await provider.createTerminal({
-                args: { id: 't2' },
-            } as any);
+            const { terminal } = await provider.createTerminal({});
 
             const received: string[] = [];
             terminal.onOutput((data) => received.push(data));
@@ -333,9 +336,9 @@ describe('CloudflareSandboxProvider', () => {
             expect(received).toEqual(['run resultrun err']);
         });
 
-        test('uses default id when none provided', async () => {
+        test('always uses default id', async () => {
             const provider = makeProvider();
-            const { terminal } = await provider.createTerminal({} as any);
+            const { terminal } = await provider.createTerminal({});
             expect(terminal.id).toBe('default');
         });
     });
@@ -393,9 +396,10 @@ describe('CloudflareSandboxProvider', () => {
                 args: { path: '/workspace/index.ts' },
             });
 
-            expect(result.stat).toEqual({
+            expect(result).toEqual({
+                type: 'file',
                 size: 1024,
-                isDirectory: false,
+                isSymlink: false,
             });
 
             const body = fetchBody();
@@ -414,13 +418,14 @@ describe('CloudflareSandboxProvider', () => {
                 args: { path: '/workspace/src' },
             });
 
-            expect(result.stat).toEqual({
+            expect(result).toEqual({
+                type: 'directory',
                 size: 4096,
-                isDirectory: true,
+                isSymlink: false,
             });
         });
 
-        test('returns null stat when file does not exist', async () => {
+        test('returns type file when file does not exist', async () => {
             mockFetch.mockImplementationOnce(() =>
                 Promise.resolve(execResponse('{"error":true}\n')),
             );
@@ -429,10 +434,10 @@ describe('CloudflareSandboxProvider', () => {
                 args: { path: '/workspace/missing.ts' },
             });
 
-            expect(result.stat).toBeNull();
+            expect(result).toEqual({ type: 'file' });
         });
 
-        test('returns null stat on unparseable output', async () => {
+        test('returns type file on unparseable output', async () => {
             mockFetch.mockImplementationOnce(() =>
                 Promise.resolve(execResponse('not json')),
             );
@@ -441,7 +446,7 @@ describe('CloudflareSandboxProvider', () => {
                 args: { path: '/workspace/bad' },
             });
 
-            expect(result.stat).toBeNull();
+            expect(result).toEqual({ type: 'file' });
         });
     });
 

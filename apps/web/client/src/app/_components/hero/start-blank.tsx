@@ -9,7 +9,7 @@ export function StartBlank() {
 
     return (
         <button
-            onClick={handleStartBlankProject}
+            onClick={() => void handleStartBlankProject()}
             disabled={isCreatingProject}
             className="text-foreground-secondary hover:text-foreground disabled:hover:text-foreground-secondary flex items-center gap-2 text-sm transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-50"
         >

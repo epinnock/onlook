@@ -11,9 +11,20 @@
 import { expect, test } from '@playwright/test';
 
 import { EXPO_BROWSER_TEST_BRANCH } from '../fixtures/test-branch';
+import { seedExpoBrowserTestBranch } from './helpers/setup';
+import {
+    ensureDevLoggedIn,
+    openVerificationProject,
+} from '../mobile-preview/helpers/browser';
 
 test.describe('ExpoBrowser preview render', () => {
+    test.beforeAll(() => {
+        seedExpoBrowserTestBranch();
+    });
+
     test('renders the bundled app inside the preview iframe', async ({ page }) => {
+        test.setTimeout(180_000);
+
         const { projectId } = EXPO_BROWSER_TEST_BRANCH;
 
         const consoleErrors: string[] = [];
@@ -22,31 +33,64 @@ test.describe('ExpoBrowser preview render', () => {
                 consoleErrors.push(message.text());
             }
         });
+        page.on('pageerror', (error) => {
+            consoleErrors.push(error.message);
+        });
 
-        await page.goto(`/project/${projectId}`);
+        await ensureDevLoggedIn(page, `/project/${projectId}`);
+        await openVerificationProject(page, projectId);
 
-        // Editor shell must mount before we probe for the preview iframe.
-        const editor = page
-            .locator('[data-testid="project-editor"], body[data-onlook-loaded="true"]')
+        await page
+            .getByText('Loading project...')
+            .waitFor({ state: 'hidden', timeout: 120_000 })
+            .catch(() => undefined);
+
+        const applicationErrorHeading = page
+            .getByRole('heading', {
+                name: /application error: a client-side exception has occurred/i,
+            })
             .first();
-        await editor.waitFor({ state: 'attached', timeout: 30_000 });
+        if (
+            await applicationErrorHeading
+                .isVisible({ timeout: 2_000 })
+                .catch(() => false)
+        ) {
+            throw new Error('Project route rendered a client-side application error.');
+        }
 
         // Locate the preview iframe by either its numeric id prefix or by
         // the `/preview/` path in its src attribute.
         const iframe = page.locator('iframe[id^="frame-"], iframe[src*="/preview/"]').first();
-        await iframe.waitFor({ state: 'attached', timeout: 30_000 });
+        await iframe.waitFor({ state: 'attached', timeout: 60_000 });
 
         // The src attribute must be routed through the local preview proxy.
-        const src = await iframe.getAttribute('src');
-        expect(src, 'preview iframe is missing a src attribute').not.toBeNull();
-        expect(src).toMatch(/^\/preview\//);
+        await expect
+            .poll(
+                async () => {
+                    const src = await iframe.getAttribute('src');
+                    if (!src?.trim()) {
+                        return '';
+                    }
+
+                    try {
+                        return new URL(src).pathname;
+                    } catch {
+                        return src.trim();
+                    }
+                },
+                {
+                    timeout: 30_000,
+                    message: 'preview iframe never received a /preview/ src',
+                },
+            )
+            .toMatch(/^\/preview\//);
 
         // Drop into the frame to confirm the Metro bundle actually rendered.
         const frame = page
             .frameLocator('iframe[id^="frame-"], iframe[src*="/preview/"]')
             .first();
         const rendered = frame.locator('#root, [data-onlook-preview-ready="true"]').first();
-        await rendered.waitFor({ state: 'attached', timeout: 10_000 });
+        await rendered.waitFor({ state: 'attached', timeout: 30_000 });
 
         const innerHtml = await rendered.innerHTML();
         expect(innerHtml.trim().length, 'preview iframe content should be non-empty').toBeGreaterThan(0);

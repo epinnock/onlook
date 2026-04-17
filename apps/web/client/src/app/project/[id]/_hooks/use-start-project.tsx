@@ -24,7 +24,10 @@ interface ProjectReadyState {
 
 export const useStartProject = () => {
     const editorEngine = useEditorEngine();
-    const sandbox = editorEngine.activeSandbox;
+    const initialBranch = editorEngine.branches.allBranches[0];
+    const sandbox = initialBranch
+        ? editorEngine.branches.getSandboxById(initialBranch.id)
+        : null;
     const [error, setError] = useState<string | null>(null);
     const processedRequestIdRef = useRef<string | null>(null);
     const { tabState } = useTabActive();
@@ -49,16 +52,16 @@ export const useStartProject = () => {
     };
 
     useEffect(() => {
-        if (!sandbox.session.isConnecting) {
+        if (sandbox && !sandbox.session.isConnecting) {
             updateProjectReadyState({ sandbox: true });
         }
-    }, [sandbox.session.isConnecting]);
+    }, [sandbox, sandbox?.session.isConnecting]);
 
     useEffect(() => {
-        if (tabState === 'reactivated') {
+        if (tabState === 'reactivated' && sandbox) {
             sandbox.session.reconnect(editorEngine.projectId, user?.id);
         }
-    }, [tabState, sandbox.session]);
+    }, [tabState, sandbox, editorEngine.projectId, user?.id]);
 
     useEffect(() => {
         if (canvasWithFrames) {

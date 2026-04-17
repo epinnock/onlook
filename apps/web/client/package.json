@@ -49,6 +49,7 @@
     "@onlook/github": "*",
     "@onlook/growth": "*",
     "@onlook/image-server": "*",
+    "@onlook/mobile-client-protocol": "*",
     "@onlook/models": "*",
     "@onlook/parser": "*",
     "@onlook/penpal": "*",

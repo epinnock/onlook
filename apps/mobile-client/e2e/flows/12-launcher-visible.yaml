@@ -1,0 +1,21 @@
+# 12-launcher-visible.yaml — Wave 3 task MC3.5 of plans/onlook-mobile-client-task-queue.md.
+#
+# Asserts the launcher screen renders its three key affordances:
+#   1. "Scan QR" — primary CTA button
+#   2. "Recent sessions" — section header
+#   3. "Settings" — bottom touchable
+#
+# NOTE: This flow will timeout on the bare-scaffold app (MCF8) because
+# App.tsx doesn't yet mount LauncherScreen. The wiring lands in MC3.20
+# (app router). The flow file is authored now so validate-task.ts can
+# locate it and the maestro YAML is ready when the router is in place.
+
+appId: com.onlook.mobile
+---
+- launchApp:
+    clearState: true
+- waitForAnimationToEnd:
+    timeout: 8000
+- assertVisible: "Scan QR"
+- assertVisible: "Recent sessions"
+- assertVisible: "Settings"

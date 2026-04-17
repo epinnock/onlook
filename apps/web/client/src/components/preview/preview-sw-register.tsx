@@ -15,25 +15,100 @@ import { useEffect } from 'react';
 
 const SW_PATH = '/preview-sw.js';
 const SW_SCOPE = '/preview/';
+const SW_ACTIVATION_TIMEOUT_MS = 10_000;
 
-export function PreviewServiceWorkerRegister(): null {
-    useEffect(() => {
-        if (typeof window === 'undefined') return;
-        if (!('serviceWorker' in navigator)) {
-            console.warn('[preview-sw-register] serviceWorker API unavailable');
-            return;
-        }
+let previewServiceWorkerReadyPromise: Promise<ServiceWorkerRegistration | null> | null =
+    null;
 
-        let cancelled = false;
-        navigator.serviceWorker
-            .register(SW_PATH, { scope: SW_SCOPE })
+function waitForPreviewServiceWorkerActivation(
+    registration: ServiceWorkerRegistration,
+): Promise<ServiceWorkerRegistration> {
+    if (registration.active) {
+        return Promise.resolve(registration);
+    }
+
+    const worker = registration.installing ?? registration.waiting;
+    if (!worker) {
+        return Promise.resolve(registration);
+    }
+
+    return new Promise((resolve) => {
+        const timeoutId = window.setTimeout(() => {
+            cleanup();
+            resolve(registration);
+        }, SW_ACTIVATION_TIMEOUT_MS);
+
+        const handleStateChange = () => {
+            if (registration.active) {
+                cleanup();
+                resolve(registration);
+            }
+        };
+
+        const handleUpdateFound = () => {
+            registration.installing?.addEventListener('statechange', handleStateChange);
+            handleStateChange();
+        };
+
+        const cleanup = () => {
+            window.clearTimeout(timeoutId);
+            worker.removeEventListener('statechange', handleStateChange);
+            registration.removeEventListener('updatefound', handleUpdateFound);
+        };
+
+        worker.addEventListener('statechange', handleStateChange);
+        registration.addEventListener('updatefound', handleUpdateFound);
+        handleStateChange();
+    });
+}
+
+export async function ensurePreviewServiceWorkerReady(): Promise<ServiceWorkerRegistration | null> {
+    if (typeof window === 'undefined') {
+        return null;
+    }
+
+    if (!('serviceWorker' in navigator)) {
+        console.warn('[preview-sw-register] serviceWorker API unavailable');
+        return null;
+    }
+
+    if (!previewServiceWorkerReadyPromise) {
+        previewServiceWorkerReadyPromise = navigator.serviceWorker
+            .getRegistration(SW_SCOPE)
             .then((registration) => {
-                if (cancelled) return;
-                console.info('[preview-sw-register] registered', registration.scope);
+                if (registration) {
+                    return registration;
+                }
+
+                return navigator.serviceWorker.register(SW_PATH, { scope: SW_SCOPE });
+            })
+            .then(async (registration) => {
+                const activeRegistration =
+                    await waitForPreviewServiceWorkerActivation(registration);
+
+                console.info(
+                    '[preview-sw-register] registered',
+                    activeRegistration.scope,
+                );
+
+                return activeRegistration;
             })
             .catch((err: unknown) => {
                 console.error('[preview-sw-register] registration failed', err);
+                previewServiceWorkerReadyPromise = null;
+                return null;
             });
+    }
+
+    return previewServiceWorkerReadyPromise;
+}
+
+export function PreviewServiceWorkerRegister(): null {
+    useEffect(() => {
+        let cancelled = false;
+        void ensurePreviewServiceWorkerReady().then(() => {
+            if (cancelled) return;
+        });
 
         return () => {
             cancelled = true;

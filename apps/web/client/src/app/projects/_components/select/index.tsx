@@ -224,7 +224,7 @@ export const SelectProject = ({ externalSearchQuery }: { externalSearchQuery?: s
                 </div>
                 <div className="flex justify-center">
                     <Button
-                        onClick={handleStartBlankProject}
+                        onClick={() => void handleStartBlankProject()}
                         disabled={isCreatingProject}
                         variant="default"
                     >
@@ -299,7 +299,7 @@ export const SelectProject = ({ externalSearchQuery }: { externalSearchQuery?: s
                                         layout
                                     >
                                         <button
-                                            onClick={handleStartBlankProject}
+                                            onClick={() => void handleStartBlankProject()}
                                             disabled={isCreatingProject}
                                             className="border-border bg-secondary/40 hover:bg-secondary relative flex aspect-[4/2.8] w-full items-center justify-center rounded-lg border transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                         >

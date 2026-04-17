@@ -254,6 +254,20 @@ export class SandboxManager {
             } catch (err) {
                 console.error('[SandboxManager] BroadcastChannel publish failed:', err);
             }
+            // Same-window CustomEvent — redundant with BroadcastChannel
+            // for cross-context subscribers, but the in-window mobile
+            // preview hook prefers this because it's synchronous and
+            // unaffected by the BC `close()` delivery race observed on
+            // some browsers when post + close happen back-to-back.
+            try {
+                window.dispatchEvent(
+                    new CustomEvent('onlook-preview-bundle', {
+                        detail: { branchId, result },
+                    }),
+                );
+            } catch (err) {
+                console.error('[SandboxManager] CustomEvent dispatch failed:', err);
+            }
             if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
                 navigator.serviceWorker.getRegistration('/preview/').then((reg) => {
                     reg?.active?.postMessage({ type: 'bundle', branchId, result });
@@ -460,7 +474,8 @@ export class SandboxManager {
 
         // Fallback: read all files and create a client-side download
         try {
-            const { files } = await this.session.provider.listFiles({ args: { path: '.' } });
+            const listingRoot = '.';
+            const { files } = await this.session.provider.listFiles({ args: { path: listingRoot } });
             if (!files || files.length === 0) {
                 console.error('No files found for download');
                 return null;
@@ -468,12 +483,13 @@ export class SandboxManager {
 
             // Read each file's content
             const fileContents: Array<{ path: string; content: string }> = [];
-            for (const file of files) {
-                if (file.type === 'file') {
+            for (const entry of files) {
+                if (entry.type === 'file') {
+                    const entryPath = `${listingRoot}/${entry.name}`;
                     try {
-                        const { content } = await this.session.provider.readFile({ args: { path: file.path } });
-                        if (content) {
-                            fileContents.push({ path: file.path, content });
+                        const { file } = await this.session.provider.readFile({ args: { path: entryPath } });
+                        if (file.type === 'text' && file.content) {
+                            fileContents.push({ path: entryPath, content: file.content });
                         }
                     } catch {
                         // Skip files that can't be read

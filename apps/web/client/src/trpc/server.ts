@@ -2,9 +2,10 @@ import 'server-only';
 
 import { createHydrationHelpers } from '@trpc/react-query/rsc';
 import { headers } from 'next/headers';
+import { NextRequest } from 'next/server';
 import { cache } from 'react';
 import { createCaller, type AppRouter } from '~/server/api/root';
-import { createTRPCContext } from '~/server/api/trpc';
+import { createTRPCContext } from '~/trpc/request-server';
 import { createQueryClient } from './query-client';
 
 /**
@@ -15,7 +16,11 @@ const createContext = cache(async () => {
     const heads = new Headers(await headers());
     heads.set('x-trpc-source', 'rsc');
 
-    return createTRPCContext({
+    const request = new NextRequest('http://127.0.0.1/__rsc_trpc__', {
+        headers: heads,
+    });
+
+    return createTRPCContext(request, {
         headers: heads,
     });
 });

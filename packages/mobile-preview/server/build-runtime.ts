@@ -9,40 +9,164 @@
  * Run: bun run packages/mobile-preview/server/build-runtime.ts
  */
 
-import { join } from 'path';
+import { existsSync, readFileSync } from 'fs';
+import { readdir, rm } from 'fs/promises';
+import { dirname, join, relative } from 'path';
 
 const ROOT = join(import.meta.dir, '..');
+const RUNTIME_DIR = join(ROOT, 'runtime');
+const GENERATED_ENTRY_NAME = '.generated-entry.js';
+const SHIMS_DIR_NAME = 'shims';
 
-async function build() {
+export const DEFAULT_EXPO_SDK_VERSION = '54.0.0';
+export const RUNTIME_BUILD_METADATA_FILENAME = 'bundle.meta.json';
+
+export interface RuntimeBuildMetadata {
+  sdkVersion: string;
+}
+
+function normalizeRelativeRuntimePath(path: string) {
+  const normalizedPath = path.replaceAll('\\', '/');
+  return normalizedPath.startsWith('.') ? normalizedPath : `./${normalizedPath}`;
+}
+
+async function collectRuntimeShimPaths(path: string, runtimeDir: string): Promise<string[]> {
+  const entries = await readdir(path, { withFileTypes: true });
+  const shimPaths: string[] = [];
+
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    const entryPath = join(path, entry.name);
+
+    if (entry.isDirectory()) {
+      shimPaths.push(...(await collectRuntimeShimPaths(entryPath, runtimeDir)));
+      continue;
+    }
+
+    if (!/\.(cjs|cts|js|jsx|mjs|mts|ts|tsx)$/.test(entry.name)) {
+      continue;
+    }
+
+    shimPaths.push(normalizeRelativeRuntimePath(relative(runtimeDir, entryPath)));
+  }
+
+  return shimPaths;
+}
+
+export async function discoverRuntimeShimPaths(runtimeDir = RUNTIME_DIR) {
+  const shimsDir = join(runtimeDir, SHIMS_DIR_NAME);
+
+  if (!existsSync(shimsDir)) {
+    return [];
+  }
+
+  return collectRuntimeShimPaths(shimsDir, runtimeDir);
+}
+
+export function createRuntimeEntrySource(shimPaths: string[]) {
+  const lines = [
+    "require('./shell.js');",
+    "const registry = require('./registry.js');",
+    ...shimPaths.map(
+      shimPath =>
+        `registry.registerRuntimeShim(require(${JSON.stringify(shimPath)}), ${JSON.stringify(shimPath)});`,
+    ),
+    'registry.applyRuntimeShims(globalThis);',
+    "require('./runtime.js');",
+    '',
+  ];
+
+  return lines.join('\n');
+}
+
+export function getRuntimeBuildMetadataPath(runtimeBundlePath: string): string {
+  return join(dirname(runtimeBundlePath), RUNTIME_BUILD_METADATA_FILENAME);
+}
+
+export function readRuntimeBuildMetadata(runtimeBundlePath: string): RuntimeBuildMetadata | null {
+  const metadataPath = getRuntimeBuildMetadataPath(runtimeBundlePath);
+  if (!existsSync(metadataPath)) {
+    return null;
+  }
+
+  return JSON.parse(readFileSync(metadataPath, 'utf-8')) as RuntimeBuildMetadata;
+}
+
+async function writeGeneratedRuntimeEntry(runtimeDir = RUNTIME_DIR) {
+  const shimPaths = await discoverRuntimeShimPaths(runtimeDir);
+  const entryPath = join(runtimeDir, GENERATED_ENTRY_NAME);
+
+  await Bun.write(entryPath, createRuntimeEntrySource(shimPaths));
+
+  return {
+    entryPath,
+    shimPaths,
+  };
+}
+
+export async function buildRuntime() {
   console.log('[build-runtime] Bundling React runtime...');
 
-  const result = await Bun.build({
-    entrypoints: [join(ROOT, 'runtime', 'entry.js')],
-    outdir: join(ROOT, 'runtime'),
-    naming: 'raw-bundle.js',
-    target: 'browser',
-    format: 'cjs',
-    minify: true,
-  });
+  const { entryPath, shimPaths } = await writeGeneratedRuntimeEntry();
+  const rawPath = join(RUNTIME_DIR, 'raw-bundle.js');
+  const outPath = join(RUNTIME_DIR, 'bundle.js');
 
-  if (!result.success) {
-    console.error('[build-runtime] Build failed:', result.logs);
-    process.exit(1);
-  }
+  try {
+    console.log(
+      `[build-runtime] Discovered ${shimPaths.length} runtime shim${shimPaths.length === 1 ? '' : 's'}.`,
+    );
 
-  const rawPath = join(ROOT, 'runtime', 'raw-bundle.js');
-  const outPath = join(ROOT, 'runtime', 'bundle.js');
-  const rawBundle = await Bun.file(rawPath).text();
+    const result = await Bun.build({
+      entrypoints: [entryPath],
+      outdir: RUNTIME_DIR,
+      naming: 'raw-bundle.js',
+      target: 'browser',
+      format: 'cjs',
+      // Hermes inside Expo Go SDK 54 throws `Property 'X' doesn't exist`
+      // for some minified back-to-back class declarations (e.g. the
+      // `class File {...}class Directory {...}` pair in
+      // shims/expo/expo-file-system.js after Bun's minifier collapses
+      // whitespace). Keeping the build unminified keeps the per-class
+      // identifiers stable and avoids the parser regression. The cost is
+      // bundle size — ~+1MB but still under the 2MB ceiling. After the
+      // react-copy dedupe fix (86a9d18b) the bundle is ~1054 KB with a
+      // single React 19.2.0 instance; previously it was ~1093 KB with
+      // two copies (19.1 + 19.2) from the workspace hoisting split.
+      minify: false,
+    });
 
-  // Check for ESM leaks
-  const esmLines = rawBundle.split('\n').filter(l => /^export |^import /.test(l));
-  if (esmLines.length > 0) {
-    console.error('[build-runtime] ESM leak detected:', esmLines);
-    process.exit(1);
-  }
+    if (!result.success) {
+      console.error('[build-runtime] Build failed:', result.logs);
+      process.exit(1);
+    }
 
-  // Wrap in polyfills + Metro module system
-  const preamble = `(function(g) {
+    const rawBundle = await Bun.file(rawPath).text();
+
+    const esmLines = rawBundle.split('\n').filter(line => /^export |^import /.test(line));
+    if (esmLines.length > 0) {
+      console.error('[build-runtime] ESM leak detected:', esmLines);
+      process.exit(1);
+    }
+
+    // Guardrail for the dispatcher-split bug fixed in 86a9d18b: if the
+    // bundle ends up with two React copies (usually from a workspace
+    // pinning a different react version than the root), the reconciler
+    // and user code land on different ReactSharedInternals and hooks
+    // throw "Cannot read property 'useState' of null" at runtime. Fail
+    // the build instead of shipping a broken runtime.
+    const reactVersionHits = rawBundle.match(/exports2?\.version = "\d+\.\d+\.\d+"/g) ?? [];
+    const uniqueReactVersions = new Set(reactVersionHits);
+    if (uniqueReactVersions.size > 1) {
+      console.error(
+        '[build-runtime] Multiple React copies detected in bundle:',
+        [...uniqueReactVersions],
+      );
+      console.error(
+        '[build-runtime] Align every workspace package pinning `react` to the same version as the root, then `rm -rf packages/*/node_modules/react && bun install --force`.',
+      );
+      process.exit(1);
+    }
+
+    const preamble = `(function(g) {
   if (!g.performance) g.performance = { now: function() { return Date.now(); } };
   if (typeof g.setTimeout === "undefined") { var _t=1; g.setTimeout = function(fn,ms) { var id=_t++; if(!ms||ms<=0){fn();return id;} return id; }; g.clearTimeout = function(){}; }
   if (typeof g.MessageChannel === "undefined") { g.MessageChannel = function() { var _c=null; this.port1={}; this.port2={postMessage:function(){if(_c){var f=_c;g.setTimeout(function(){f({data:undefined});},0);}}}; Object.defineProperty(this.port1,"onmessage",{set:function(v){_c=v;},get:function(){return _c;}}); }; }
@@ -51,20 +175,59 @@ async function build() {
   if (!g.process) g.process = { env: { NODE_ENV: "production" } };
   g._log = function(msg) { try { if (typeof g.nativeLoggingHook === "function") g.nativeLoggingHook("[ONLOOK] " + msg, 1); } catch(_) {} };
 })(typeof globalThis !== "undefined" ? globalThis : typeof self !== "undefined" ? self : this);
+(function(){
 var __modules={};function __d(f,i,d){__modules[i]={factory:f,hasError:false,importedAll:false,exports:{}};}function __r(i){var m=__modules[i];if(!m)throw new Error("Module "+i+" not registered");if(!m.importedAll){m.importedAll=true;try{m.factory.call(m.exports,typeof globalThis!=="undefined"?globalThis:typeof self!=="undefined"?self:this,__r,null,m.exports,m,m.exports,null);}catch(e){m.hasError=true;if(typeof globalThis.nativeLoggingHook==="function"){globalThis.nativeLoggingHook("[ONLOOK] Module error: "+(e&&e.message),1);}throw e;}}return m.exports;}
 __d(function(global,require,_imports,_exports,module,exports,_dependencyMap){
 `;
-  const suffix = '\n}, 0, []);\n__r(0);\n';
+    // runtime/entry.js gates the runtime.js require on `typeof
+    // globalThis.__turboModuleProxy === 'undefined'`, so in Hermes (where
+    // main.jsbundle ships its own React) we skip the React + reconciler
+    // setup entirely. No post-__r(0) cleanup needed — those globals are
+    // simply never set. The closing `})();` balances the `(function(){`
+    // opened in the preamble above.
+    const suffix = '\n}, 0, []);\n__r(0);\n})();\n';
 
-  await Bun.write(outPath, preamble + rawBundle + suffix);
+    await Bun.write(outPath, preamble + rawBundle + suffix);
+    await Bun.write(
+      getRuntimeBuildMetadataPath(outPath),
+      `${JSON.stringify({ sdkVersion: DEFAULT_EXPO_SDK_VERSION }, null, 2)}\n`,
+    );
 
-  // Clean up raw bundle
-  const fs = require('fs');
-  fs.unlinkSync(rawPath);
+    await rm(rawPath, { force: true });
 
-  const stats = await Bun.file(outPath).size;
-  console.log(`[build-runtime] Output: ${outPath} (${(stats / 1024).toFixed(1)} KB)`);
-  console.log('[build-runtime] Done.');
+    const stats = await Bun.file(outPath).size;
+    console.log(`[build-runtime] Output: ${outPath} (${(stats / 1024).toFixed(1)} KB)`);
+
+    // Hard ceiling companion to the `minify: false` note above. Hermes on
+    // Expo Go SDK 54 cleanly parses ~1 MB of unminified JS; the 2 MB limit
+    // is the safety margin before we have to reconsider minification
+    // (which triggered the class-declaration parser bug this file is
+    // explicitly avoiding). If a future change pushes past the ceiling,
+    // the fix is probably either a targeted shim-splitting refactor or a
+    // selective per-module minifier — not simply raising the number.
+    const MAX_BUNDLE_BYTES = 2 * 1024 * 1024;
+    if (stats > MAX_BUNDLE_BYTES) {
+      console.error(
+        `[build-runtime] Bundle size ${(stats / 1024).toFixed(1)} KB exceeds ceiling of ${(MAX_BUNDLE_BYTES / 1024).toFixed(0)} KB.`,
+      );
+      console.error(
+        '[build-runtime] Investigate recent runtime shim additions, bundled npm deps, or inadvertent source-map inclusion before raising the ceiling.',
+      );
+      process.exit(1);
+    }
+    const headroomPercent = (100 * (MAX_BUNDLE_BYTES - stats)) / MAX_BUNDLE_BYTES;
+    console.log(
+      `[build-runtime] Size OK: ${(stats / 1024).toFixed(1)} KB of ${(MAX_BUNDLE_BYTES / 1024).toFixed(0)} KB ceiling (${headroomPercent.toFixed(1)}% headroom).`,
+    );
+    console.log('[build-runtime] Done.');
+  } finally {
+    await rm(entryPath, { force: true });
+  }
 }
 
-build().catch(console.error);
+if (import.meta.main) {
+  buildRuntime().catch(error => {
+    console.error(error);
+    process.exit(1);
+  });
+}

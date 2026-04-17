@@ -7,8 +7,10 @@
  *
  *   - `@/components/store/editor`  — provides a fake editor engine so we
  *     can toggle `activeBranch.sandbox.providerType`
- *   - `@/hooks/use-preview-on-device` — returns a deterministic status
+ *   - `@/hooks/use-mobile-preview-status` — returns a deterministic status
  *     object + spy handles for `open` / `close` / `retry`
+ *   - `@/hooks/use-mobile-preview-connection` — returns deterministic
+ *     connection states for the status badge beside the button
  *   - `@/components/ui/qr-modal` — stubbed to a trivial div so we don't
  *     pull Radix's portal machinery into a portal-less SSR render
  *
@@ -47,6 +49,10 @@ const engineRef: { current: MockEditorEngine } = {
 
 interface MockPreviewHandle {
     status: { kind: string };
+    errorPanel: {
+        isVisible: boolean;
+        items: unknown[];
+    };
     isOpen: boolean;
     open: () => Promise<void>;
     close: () => void;
@@ -59,9 +65,30 @@ const previewRef: { current: MockPreviewHandle } = {
     current: createPreviewHandle(),
 };
 
+type MockConnectionStatus =
+    | { kind: 'disabled'; clients: 0; hasRuntime: false; message: string }
+    | { kind: 'checking'; clients: 0; hasRuntime: false }
+    | { kind: 'waiting'; clients: number; hasRuntime: boolean }
+    | { kind: 'connected'; clients: number; hasRuntime: boolean }
+    | { kind: 'error'; clients: 0; hasRuntime: false; message: string };
+
+interface MockConnectionHandle {
+    status: MockConnectionStatus;
+    refresh: () => Promise<void>;
+    refreshCalls: number;
+}
+
+const connectionRef: { current: MockConnectionHandle } = {
+    current: createConnectionHandle(),
+};
+
 function createPreviewHandle(overrides: Partial<MockPreviewHandle> = {}): MockPreviewHandle {
     const handle: MockPreviewHandle = {
         status: { kind: 'idle' },
+        errorPanel: {
+            isVisible: false,
+            items: [],
+        },
         isOpen: false,
         openCalls: 0,
         closeCalls: 0,
@@ -79,12 +106,40 @@ function createPreviewHandle(overrides: Partial<MockPreviewHandle> = {}): MockPr
     return handle;
 }
 
+function createConnectionHandle(
+    overrides: Partial<MockConnectionHandle> = {},
+): MockConnectionHandle {
+    const handle: MockConnectionHandle = {
+        status: {
+            kind: 'waiting',
+            clients: 0,
+            hasRuntime: true,
+        },
+        refreshCalls: 0,
+        refresh: async () => {
+            handle.refreshCalls++;
+        },
+        ...overrides,
+    };
+    return handle;
+}
+
 mock.module('@/components/store/editor', () => ({
     useEditorEngine: () => engineRef.current,
 }));
 
-mock.module('@/hooks/use-preview-on-device', () => ({
-    usePreviewOnDevice: (_opts: unknown) => previewRef.current,
+mock.module('@/hooks/use-mobile-preview-status', () => ({
+    useMobilePreviewStatus: (_opts: unknown) => previewRef.current,
+}));
+
+mock.module('@/hooks/use-mobile-preview-connection', () => ({
+    useMobilePreviewConnection: (_opts: unknown) => connectionRef.current,
+}));
+
+mock.module('@/env', () => ({
+    env: {
+        NEXT_PUBLIC_MOBILE_PREVIEW_URL: 'http://localhost:8787',
+    },
 }));
 
 // Stub QrModal to a trivial marker div so renderToStaticMarkup doesn't try
@@ -93,6 +148,10 @@ mock.module('@/components/ui/qr-modal', () => ({
     QrModal: ({ open }: { open: boolean }) => (
         <div data-testid="qr-modal-stub" data-open={String(open)} />
     ),
+}));
+
+mock.module('@/components/ui/mobile-preview-error-panel', () => ({
+    MobilePreviewErrorPanel: () => <div data-testid="mobile-preview-error-panel-stub" />,
 }));
 
 // Stub @onlook/ui/button to a plain <button>. The real Button comes from
@@ -131,6 +190,7 @@ describe('PreviewOnDeviceButton', () => {
             },
         };
         previewRef.current = createPreviewHandle();
+        connectionRef.current = createConnectionHandle();
         const html = renderHtml();
         expect(html).toBe('');
     });
@@ -144,6 +204,7 @@ describe('PreviewOnDeviceButton', () => {
             },
         };
         previewRef.current = createPreviewHandle();
+        connectionRef.current = createConnectionHandle();
         const html = renderHtml();
         expect(html).toBe('');
     });
@@ -160,10 +221,14 @@ describe('PreviewOnDeviceButton', () => {
             },
         };
         previewRef.current = createPreviewHandle();
+        connectionRef.current = createConnectionHandle();
         const html = renderHtml();
         expect(html).toContain('data-testid="preview-on-device-button"');
         expect(html).toContain('aria-label="Preview on device"');
         expect(html).toContain('Preview on device');
+        expect(html).toContain('data-testid="mobile-preview-connection-status"');
+        expect(html).toContain('data-status="waiting"');
+        expect(html).toContain('0 devices');
         // QrModal stub is rendered but starts closed.
         expect(html).toContain('data-testid="qr-modal-stub"');
         expect(html).toContain('data-open="false"');
@@ -184,9 +249,65 @@ describe('PreviewOnDeviceButton', () => {
         // its `data-open` marker on the next render. This proves
         // `preview.isOpen` is wired into the QrModal `open` prop.
         previewRef.current = createPreviewHandle({ isOpen: true });
+        connectionRef.current = createConnectionHandle();
         const html = renderHtml();
         expect(html).toContain('data-testid="qr-modal-stub"');
         expect(html).toContain('data-open="true"');
+    });
+
+    test('renders connected client count in the status indicator', () => {
+        engineRef.current = {
+            projectId: 'proj_1',
+            fileSystem: {},
+            branches: {
+                activeBranch: {
+                    id: 'branch_1',
+                    sandbox: { providerType: 'expo_browser' },
+                },
+            },
+        };
+        previewRef.current = createPreviewHandle();
+        connectionRef.current = createConnectionHandle({
+            status: {
+                kind: 'connected',
+                clients: 2,
+                hasRuntime: true,
+            },
+        });
+
+        const html = renderHtml();
+
+        expect(html).toContain('data-testid="mobile-preview-connection-status"');
+        expect(html).toContain('data-status="connected"');
+        expect(html).toContain('2 devices');
+    });
+
+    test('renders an offline status when the preview server is unavailable', () => {
+        engineRef.current = {
+            projectId: 'proj_1',
+            fileSystem: {},
+            branches: {
+                activeBranch: {
+                    id: 'branch_1',
+                    sandbox: { providerType: 'expo_browser' },
+                },
+            },
+        };
+        previewRef.current = createPreviewHandle();
+        connectionRef.current = createConnectionHandle({
+            status: {
+                kind: 'error',
+                clients: 0,
+                hasRuntime: false,
+                message: 'Failed to reach mobile-preview server: refused',
+            },
+        });
+
+        const html = renderHtml();
+
+        expect(html).toContain('data-testid="mobile-preview-connection-status"');
+        expect(html).toContain('data-status="error"');
+        expect(html).toContain('Server offline');
     });
 
     test('preview handle exposes open/close/retry callable handlers', async () => {
@@ -201,6 +322,7 @@ describe('PreviewOnDeviceButton', () => {
             },
         };
         previewRef.current = createPreviewHandle();
+        connectionRef.current = createConnectionHandle();
 
         // Render once so the test exercises the full mount path through
         // observer + sub-component + mocked hook.

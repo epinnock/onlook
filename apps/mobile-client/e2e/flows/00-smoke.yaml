@@ -1,0 +1,14 @@
+# 00-smoke.yaml — Phase F task MCF9 of plans/onlook-mobile-client-task-queue.md.
+#
+# The harness-only smoke flow. It does NOT launch the app. Its only job is to
+# prove that the Maestro CLI is installed and can parse + report on a
+# well-formed flow file, so MCF9 can validate WITHOUT MCF8 having landed
+# yet (i.e. before a real iOS/Android app binary exists).
+#
+# Real boot / navigation flows land as Wave 1 task MC1.1 authoring
+# `01-boot.yaml` and friends.
+
+appId: com.onlook.mobile
+---
+- evalScript: ${output.smoke = "ok"}
+- assertTrue: ${output.smoke === "ok"}

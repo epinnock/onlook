@@ -7,6 +7,7 @@
 const React = require('react');
 const ReconcilerFactory = require('react-reconciler');
 const { createHostConfig } = require('./fabric-host-config.js');
+const nativeModulesShim = require('./shims/core/native-modules.js');
 
 // Debug: verify internals
 const g = globalThis;
@@ -52,11 +53,15 @@ function initReconciler(fab, rootTag) {
   g._log('runtime: container created');
 }
 
+const { wrapForKeyedRender } = require('./wrap-for-keyed-render.js');
+
+let _renderSeq = 0;
 function renderApp(element) {
   if (!_reconciler || !_container) {
     throw new Error('Runtime not initialized');
   }
-  _reconciler.updateContainer(element, _container, null, null);
+  _renderSeq += 1;
+  _reconciler.updateContainer(wrapForKeyedRender(React, element, _renderSeq), _container, null, null);
 }
 
 // --- Expose on globalThis ---
@@ -72,6 +77,10 @@ g.useCallback = R.useCallback;
 g.View = 'View';
 g.Text = 'RCTText';
 g.RawText = 'RCTRawText';
+
+const nativeModuleBridge = nativeModulesShim.install(g);
+g.NativeModules = nativeModuleBridge.NativeModules;
+g.TurboModuleRegistry = nativeModuleBridge.TurboModuleRegistry;
 
 // TextC: auto-wraps string children in RCTRawText
 g.TextC = function TextC(props) {
@@ -89,4 +98,10 @@ g.TextC = function TextC(props) {
 g.renderApp = renderApp;
 g._initReconciler = initReconciler;
 
-module.exports = { React: R, renderApp, initReconciler };
+module.exports = {
+  React: R,
+  NativeModules: nativeModuleBridge.NativeModules,
+  TurboModuleRegistry: nativeModuleBridge.TurboModuleRegistry,
+  renderApp,
+  initReconciler,
+};

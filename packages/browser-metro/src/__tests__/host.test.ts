@@ -60,6 +60,59 @@ describe('BrowserMetro', () => {
         metro.dispose();
     });
 
+    it('uses a local iframe shim for expo-status-bar', async () => {
+        const metro = new BrowserMetro({
+            vfs: makeFakeVfs({
+                'App.tsx': `
+                    import { StatusBar } from 'expo-status-bar';
+                    export default function App() { return <StatusBar style="light" />; }
+                `,
+            }),
+            esmUrl: 'https://esm.sh',
+        });
+
+        const result = await metro.bundle();
+
+        expect(result.modules['App.tsx']?.deps).toContain('expo-status-bar');
+        expect(result.modules['App.tsx']?.code).toContain(
+            '/__browser_metro_shims__/expo-status-bar.js',
+        );
+        expect(result.modules['__browser_metro_shims__/expo-status-bar.js']?.code).toContain(
+            'function StatusBar()',
+        );
+        expect(result.iife).not.toContain('https://esm.sh/expo-status-bar?bundle');
+        metro.dispose();
+    });
+
+    it('uses a local react-native iframe shim with patched Switch events', async () => {
+        const metro = new BrowserMetro({
+            vfs: makeFakeVfs({
+                'App.tsx': `
+                    import { Switch, View } from 'react-native';
+                    export default function App() {
+                        return <View><Switch value={false} onValueChange={() => undefined} /></View>;
+                    }
+                `,
+            }),
+            esmUrl: 'https://esm.sh',
+        });
+
+        const result = await metro.bundle();
+        const appCode = result.modules['App.tsx']?.code ?? '';
+        const shimCode =
+            result.modules['__browser_metro_shims__/react-native.js']?.code ?? '';
+
+        expect(result.modules['App.tsx']?.deps).toContain('react-native');
+        expect(appCode).toContain('/__browser_metro_shims__/react-native.js');
+        expect(appCode).not.toContain('https://esm.sh/react-native-web?bundle');
+        expect(shimCode).toContain('OnlookBrowserMetroSwitch');
+        expect(shimCode).toContain("role: 'switch'");
+        expect(shimCode).toContain('onValueChange(nextValue)');
+        expect(shimCode).toContain('https://esm.sh/react-native-web?bundle');
+        expect(result.iife).toContain('https://esm.sh/react-native-web?bundle');
+        metro.dispose();
+    });
+
     it('picks the entry from a list of candidates', async () => {
         const metro = new BrowserMetro({
             vfs: makeFakeVfs({
@@ -157,6 +210,179 @@ describe('BrowserMetro', () => {
         expect(() => JSON.parse(second.importmap)).not.toThrow();
         expect(Array.isArray(second.bareImports)).toBe(true);
 
+        metro.dispose();
+    });
+
+    // ------------------------------------------------------------------
+    // MC4.13 — jsx-source wiring for onlook-client target
+    // ------------------------------------------------------------------
+
+    it('onlook-client target injects __source metadata into JSX in dev mode (MC4.13)', async () => {
+        const metro = new BrowserMetro({
+            vfs: makeFakeVfs({
+                'App.tsx': "export default function App() { return <div>hi</div>; }",
+            }),
+            esmUrl: 'https://esm.sh',
+            target: 'onlook-client',
+            isDev: true,
+        });
+        const result = await metro.bundle();
+        const code = result.modules['App.tsx']?.code ?? '';
+        // __source metadata should be present
+        expect(code).toContain('__source');
+        expect(code).toContain('fileName');
+        expect(code).toContain('lineNumber');
+        expect(code).toContain('columnNumber');
+        // Classic runtime: React.createElement, not jsx()
+        expect(code).toContain('React.createElement');
+        // JSX should be transformed (no raw angle brackets)
+        expect(code).not.toContain('<div>');
+        metro.dispose();
+    });
+
+    it('onlook-client target with isDev=false does NOT inject __source (MC4.13)', async () => {
+        const metro = new BrowserMetro({
+            vfs: makeFakeVfs({
+                'App.tsx': "export default function App() { return <div>hi</div>; }",
+            }),
+            esmUrl: 'https://esm.sh',
+            target: 'onlook-client',
+            isDev: false,
+        });
+        const result = await metro.bundle();
+        const code = result.modules['App.tsx']?.code ?? '';
+        // No __source in production mode
+        expect(code).not.toContain('__source');
+        // JSX should still be transformed
+        expect(code).not.toContain('<div>');
+        metro.dispose();
+    });
+
+    it('expo-go target does NOT inject __source even in dev mode (MC4.13)', async () => {
+        const metro = new BrowserMetro({
+            vfs: makeFakeVfs({
+                'App.tsx': "export default function App() { return <div>hi</div>; }",
+            }),
+            esmUrl: 'https://esm.sh',
+            target: 'expo-go',
+            isDev: true,
+        });
+        const result = await metro.bundle();
+        const code = result.modules['App.tsx']?.code ?? '';
+        // expo-go target should NOT have __source
+        expect(code).not.toContain('__source');
+        // Uses automatic runtime (jsx/jsxDEV), not classic
+        expect(code).not.toContain('React.createElement');
+        metro.dispose();
+    });
+
+    it('default target (no option) behaves like expo-go (MC4.13)', async () => {
+        const metro = new BrowserMetro({
+            vfs: makeFakeVfs({
+                'App.tsx': "export default function App() { return <div>hi</div>; }",
+            }),
+            esmUrl: 'https://esm.sh',
+        });
+        const result = await metro.bundle();
+        const code = result.modules['App.tsx']?.code ?? '';
+        // Default should NOT inject __source
+        expect(code).not.toContain('__source');
+        metro.dispose();
+    });
+
+    it('onlook-client target preserves bare import rewriting (MC4.13)', async () => {
+        const metro = new BrowserMetro({
+            vfs: makeFakeVfs({
+                'App.tsx': `
+                    import React from 'react';
+                    export default function App() { return <div>hi</div>; }
+                `,
+            }),
+            esmUrl: 'https://esm.sh',
+            target: 'onlook-client',
+            isDev: true,
+        });
+        const result = await metro.bundle();
+        // Bare import 'react' should still be collected
+        expect(result.bareImports).toContain('react');
+        // Module code should have __source
+        const code = result.modules['App.tsx']?.code ?? '';
+        expect(code).toContain('__source');
+        metro.dispose();
+    });
+
+    it('onlook-client target produces valid IIFE with __source (MC4.13)', async () => {
+        const metro = new BrowserMetro({
+            vfs: makeFakeVfs({
+                'App.tsx': `
+                    export default function App() {
+                        return <div><span>hello</span></div>;
+                    }
+                `,
+            }),
+            esmUrl: 'https://esm.sh',
+            target: 'onlook-client',
+            isDev: true,
+        });
+        const result = await metro.bundle();
+        // IIFE should contain __source metadata
+        expect(result.iife).toContain('__source');
+        // IIFE wrapper should still be self-contained
+        expect(result.iife.startsWith(';(async function(')).toBe(true);
+        expect(result.iife).toContain('__modules');
+        metro.dispose();
+    });
+
+    // ------------------------------------------------------------------
+    // MC6.4 — React version guard wired into bundle()
+    // ------------------------------------------------------------------
+
+    it('bundle(projectDependencies) with matching React + reconciler succeeds (MC6.4)', async () => {
+        const metro = new BrowserMetro({
+            vfs: makeFakeVfs({
+                'App.tsx': 'export default function App() { return null; }',
+            }),
+            esmUrl: 'https://esm.sh',
+        });
+        const result = await metro.bundle({
+            projectDependencies: {
+                react: '19.1.0',
+                'react-reconciler': '0.32.0',
+            },
+        });
+        expect(result.entry).toBe('App.tsx');
+        metro.dispose();
+    });
+
+    it('bundle(projectDependencies) with wrong React version throws BundleError (MC6.4)', async () => {
+        const metro = new BrowserMetro({
+            vfs: makeFakeVfs({
+                'App.tsx': 'export default function App() { return null; }',
+            }),
+            esmUrl: 'https://esm.sh',
+        });
+        await expect(
+            metro.bundle({
+                projectDependencies: {
+                    react: '18.2.0',
+                    'react-reconciler': '0.32.0',
+                },
+            }),
+        ).rejects.toThrow(/React version guard failed/);
+        metro.dispose();
+    });
+
+    it('bundle() without projectDependencies skips the guard (back-compat, MC6.4)', async () => {
+        const metro = new BrowserMetro({
+            vfs: makeFakeVfs({
+                'App.tsx': 'export default function App() { return null; }',
+            }),
+            esmUrl: 'https://esm.sh',
+        });
+        // No projectDependencies option — should succeed regardless of what
+        // the surrounding project's package.json says.
+        const result = await metro.bundle();
+        expect(result.entry).toBe('App.tsx');
         metro.dispose();
     });
 

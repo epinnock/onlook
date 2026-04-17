@@ -3,21 +3,40 @@
  * for Docker builds.
  */
 import { NextConfig } from 'next';
+import fs from 'node:fs';
 import createNextIntlPlugin from 'next-intl/plugin';
 import path from 'node:path';
 import './src/env';
 
+function resolveWorkspaceRoot(startDir: string) {
+    let currentDir = startDir;
+
+    while (true) {
+        if (fs.existsSync(path.join(currentDir, 'node_modules/next/package.json'))) {
+            return currentDir;
+        }
+
+        const parentDir = path.dirname(currentDir);
+        if (parentDir === currentDir) {
+            return startDir;
+        }
+
+        currentDir = parentDir;
+    }
+}
+
+const workspaceRoot = resolveWorkspaceRoot(__dirname);
+
 const nextConfig: NextConfig = {
     devIndicators: false,
     ...(process.env.STANDALONE_BUILD === 'true' && { output: 'standalone' }),
-    eslint: {
-        // Don't run ESLint during builds - handle it separately in CI
-        ignoreDuringBuilds: true,
+    turbopack: {
+        root: workspaceRoot,
     },
 };
 
 if (process.env.NODE_ENV === 'development') {
-    nextConfig.outputFileTracingRoot = path.join(__dirname, '../../..');
+    nextConfig.outputFileTracingRoot = workspaceRoot;
 }
 
 const withNextIntl = createNextIntlPlugin({
