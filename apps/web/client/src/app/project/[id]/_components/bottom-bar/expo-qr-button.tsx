@@ -99,12 +99,25 @@ export const ExpoQrButton = observer(() => {
                     <button
                         ref={buttonRef}
                         onClick={() => setShowQr(!showQr)}
-                        className="h-9 w-9 flex items-center justify-center hover:text-foreground-hover text-foreground-tertiary hover:bg-accent/50 rounded-md border border-transparent"
+                        className="relative h-9 w-9 flex items-center justify-center hover:text-foreground-hover text-foreground-tertiary hover:bg-accent/50 rounded-md border border-transparent"
                     >
                         <Icons.Smartphone className="w-4 h-4" />
+                        {preview.clientCount > 0 && (
+                            <span
+                                data-testid="expo-qr-device-count"
+                                className="absolute -top-0.5 -right-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-semibold leading-none text-white"
+                                aria-label={`${preview.clientCount} device${preview.clientCount === 1 ? '' : 's'} connected`}
+                            >
+                                {preview.clientCount}
+                            </span>
+                        )}
                     </button>
                 </TooltipTrigger>
-                <TooltipContent sideOffset={5} hideArrow>Preview on Device</TooltipContent>
+                <TooltipContent sideOffset={5} hideArrow>
+                    {preview.clientCount > 0
+                        ? `Preview on Device · ${preview.clientCount} connected`
+                        : 'Preview on Device'}
+                </TooltipContent>
             </Tooltip>
 
             {showQr && createPortal(
@@ -164,6 +177,18 @@ export const ExpoQrButton = observer(() => {
                                     : 'Scan to open web preview on your phone'
                                 }
                             </p>
+
+                            <div className="flex items-center justify-center gap-2 text-xs">
+                                <span
+                                    className={`inline-block h-2 w-2 rounded-full ${preview.clientCount > 0 ? 'bg-emerald-400' : 'bg-foreground-tertiary/40'}`}
+                                    aria-hidden="true"
+                                />
+                                <span className="text-foreground-secondary">
+                                    {preview.clientCount === 0
+                                        ? 'No devices connected yet'
+                                        : `${preview.clientCount} device${preview.clientCount === 1 ? '' : 's'} connected`}
+                                </span>
+                            </div>
 
                             {manifestUrl && (
                                 <button

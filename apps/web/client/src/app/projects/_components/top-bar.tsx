@@ -2,6 +2,7 @@
 
 import { useAuthContext } from '@/app/auth/auth-context';
 import { CurrentUserAvatar } from '@/components/ui/avatar-dropdown';
+import { useUserFeatureFlags } from '@/hooks/use-user-feature-flags';
 import { transKeys } from '@/i18n/keys';
 import { isProviderEnabled } from '@/lib/feature-flags';
 import { api } from '@/trpc/react';
@@ -49,9 +50,13 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
     const { mutateAsync: forkSandbox } = api.sandbox.fork.useMutation();
     const { mutateAsync: createFromGitHub } = api.sandbox.createFromGitHub.useMutation();
     const { mutateAsync: createLocalSandbox } = api.sandbox.createLocal.useMutation();
+    const { mutateAsync: createExpoBrowserSandbox } = api.sandbox.createExpoBrowser.useMutation();
     const { mutateAsync: createCfSandbox } = api.cfSandbox.create.useMutation();
     const { mutateAsync: createProject } = api.project.create.useMutation();
     const { setIsAuthModalOpen } = useAuthContext();
+
+    const userFeatureFlags = useUserFeatureFlags();
+    const useExpoBrowserPreview = userFeatureFlags.isEnabled('useExpoBrowserPreview');
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -127,6 +132,43 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
 
         setIsCreatingProject(true);
         try {
+            // When the user has the browser-preview flag on, Expo projects skip
+            // the local `npx create-expo-app` scaffold entirely. Files are
+            // seeded directly into Supabase Storage by project.create, which
+            // is what the ExpoBrowserProvider reads from. See sandbox.ts
+            // `createExpoBrowser` and project.ts `create`.
+            if (template === 'expo' && useExpoBrowserPreview) {
+                toast.info('Creating Expo project (browser preview)...', {
+                    description: 'Seeding the default template — usually instant.',
+                });
+                const { sandboxId, previewUrl } = await createExpoBrowserSandbox({
+                    name: 'New Project',
+                });
+                // previewUrl is a path (`/preview/<sandboxId>`) — absolutize
+                // against the current origin so editor callers that do
+                // `new URL(frame.url)` don't throw.
+                const absolutePreviewUrl = new URL(
+                    previewUrl,
+                    window.location.origin,
+                ).toString();
+                const newProject = await createProject({
+                    project: {
+                        name: 'New Project',
+                        description: 'Expo / React Native (browser preview)',
+                        tags: ['expo', 'browser-preview'],
+                    },
+                    sandboxId,
+                    sandboxUrl: absolutePreviewUrl,
+                    userId: user.id,
+                    providerType: 'expo_browser',
+                    seedTemplate: 'expo_blank',
+                });
+                if (newProject) {
+                    router.push(`${Routes.PROJECT}/${newProject.id}`);
+                }
+                return;
+            }
+
             toast.info(`Scaffolding ${template === 'expo' ? 'Expo' : 'Next.js'} project locally...`, {
                 description: 'This may take a minute',
             });
@@ -169,6 +211,42 @@ export const TopBar = ({ searchQuery, onSearchChange }: TopBarProps) => {
 
         setIsCreatingProject(true);
         try {
+            // With the browser-preview flag on, skip the CSB GitHub clone and
+            // seed the default template directly into Supabase Storage. Same
+            // code path as the local Expo button — the file tree shows up as
+            // soon as the editor opens.
+            if (useExpoBrowserPreview) {
+                toast.info('Creating Expo project (browser preview)...', {
+                    description: 'Seeding the default template — usually instant.',
+                });
+                const { sandboxId, previewUrl } = await createExpoBrowserSandbox({
+                    name: 'New Project',
+                });
+                // previewUrl is a path (`/preview/<sandboxId>`) — absolutize
+                // against the current origin so editor callers that do
+                // `new URL(frame.url)` don't throw.
+                const absolutePreviewUrl = new URL(
+                    previewUrl,
+                    window.location.origin,
+                ).toString();
+                const newProject = await createProject({
+                    project: {
+                        name: 'New Project',
+                        description: 'Expo / React Native (browser preview)',
+                        tags: ['expo', 'browser-preview'],
+                    },
+                    sandboxId,
+                    sandboxUrl: absolutePreviewUrl,
+                    userId: user.id,
+                    providerType: 'expo_browser',
+                    seedTemplate: 'expo_blank',
+                });
+                if (newProject) {
+                    router.push(`${Routes.PROJECT}/${newProject.id}`);
+                }
+                return;
+            }
+
             toast.info('Creating Expo project...', {
                 description: 'Cloning template from GitHub. This may take a minute.',
             });

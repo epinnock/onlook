@@ -45,6 +45,13 @@ export interface UseMobilePreviewStatusOptions {
 export interface UseMobilePreviewStatusResult {
     status: QrModalStatus;
     isOpen: boolean;
+    /**
+     * Number of devices currently connected to the mobile-preview WebSocket.
+     * Polled while `serverBaseUrl` is configured — visible outside the QR
+     * modal so the editor can show "N connected" on the preview button.
+     * 0 when the poll hasn't completed a round yet or the server is down.
+     */
+    clientCount: number;
     open: () => Promise<void>;
     close: () => void;
     retry: () => Promise<void>;
@@ -61,6 +68,7 @@ export function useMobilePreviewStatus(
 ): UseMobilePreviewStatusResult {
     const [status, setStatus] = useState<QrModalStatus>({ kind: 'idle' });
     const [isOpen, setIsOpen] = useState(false);
+    const [clientCount, setClientCount] = useState(0);
     const didPushRef = useRef(false);
 
     const open = useCallback(async () => {
@@ -92,6 +100,7 @@ export function useMobilePreviewStatus(
                 return;
             }
             const body = (await res.json()) as MobilePreviewStatusResponse;
+            setClientCount(body.clients ?? 0);
             if (!body.manifestUrl) {
                 setStatus({
                     kind: 'error',
@@ -121,6 +130,45 @@ export function useMobilePreviewStatus(
     const retry = useCallback(async () => {
         await open();
     }, [open]);
+
+    // Poll /status for the live connected-device count. Runs whenever a
+    // preview server URL is configured — independent of the QR modal
+    // open/close state — so the editor can show "N connected" on the
+    // phone icon / top-bar button even with the modal closed.
+    useEffect(() => {
+        const baseUrl = opts.serverBaseUrl?.trim();
+        if (!baseUrl) {
+            setClientCount(0);
+            return;
+        }
+
+        let cancelled = false;
+        const statusUrl = `${baseUrl.replace(/\/$/, '')}/status`;
+
+        const tick = async () => {
+            try {
+                const res = await fetch(statusUrl, {
+                    method: 'GET',
+                    cache: 'no-store',
+                });
+                if (cancelled || !res.ok) return;
+                const body = (await res.json()) as MobilePreviewStatusResponse;
+                if (cancelled) return;
+                setClientCount(body.clients ?? 0);
+            } catch {
+                // Transient network errors are expected (dev server cycling);
+                // leave the last-known count in place rather than flapping
+                // to 0.
+            }
+        };
+
+        void tick();
+        const interval = setInterval(tick, 4000);
+        return () => {
+            cancelled = true;
+            clearInterval(interval);
+        };
+    }, [opts.serverBaseUrl]);
 
     useEffect(() => {
         const baseUrl = opts.serverBaseUrl?.trim();
@@ -208,12 +256,25 @@ export function useMobilePreviewStatus(
         // watchDirectory signal fires during initial hydration but misses
         // some subsequent writes (e.g. inline code edits), which is why
         // auto-push previously stopped working after the first render.
-        const stopWatching = fileSystem.watchDirectory('/', (event) => {
-            if (!shouldSyncMobilePreviewPath(event.path)) {
-                return;
-            }
-            schedulePush();
-        });
+        //
+        // The hook runs during the canvas render, which races CodeFileSystem
+        // initialization. watchDirectory throws "File system not initialized"
+        // if we call it before the fs has hydrated; swallow that and fall
+        // through to the BroadcastChannel path so the editor keeps rendering.
+        let stopWatching: (() => void) | null = null;
+        try {
+            stopWatching = fileSystem.watchDirectory('/', (event) => {
+                if (!shouldSyncMobilePreviewPath(event.path)) {
+                    return;
+                }
+                schedulePush();
+            });
+        } catch (err) {
+            console.warn(
+                '[mobile-preview] fileSystem.watchDirectory unavailable (fs not ready); falling back to BroadcastChannel only.',
+                err,
+            );
+        }
 
         let bundleChannel: BroadcastChannel | null = null;
         if (typeof BroadcastChannel !== 'undefined') {
@@ -239,7 +300,7 @@ export function useMobilePreviewStatus(
             if (pushTimer) {
                 clearTimeout(pushTimer);
             }
-            stopWatching();
+            stopWatching?.();
             bundleChannel?.close();
         };
         // `isOpen` is intentionally read inside the effect (for the
@@ -248,5 +309,5 @@ export function useMobilePreviewStatus(
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [opts.fileSystem, opts.serverBaseUrl]);
 
-    return { status, isOpen, open, close, retry };
+    return { status, isOpen, clientCount, open, close, retry };
 }

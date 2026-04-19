@@ -1,8 +1,10 @@
 import { env } from '@/env';
 import { createTRPCRouter, protectedProcedure } from '@/server/api/trpc';
 import { trackEvent } from '@/utils/analytics/server';
+import { createAdminClient } from '@/utils/supabase/admin';
 import FirecrawlApp from '@mendable/firecrawl-js';
 import { initModel } from '@onlook/ai';
+import { seedExpoBrowserStorage } from '@onlook/code-provider';
 import { getSandboxPreviewUrl, STORAGE_BUCKETS } from '@onlook/constants';
 import {
     branches,
@@ -242,6 +244,10 @@ export const projectRouter = createTRPCRouter({
             userId: z.string(),
             sandboxId: z.string(),
             sandboxUrl: z.string(),
+            providerType: z
+                .enum(['code_sandbox', 'cloudflare', 'node_fs', 'expo_browser'])
+                .optional(),
+            seedTemplate: z.enum(['expo_blank']).optional(),
             creationData: projectCreateRequestInsertSchema
                 .omit({
                     projectId: true,
@@ -249,7 +255,7 @@ export const projectRouter = createTRPCRouter({
                 .optional(),
         }))
         .mutation(async ({ ctx, input }) => {
-            return await ctx.db.transaction(async (tx) => {
+            const created = await ctx.db.transaction(async (tx) => {
                 // 1. Insert the new project
                 const [newProject] = await tx.insert(projects).values(input.project).returning();
                 if (!newProject) {
@@ -260,6 +266,9 @@ export const projectRouter = createTRPCRouter({
                 const newBranch = createDefaultBranch({
                     projectId: newProject.id,
                     sandboxId: input.sandboxId,
+                    overrides: input.providerType
+                        ? { providerType: input.providerType }
+                        : undefined,
                 });
                 await tx.insert(branches).values(newBranch);
 
@@ -309,8 +318,33 @@ export const projectRouter = createTRPCRouter({
                         projectId: newProject.id,
                     },
                 });
-                return newProject;
+                return { project: newProject, branchId: newBranch.id };
             });
+
+            // Post-commit: seed Supabase Storage for ExpoBrowser projects so
+            // the editor has a usable file tree on first open. Best-effort —
+            // surfaced as a TRPCError only if the project truly can't be opened
+            // without it, which currently isn't the case (the editor would
+            // just show an empty tree and the user can re-seed via a retry
+            // button in a future Wave).
+            if (input.providerType === 'expo_browser' && input.seedTemplate) {
+                try {
+                    await seedExpoBrowserStorage({
+                        projectId: created.project.id,
+                        branchId: created.branchId,
+                        client: createAdminClient(),
+                        bucket: STORAGE_BUCKETS.EXPO_PROJECTS,
+                        template: input.seedTemplate,
+                    });
+                } catch (error) {
+                    console.error(
+                        `[project.create] seedExpoBrowserStorage failed for project ${created.project.id}:`,
+                        error,
+                    );
+                }
+            }
+
+            return created.project;
         }),
     fork,
     generateName: protectedProcedure

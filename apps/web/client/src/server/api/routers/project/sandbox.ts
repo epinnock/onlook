@@ -8,6 +8,7 @@ import {
 } from '@onlook/code-provider';
 import { getSandboxPreviewUrl, SandboxTemplates, Templates } from '@onlook/constants';
 import { shortenUuid } from '@onlook/utility/src/id';
+import { v4 as uuidv4 } from 'uuid';
 
 import { createTRPCRouter, protectedProcedure } from '../../trpc';
 
@@ -52,9 +53,12 @@ export const sandboxRouter = createTRPCRouter({
             const path = await import('node:path');
             const { execSync } = await import('node:child_process');
 
-            const projectId = `${input.name || input.template}-${Date.now()}`;
+            const rawName = input.name || input.template;
+            const safeName = rawName.replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || input.template;
+            const projectId = `${safeName}-${Date.now()}`;
             const projectsDir = path.join(os.homedir(), '.scry', 'projects');
             const projectDir = path.join(projectsDir, projectId);
+            const quote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
 
             await fs.mkdir(projectDir, { recursive: true });
 
@@ -63,7 +67,7 @@ export const sandboxRouter = createTRPCRouter({
             try {
                 if (input.template === 'expo') {
                     execSync(
-                        `npx create-expo-app@latest ${projectDir} --template blank --no-install`,
+                        `npx create-expo-app@latest ${quote(projectDir)} --template blank --no-install`,
                         { encoding: 'utf-8', timeout: 60000, stdio: 'pipe' },
                     );
                     // Install dependencies
@@ -75,7 +79,7 @@ export const sandboxRouter = createTRPCRouter({
                     });
                 } else {
                     execSync(
-                        `npx create-next-app@latest ${projectDir} --ts --tailwind --eslint --app --src-dir --no-import-alias --no-turbopack --use-npm`,
+                        `npx create-next-app@latest ${quote(projectDir)} --ts --tailwind --eslint --app --src-dir --no-import-alias --no-turbopack --use-npm`,
                         { encoding: 'utf-8', timeout: 120000, stdio: 'pipe' },
                     );
                 }
@@ -94,6 +98,32 @@ export const sandboxRouter = createTRPCRouter({
             };
         }),
 
+    /**
+     * Allocate a placeholder sandbox identifier for an ExpoBrowser-backed
+     * project. No actual resource is created — files live in Supabase Storage
+     * at `expo-projects/{projectId}/{branchId}/...` and the seeding happens
+     * inside `project.create` once the branchId is known. This mutation just
+     * hands the UI a stable sandboxId + previewUrl to pass through.
+     */
+    createExpoBrowser: protectedProcedure
+        .input(
+            z.object({
+                name: z.string().optional(),
+            }),
+        )
+        .mutation(async ({ input }) => {
+            const sandboxId = `expo-browser-${uuidv4()}`;
+            // The ExpoBrowser preview URL is served by the Next.js app itself at
+            // `/preview/{branchId}` — we don't know the branchId yet, so return
+            // a placeholder. The canvas will be updated with the real URL once
+            // project.create runs and the branch frame is wired.
+            const previewUrl = `/preview/${sandboxId}`;
+            return {
+                sandboxId,
+                previewUrl,
+                name: input.name ?? 'New Project',
+            };
+        }),
     create: protectedProcedure
         .input(
             z.object({

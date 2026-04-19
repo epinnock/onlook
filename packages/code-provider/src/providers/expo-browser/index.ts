@@ -74,10 +74,32 @@ import {
 } from '../../types';
 import { BrowserTask, type BrowserTaskHost } from './utils/browser-task';
 import { intercept, type InterceptorContext } from './utils/run-command';
+import {
+    seedExpoBrowserStorage,
+    type SeedExpoBrowserStorageOptions,
+    type SeedExpoBrowserStorageResult,
+} from './utils/seed';
 import { SupabaseStorageAdapter, type StorageAdapter } from './utils/storage';
+import {
+    EXPO_BROWSER_TEMPLATES,
+    expoBlankTemplate,
+    type ExpoBrowserTemplateFile,
+    type ExpoBrowserTemplateId,
+} from './templates/expo-blank';
 import type { ExpoBrowserProviderOptions } from './types';
 
 export type { ExpoBrowserProviderOptions } from './types';
+export {
+    EXPO_BROWSER_TEMPLATES,
+    expoBlankTemplate,
+    seedExpoBrowserStorage,
+};
+export type {
+    ExpoBrowserTemplateFile,
+    ExpoBrowserTemplateId,
+    SeedExpoBrowserStorageOptions,
+    SeedExpoBrowserStorageResult,
+};
 
 /**
  * Sentinel error message returned by runCommand when the active branch's
