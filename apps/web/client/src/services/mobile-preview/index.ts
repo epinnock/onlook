@@ -374,18 +374,72 @@ const __PASSTHROUGH_VIEW = (props) => {
   const { children, onPress, onPressIn, onPressOut, onLongPress, activeOpacity, underlayColor, ...rest } = props || {};
   return React.createElement(globalThis.View, rest, children);
 };
+// FlatList / SectionList passthrough: render the data via the user-supplied
+// renderItem inside a View. This skips virtualization entirely — fine for
+// preview since lists tend to be small and the whole tree is eval'd anew on
+// every edit.
+const __LIST_VIEW = (props) => {
+  const { data, renderItem, keyExtractor, ListHeaderComponent, ListFooterComponent, ListEmptyComponent, ...rest } = props || {};
+  const items = Array.isArray(data) ? data : [];
+  const rendered = items.map((item, index) => {
+    const node = typeof renderItem === 'function' ? renderItem({ item, index, separators: { highlight() {}, unhighlight() {}, updateProps() {} } }) : null;
+    if (node == null) return null;
+    const key = typeof keyExtractor === 'function' ? keyExtractor(item, index) : (node.key ?? String(index));
+    return React.cloneElement(node, { key });
+  });
+  const header = typeof ListHeaderComponent === 'function' ? React.createElement(ListHeaderComponent, null) : ListHeaderComponent ?? null;
+  const footer = typeof ListFooterComponent === 'function' ? React.createElement(ListFooterComponent, null) : ListFooterComponent ?? null;
+  const empty = items.length === 0
+    ? (typeof ListEmptyComponent === 'function' ? React.createElement(ListEmptyComponent, null) : ListEmptyComponent ?? null)
+    : null;
+  return React.createElement(globalThis.View, rest, header, empty, ...rendered, footer);
+};
 const __reactNative = {
   View: globalThis.View,
   Text: globalThis.TextC,
   TextInput: __PASSTHROUGH_VIEW,
   Image: __PASSTHROUGH_VIEW,
+  ImageBackground: __PASSTHROUGH_VIEW,
   ScrollView: __PASSTHROUGH_VIEW,
   SafeAreaView: __PASSTHROUGH_VIEW,
+  KeyboardAvoidingView: __PASSTHROUGH_VIEW,
+  Modal: __PASSTHROUGH_VIEW,
   Pressable: __PASSTHROUGH_VIEW,
   TouchableOpacity: __PASSTHROUGH_VIEW,
   TouchableHighlight: __PASSTHROUGH_VIEW,
   TouchableWithoutFeedback: __PASSTHROUGH_VIEW,
+  TouchableNativeFeedback: __PASSTHROUGH_VIEW,
+  FlatList: __LIST_VIEW,
+  SectionList: __LIST_VIEW,
+  VirtualizedList: __LIST_VIEW,
+  ActivityIndicator: () => null,
+  RefreshControl: () => null,
+  Switch: __PASSTHROUGH_VIEW,
+  Button: (props) => React.createElement(globalThis.TextC, null, props?.title ?? ''),
   StatusBar: () => null,
+  Keyboard: {
+    dismiss() {},
+    addListener() { return { remove() {} }; },
+    removeListener() {},
+    removeAllListeners() {},
+    scheduleLayoutAnimation() {},
+  },
+  LayoutAnimation: {
+    configureNext() {},
+    create() { return {}; },
+    Types: {}, Properties: {}, Presets: { easeInEaseOut: {}, linear: {}, spring: {} },
+  },
+  Linking: {
+    openURL() { return Promise.resolve(); },
+    canOpenURL() { return Promise.resolve(false); },
+    getInitialURL() { return Promise.resolve(null); },
+    addEventListener() { return { remove() {} }; },
+  },
+  Appearance: {
+    getColorScheme() { return 'light'; },
+    addChangeListener() { return { remove() {} }; },
+  },
+  useColorScheme() { return 'light'; },
   RawText: globalThis.RawText,
   Fragment: React.Fragment,
   StyleSheet: {
