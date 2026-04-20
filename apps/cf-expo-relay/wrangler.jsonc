@@ -14,6 +14,17 @@
             "id": "placeholder-bundles-kv-id"
         }
     ],
+    /**
+     * R2 bucket for the two-tier base bundle artifact set. This task only
+     * wires the binding stub; create the bucket out-of-band before deploy via:
+     *   wrangler r2 bucket create expo-base-bundles
+     */
+    "r2_buckets": [
+        {
+            "binding": "BASE_BUNDLES",
+            "bucket_name": "expo-base-bundles"
+        }
+    ],
     "durable_objects": {
         "bindings": [
             {
@@ -48,16 +59,23 @@
     "env": {
         "production": {
             /**
-             * Wrangler does NOT inherit `kv_namespaces`, `durable_objects`,
-             * or `migrations` into named environments, so we duplicate them
-             * here. `ESM_CACHE_URL` points at the deployed cf-esm-cache
-             * `workers.dev` domain; override per-env via `wrangler secret`
-             * / `wrangler deploy --var` if a custom domain is used.
+             * Wrangler does NOT inherit `kv_namespaces`, `r2_buckets`,
+             * `durable_objects`, or `migrations` into named environments,
+             * so we duplicate them here. `ESM_CACHE_URL` points at the
+             * deployed cf-esm-cache `workers.dev` domain; override per-env
+             * via `wrangler secret` / `wrangler deploy --var` if a custom
+             * domain is used.
              */
             "kv_namespaces": [
                 {
                     "binding": "BUNDLES",
                     "id": "placeholder-bundles-kv-id"
+                }
+            ],
+            "r2_buckets": [
+                {
+                    "binding": "BASE_BUNDLES",
+                    "bucket_name": "expo-base-bundles"
                 }
             ],
             "durable_objects": {
