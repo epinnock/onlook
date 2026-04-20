@@ -248,3 +248,37 @@ globalThis.RN$AppRegistry = {
 };
 
 _log('B13 shell ready');
+
+// ── Onlook Mobile Client mount bridge ─────────────────────────────────────
+// The native C++ `OnlookRuntime::runApplication(bundleSource, props)` looks
+// for `globalThis.onlookMount(props)` after eval. In Expo Go the bundle's
+// RN$AppRegistry.runApplication is triggered by RN's native bootstrap, but
+// on the mobile-client we're eval'ing this bundle on-demand inside an
+// already-running RN app, so nothing calls it. Define onlookMount here so
+// the mount-convention path in OnlookRuntime_runApplication.cpp fires.
+//
+// rootTag resolution: prefer props.rootTag (if the native side ever injects
+// one), fall back to globalThis.currentRootTag, then to 1 (RN's default
+// first Fabric surface on new-arch). Reconciler init on a tag that already
+// has a React tree attached will clobber the host app's LauncherScreen —
+// which is what the caller wants: render the preview on top.
+globalThis.onlookMount = function onlookMount(props) {
+  // debug: introspect fab + find active surface tags if possible
+  try {
+    var fabKeys = Object.keys(globalThis.nativeFabricUIManager || {});
+    _log("B13 fab keys: " + fabKeys.join(","));
+  } catch (e) { _log("B13 fab introspect err: " + e.message); }
+  var rootTag =
+    (props && typeof props.rootTag === 'number') ? props.rootTag
+    : (typeof globalThis.currentRootTag === 'number' && globalThis.currentRootTag) ? globalThis.currentRootTag
+    : 11;  // RN new-arch first-surface tag default
+  _log('B13 onlookMount invoked rootTag=' + rootTag + ' sessionId=' + (props && props.sessionId));
+  try {
+    globalThis.RN$AppRegistry.runApplication('OnlookApp', Object.assign({}, props || {}, { rootTag: rootTag }));
+    _log('B13 onlookMount: RN$AppRegistry.runApplication returned');
+  } catch (e) {
+    _log('B13 onlookMount ERROR: ' + (e && e.message));
+    if (e && e.stack) _log('B13 onlookMount stack: ' + e.stack.substring(0, 400));
+  }
+};
+_log('B13 onlookMount installed');
