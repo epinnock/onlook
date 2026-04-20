@@ -137,6 +137,23 @@ describe('HmrSession overlay fan-out', () => {
         expect(second.server.sent).toEqual([JSON.stringify(payload)]);
     });
 
+    test('replays the last valid overlay to late-joining sockets', async () => {
+        const session = makeSession();
+        const first = await openSocket(session);
+
+        const payload = {
+            type: 'overlay',
+            code: 'export const answer = 42;',
+            sourceMap: { version: 3 },
+        };
+
+        first.server.emit('message', JSON.stringify(payload));
+
+        const second = await openSocket(session);
+
+        expect(second.server.sent).toEqual([JSON.stringify(payload)]);
+    });
+
     test('ignores invalid JSON and non-overlay messages', async () => {
         const session = makeSession();
         const first = await openSocket(session);
@@ -147,6 +164,24 @@ describe('HmrSession overlay fan-out', () => {
 
         expect(first.server.sent).toEqual([]);
         expect(second.server.sent).toEqual([]);
+    });
+
+    test('keeps the last valid overlay when invalid messages arrive later', async () => {
+        const session = makeSession();
+        const first = await openSocket(session);
+
+        const payload = {
+            type: 'overlay',
+            code: 'export default "persisted";',
+        };
+
+        first.server.emit('message', JSON.stringify(payload));
+        first.server.emit('message', '{');
+        first.server.emit('message', JSON.stringify({ type: 'bundle', bundle: 'noop' }));
+
+        const lateJoiner = await openSocket(session);
+
+        expect(lateJoiner.server.sent).toEqual([JSON.stringify(payload)]);
     });
 
     test('drops closed sockets from later broadcasts', async () => {
