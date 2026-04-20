@@ -17,30 +17,12 @@
  * Each session id maps to a Durable Object instance via
  * `EXPO_SESSION.idFromName(sessionId)`.
  */
-import { handleManifest, type ServiceBinding } from './routes/manifest';
+import { handleManifest } from './routes/manifest';
+import type { Env } from './env';
 import { ExpoSession } from './session';
 
 export { ExpoSession };
-
-export interface Env {
-    BUNDLES: KVNamespace;
-    /**
-     * R2 bucket for two-tier base-bundle artifacts (Q0-22). Optional here so
-     * current unit tests and local stubs can keep constructing minimal Env
-     * objects until the concrete base-bundle handlers land.
-     */
-    BASE_BUNDLES?: R2Bucket;
-    EXPO_SESSION: DurableObjectNamespace<import('./session').ExpoSession>;
-    /**
-     * Service binding to cf-esm-cache (TQ1.3). Present in deployed
-     * environments; may be undefined in local `wrangler dev` if the sibling
-     * worker isn't running, in which case `handleManifest` falls back to a
-     * plain `fetch()` against `ESM_CACHE_URL`.
-     */
-    ESM_CACHE?: ServiceBinding;
-    /** Public cf-esm-cache origin, e.g. "https://cf-esm-cache.onlook.workers.dev". */
-    ESM_CACHE_URL: string;
-}
+export type { Env } from './env';
 
 interface ParsedSessionRoute {
     sessionId: string;
