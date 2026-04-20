@@ -111,10 +111,23 @@ Additional completed leaves merged on `feat/two-tier-bundle`:
 
 Known remaining implementation gates:
 
-- `QC-09`, `QC-12`, and `QC-13` still need to wire the new relay modules into HTTP dispatch.
-- Browser bundler still needs `QB-18` incremental rebuild and browser-bundler E2E specs.
-- Waves D/E/G/F remain downstream; simulator, physical-device, and 7-day dogfood gates cannot be completed in this automation pass.
+- `QC-09`, `QC-12`, and `QC-13` originally tracked wiring new relay modules into HTTP dispatch — **landed 2026-04-20** via the worker-side `POST /push/:sessionId` + `WS /hmr/:sessionId` routes and `HMR_SESSION` DO binding (see ADR `two-tier-validation-strategy.md`).
+- Browser bundler still needs `QB-18` incremental rebuild. Browser-bundler E2E specs **landed 2026-04-20** (`hello.spec.ts`, `tabs.spec.ts`, `preflight.spec.ts`, `chromium-harness.spec.ts`).
+- Waves D/E/G/F partially landed: editor E2Es (`edit-to-repaint`, `error-surfacing`, `expo-browser-unaffected`) and mobile-client OverlayDispatcher + `twoTierBootstrap` shipped 2026-04-20. Full simulator, physical-device, and 7-day dogfood gates remain gated on the native `OnlookRuntime.__onlookMountOverlay` JSI binding (Xcode 16.1 blocker, commit `d91f6df6`). Simulator specs (`sim-hello.spec.ts`, `sim-overlay-latency.spec.ts`) ship with TS-only proxy describes today and opt-in full-simulator describes behind `ONLOOK_SIM_RUNTIME_READY=1`.
+
+## Validation Snapshot (2026-04-20)
+
+- `apps/cf-expo-relay` — 102 bun-test cases across 10 files; typecheck clean.
+- `packages/browser-bundler` — 71 unit tests; typecheck clean.
+- `packages/base-bundle-builder` — 66 unit tests; typecheck clean.
+- `apps/mobile-client` — OverlayDispatcher + twoTierBootstrap + featureFlags + updated qrToMount + full-pipeline integration all green (24 cases under `flow/` + `relay/` + `__tests__/`).
+- `apps/web/client/e2e/workers-pipeline/` — 40 Playwright specs pass, 2 opt-in-skipped (sim-hello + sim-overlay-latency full-simulator describes), across 12 files:
+  - `base-bundle/smoke.spec.ts`
+  - `browser-bundler/{hello,tabs,preflight,chromium-harness}.spec.ts`
+  - `relay/{manifest-flow,fan-out}.spec.ts`
+  - `editor/{edit-to-repaint,error-surfacing,expo-browser-unaffected}.spec.ts`
+  - `client/{sim-hello,sim-overlay-latency}.spec.ts`
 
 ## Validation Notes
 
-Focused validations are run per task. The full `bun run typecheck` currently fails on existing baseline errors outside this queue. `bun install --frozen-lockfile` also fails after adding new workspace packages because `bun.lock` needs workspace metadata, but lockfile edits are intentionally deferred to the maintainer per repo instructions.
+Focused validations are run per task. The full `bun run typecheck` currently fails on existing baseline errors outside this queue (code-provider/sandbox typing, pre-existing Templates event handler regressions). `bun install --frozen-lockfile` also fails after adding new workspace packages because `bun.lock` needs workspace metadata; lockfile edits remain deferred to the maintainer per repo instructions. The `esbuild-wasm` dep for full in-Chromium bundling (task #30) is gated on the same lockfile unlock.
