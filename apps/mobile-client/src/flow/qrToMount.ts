@@ -81,7 +81,7 @@ export function __resetQrToMountState(): void {
  * pipeline stopped so the UI can route to the right error screen.
  */
 export type QrMountResult =
-    | { ok: true; sessionId: string }
+    | { ok: true; sessionId: string; relay: string }
     | { ok: false; stage: QrMountStage; error: string };
 
 const LOG_PREFIX = '[qrToMount]';
@@ -218,5 +218,5 @@ export async function qrToMount(barcodeData: string): Promise<QrMountResult> {
         console.warn(`${LOG_PREFIX} failed to persist recent session: ${message}`);
     }
 
-    return { ok: true, sessionId };
+    return { ok: true, sessionId, relay };
 }

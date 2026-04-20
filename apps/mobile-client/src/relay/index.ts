@@ -11,3 +11,6 @@ export { checkVersionCompatibility, useVersionCheck } from './versionCheck';
 export type { VersionCheckResult } from './versionCheck';
 
 export { LiveReloadDispatcher } from './liveReload';
+
+export { OverlayDispatcher, resolveHmrSessionUrl } from './overlayDispatcher';
+export type { OverlayDispatcherOptions, OverlayListener } from './overlayDispatcher';

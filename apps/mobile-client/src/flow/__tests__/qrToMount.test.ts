@@ -251,7 +251,7 @@ describe('qrToMount', () => {
 
         const result = await qrToMount(VALID_BARCODE);
 
-        expect(result).toEqual({ ok: true, sessionId: 'sess-42' });
+        expect(result).toEqual({ ok: true, sessionId: 'sess-42', relay: OK_PARSE.relay });
         expect(runApplication).toHaveBeenCalledTimes(1);
         // Bundle source + props must be forwarded verbatim.
         expect(runApplication.mock.calls[0]?.[0]).toBe(
@@ -289,7 +289,7 @@ describe('qrToMount', () => {
         const result = await qrToMount(VALID_BARCODE);
 
         // Mount succeeded — persistence failure is non-fatal and only warned.
-        expect(result).toEqual({ ok: true, sessionId: 'sess-42' });
+        expect(result).toEqual({ ok: true, sessionId: 'sess-42', relay: OK_PARSE.relay });
         expect(warnSpy).toHaveBeenCalled();
     });
 
@@ -317,8 +317,8 @@ describe('qrToMount', () => {
         const second = await qrToMount(VALID_BARCODE);
 
         // Both scans must succeed end-to-end.
-        expect(first).toEqual({ ok: true, sessionId: 'sess-42' });
-        expect(second).toEqual({ ok: true, sessionId: 'sess-42' });
+        expect(first).toEqual({ ok: true, sessionId: 'sess-42', relay: OK_PARSE.relay });
+        expect(second).toEqual({ ok: true, sessionId: 'sess-42', relay: OK_PARSE.relay });
 
         // Scan #1 mounts via runApplication exactly once.
         expect(runApplication).toHaveBeenCalledTimes(1);

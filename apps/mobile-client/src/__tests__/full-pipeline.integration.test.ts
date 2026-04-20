@@ -286,7 +286,7 @@ describe('full pipeline integration (MCI.1)', () => {
         const result = await qrToMount(barcode);
 
         // Parse + manifest + bundle + mount must all have succeeded.
-        expect(result).toEqual({ ok: true, sessionId: SESSION_ID });
+        expect(result).toEqual({ ok: true, sessionId: SESSION_ID, relay: MANIFEST_URL });
 
         // The runApplication JSI stub must have received the exact bundle bytes
         // fetched from the fake relay plus the parsed sessionId as props.
