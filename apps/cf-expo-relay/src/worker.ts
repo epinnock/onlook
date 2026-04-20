@@ -6,16 +6,18 @@
  * bundle over HTTP).
  *
  * Routes:
- *   GET /manifest/:bundleHash   -> handleManifest (TQ1.2, 64-hex only)
- *   ANY /base-bundle[/...]      -> 501 stub (Q0-23, route family reserved)
- *   ANY /base-bundles[/...]     -> 501 stub (Q0-23, route family reserved)
- *   GET /session/:id/manifest   -> forwarded to ExpoSession DO (legacy)
- *   GET /session/:id/bundle.js  -> forwarded to ExpoSession DO (legacy)
- *   WS  /session/:id            -> upgraded + forwarded to ExpoSession DO
+ *   GET  /manifest/:bundleHash   -> handleManifest (TQ1.2, 64-hex only)
+ *   ANY  /base-bundle[/...]      -> 501 stub (Q0-23, route family reserved)
+ *   ANY  /base-bundles[/...]     -> 501 stub (Q0-23, route family reserved)
+ *   WS   /hmr/:sessionId         -> upgraded + forwarded to HmrSession DO (two-tier overlay channel)
+ *   POST /push/:sessionId        -> forwarded to HmrSession DO as POST /push
+ *   GET  /session/:id/manifest   -> forwarded to ExpoSession DO (legacy)
+ *   GET  /session/:id/bundle.js  -> forwarded to ExpoSession DO (legacy)
+ *   WS   /session/:id            -> upgraded + forwarded to ExpoSession DO
  *   *                            -> 404 "expo-relay: unknown route"
  *
  * Each session id maps to a Durable Object instance via
- * `EXPO_SESSION.idFromName(sessionId)`.
+ * `EXPO_SESSION.idFromName(sessionId)` or `HMR_SESSION.idFromName(sessionId)`.
  */
 import { handleManifest } from './routes/manifest';
 import type { Env } from './env';
@@ -42,6 +44,16 @@ const MANIFEST_HASH_ROUTE = /^\/manifest\/([0-9a-f]{64})$/;
 const BASE_BUNDLE_ROUTE_PREFIXES = ['/base-bundle', '/base-bundles'] as const;
 const BASE_BUNDLE_STUB_BODY =
     'expo-relay: base-bundle routes are not implemented yet';
+
+/**
+ * Session ids for the two-tier overlay channel. Constrained to URL-safe
+ * characters so we can round-trip them through `idFromName` without
+ * surprises. The regex is tight on purpose — callers that need richer names
+ * should hash them before issuing the request.
+ */
+const HMR_SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/;
+const HMR_WS_ROUTE = /^\/hmr\/([^/]+)$/;
+const PUSH_ROUTE = /^\/push\/([^/]+)$/;
 
 function parseSessionRoute(pathname: string): ParsedSessionRoute | null {
     // Expected shapes:
@@ -76,6 +88,52 @@ function handleBaseBundleRouteStub(): Response {
     });
 }
 
+/**
+ * Cross-origin hosts the editor can POST overlays from. The production
+ * editor runs on a different origin to the relay, so /push must include
+ * CORS headers. Read from the ALLOWED_PUSH_ORIGINS env var (comma-separated
+ * list). If unset, reflect any origin — safe in dev, and the /push body is
+ * still validated by HmrSession before anything is broadcast.
+ */
+function corsHeadersFor(request: Request, env: Env): Record<string, string> {
+    const origin = request.headers.get('Origin');
+    if (!origin) {
+        return {};
+    }
+    const allowlist = env.ALLOWED_PUSH_ORIGINS;
+    const isAllowed = !allowlist
+        ? true
+        : allowlist.split(',').map((s) => s.trim()).filter(Boolean).includes(origin);
+    if (!isAllowed) {
+        return {};
+    }
+    return {
+        'Access-Control-Allow-Origin': origin,
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Max-Age': '600',
+        Vary: 'Origin',
+    };
+}
+
+function withCors(
+    response: Response,
+    headers: Record<string, string>,
+): Response {
+    if (Object.keys(headers).length === 0) {
+        return response;
+    }
+    const merged = new Headers(response.headers);
+    for (const [k, v] of Object.entries(headers)) {
+        merged.set(k, v);
+    }
+    return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: merged,
+    });
+}
+
 export default {
     async fetch(request: Request, env: Env): Promise<Response> {
         const url = new URL(request.url);
@@ -95,6 +153,60 @@ export default {
 
         if (isBaseBundleRoute(url.pathname)) {
             return handleBaseBundleRouteStub();
+        }
+
+        // Two-tier overlay channel. These routes require the HMR_SESSION DO
+        // binding; without it we return 503 so ops can tell misconfiguration
+        // apart from "unknown route".
+        const hmrUpgrade = request.headers.get('Upgrade');
+        const hmrWsMatch = url.pathname.match(HMR_WS_ROUTE);
+        if (hmrWsMatch && hmrUpgrade !== null && hmrUpgrade.toLowerCase() === 'websocket') {
+            const sessionId = hmrWsMatch[1];
+            if (!sessionId || !HMR_SESSION_ID.test(sessionId)) {
+                return new Response('expo-relay: invalid hmr session id', { status: 400 });
+            }
+            if (!env.HMR_SESSION) {
+                return new Response('expo-relay: HMR_SESSION binding missing', { status: 503 });
+            }
+            const id = env.HMR_SESSION.idFromName(sessionId);
+            const stub = env.HMR_SESSION.get(id);
+            const forwardUrl = new URL(request.url);
+            forwardUrl.pathname = '/';
+            return stub.fetch(new Request(forwardUrl.toString(), request));
+        }
+
+        // CORS preflight for /push/:sessionId — the editor runs on a
+        // different origin than the relay in production.
+        const pushMatchForCors = url.pathname.match(PUSH_ROUTE);
+        if (pushMatchForCors && request.method === 'OPTIONS') {
+            const cors = corsHeadersFor(request, env);
+            return new Response(null, { status: 204, headers: cors });
+        }
+
+        if (request.method === 'POST') {
+            const pushMatch = url.pathname.match(PUSH_ROUTE);
+            if (pushMatch) {
+                const sessionId = pushMatch[1];
+                const cors = corsHeadersFor(request, env);
+                if (!sessionId || !HMR_SESSION_ID.test(sessionId)) {
+                    return withCors(
+                        new Response('expo-relay: invalid push session id', { status: 400 }),
+                        cors,
+                    );
+                }
+                if (!env.HMR_SESSION) {
+                    return withCors(
+                        new Response('expo-relay: HMR_SESSION binding missing', { status: 503 }),
+                        cors,
+                    );
+                }
+                const id = env.HMR_SESSION.idFromName(sessionId);
+                const stub = env.HMR_SESSION.get(id);
+                const forwardUrl = new URL(request.url);
+                forwardUrl.pathname = '/push';
+                const doResponse = await stub.fetch(new Request(forwardUrl.toString(), request));
+                return withCors(doResponse, cors);
+            }
         }
 
         const route = parseSessionRoute(url.pathname);

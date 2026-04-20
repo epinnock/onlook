@@ -220,3 +220,173 @@ describe('HmrSession overlay fan-out', () => {
         expect(response.status).toBe(404);
     });
 });
+
+describe('HmrSession POST /push', () => {
+    test('accepts a valid overlay and broadcasts to all connected sockets', async () => {
+        const session = makeSession();
+        const first = await openSocket(session);
+        const second = await openSocket(session);
+
+        const payload = {
+            type: 'overlay',
+            code: 'console.log("pushed");',
+            sourceMap: { version: 3 },
+        };
+
+        const response = await session.fetch(
+            new Request('https://hmr-relay.dev.workers.dev/push', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            }),
+        );
+
+        expect(response.status).toBe(202);
+        const body = (await response.json()) as { delivered: number };
+        expect(body.delivered).toBe(2);
+        // Unlike the WS-sourced broadcast (which excludes the sender socket),
+        // HTTP push has no sender socket — every connected listener gets it.
+        expect(first.server.sent).toEqual([JSON.stringify(payload)]);
+        expect(second.server.sent).toEqual([JSON.stringify(payload)]);
+    });
+
+    test('persists the pushed overlay so late-joining sockets receive a replay', async () => {
+        const session = makeSession();
+
+        const payload = {
+            type: 'overlay',
+            code: 'export const pushed = true;',
+        };
+
+        const pushResponse = await session.fetch(
+            new Request('https://hmr-relay.dev.workers.dev/push', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            }),
+        );
+        expect(pushResponse.status).toBe(202);
+
+        const lateJoiner = await openSocket(session);
+        expect(lateJoiner.server.sent).toEqual([JSON.stringify(payload)]);
+    });
+
+    test('rejects malformed JSON with 400', async () => {
+        const response = await makeSession().fetch(
+            new Request('https://hmr-relay.dev.workers.dev/push', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: '{',
+            }),
+        );
+        expect(response.status).toBe(400);
+    });
+
+    test('rejects non-overlay JSON with 400', async () => {
+        const response = await makeSession().fetch(
+            new Request('https://hmr-relay.dev.workers.dev/push', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: 'bundle', bundle: 'noop' }),
+            }),
+        );
+        expect(response.status).toBe(400);
+    });
+
+    test('rejects non-JSON Content-Type with 415', async () => {
+        const response = await makeSession().fetch(
+            new Request('https://hmr-relay.dev.workers.dev/push', {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain' },
+                body: 'not json',
+            }),
+        );
+        expect(response.status).toBe(415);
+    });
+
+    test('rejects missing Content-Type with 415', async () => {
+        const response = await makeSession().fetch(
+            new Request('https://hmr-relay.dev.workers.dev/push', {
+                method: 'POST',
+                body: '{}',
+            }),
+        );
+        expect(response.status).toBe(415);
+    });
+
+    test('rejects bodies larger than 2 MiB with 413', async () => {
+        const tooLarge = 'x'.repeat(2 * 1024 * 1024 + 1);
+        const response = await makeSession().fetch(
+            new Request('https://hmr-relay.dev.workers.dev/push', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: 'overlay', code: tooLarge }),
+            }),
+        );
+        expect(response.status).toBe(413);
+    });
+
+    test('rejects declared Content-Length larger than 2 MiB with 413 before reading body', async () => {
+        const response = await makeSession().fetch(
+            new Request('https://hmr-relay.dev.workers.dev/push', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Content-Length': String(2 * 1024 * 1024 + 1),
+                },
+                body: '{}',
+            }),
+        );
+        expect(response.status).toBe(413);
+    });
+});
+
+describe('HmrSession durable storage persistence', () => {
+    test('saveLastOverlayPayload writes to DurableObjectStorage so a fresh DO recovers it', async () => {
+        const storage = new Map<string, unknown>();
+        const storagePuts: Array<[string, unknown]> = [];
+        const fakeStorage = {
+            async get(key: string): Promise<unknown> {
+                return storage.get(key) ?? null;
+            },
+            async put(key: string, value: unknown): Promise<void> {
+                storagePuts.push([key, value]);
+                storage.set(key, value);
+            },
+        };
+        const state = {
+            id: { name: 'hmr-sess-storage', toString: () => 'hmr-sess-storage' } as DurableObjectId,
+            storage: fakeStorage,
+        } as unknown as DurableObjectState;
+
+        const firstInstance = new HmrSession(state, {});
+
+        const payload = {
+            type: 'overlay',
+            code: 'export const persisted = true;',
+        };
+
+        const pushResp = await firstInstance.fetch(
+            new Request('https://hmr-relay.dev.workers.dev/push', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            }),
+        );
+        expect(pushResp.status).toBe(202);
+
+        // Let the async storage.put settle (fire-and-forget path in prod).
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(storagePuts).toHaveLength(1);
+        expect(storagePuts[0]![0]).toBe('last-overlay');
+        expect(JSON.parse(storagePuts[0]![1] as string)).toEqual(payload);
+
+        // Fresh DO instance — simulates the post-eviction reload path where
+        // the in-memory `lastOverlayPayload` is undefined but storage.get
+        // should surface the previously persisted payload to the late joiner.
+        const freshInstance = new HmrSession(state, {});
+        const pair = await openSocket(freshInstance);
+        expect(pair.server.sent).toEqual([JSON.stringify(payload)]);
+    });
+});

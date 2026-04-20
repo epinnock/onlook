@@ -30,6 +30,10 @@
             {
                 "name": "EXPO_SESSION",
                 "class_name": "ExpoSession"
+            },
+            {
+                "name": "HMR_SESSION",
+                "class_name": "HmrSession"
             }
         ]
     },
@@ -37,6 +41,10 @@
         {
             "tag": "v1",
             "new_sqlite_classes": ["ExpoSession"]
+        },
+        {
+            "tag": "v2",
+            "new_sqlite_classes": ["HmrSession"]
         }
     ],
     /**
@@ -83,6 +91,10 @@
                     {
                         "name": "EXPO_SESSION",
                         "class_name": "ExpoSession"
+                    },
+                    {
+                        "name": "HMR_SESSION",
+                        "class_name": "HmrSession"
                     }
                 ]
             },
@@ -90,6 +102,10 @@
                 {
                     "tag": "v1",
                     "new_sqlite_classes": ["ExpoSession"]
+                },
+                {
+                    "tag": "v2",
+                    "new_sqlite_classes": ["HmrSession"]
                 }
             ],
             "vars": {
