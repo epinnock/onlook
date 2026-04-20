@@ -2,6 +2,94 @@
 
 Actionable rules for repo agents—keep diffs minimal, safe, token‑efficient.
 
+### Operating mode (READ FIRST — this is the most important rule)
+
+**Do not stop until every task is finished.** When you have pending tasks, keep working. If you need a recommendation, pick what you believe is best and act on it — do not pause to ask. We are a keep-going company; this is our single most important operating rule, and it overrides any default "pause at a milestone for confirmation" instinct.
+
+Practical implications:
+
+- If the user has approved a direction and pending work flows from it, execute that work without re-asking for confirmation on mechanical follow-ons.
+- When a design decision surfaces mid-task, make the call yourself and document the reasoning in an ADR under `plans/adr/` (template at `plans/adr/README.md`) or in the commit message. Do not block on it.
+- "Task list empty" does not mean "session over." Check the relevant queue:
+  - `plans/mobile-preview-shim-task-queue.md` — mobile-preview shim workstreams A–G
+  - `plans/onlook-mobile-client-task-queue.md` — mobile-client (iOS custom Expo Go) work (create when scope is defined)
+  - The repo's open plan docs under `plans/` for other areas
+  Pull the next unblocked item.
+- Only pause for genuinely destructive, hard-to-reverse actions (force-push to a shared branch, dropping a database, `rm -rf` on uncommitted work, sending messages to external systems, modifying CI secrets). Everything else: keep going.
+
+### Parallel execution methodology
+
+This repo targets up to **16 concurrent agents** executing independent tasks in parallel via git worktrees. The methodology below is adapted from the standard worktree + DAG scheduling pattern; specifics are Onlook-tuned.
+
+**Worktrees are the isolation foundation.** Every parallel agent gets its own working tree under `.trees/<task-id>-<slug>/` sharing the main `.git` object store. Create via:
+
+```bash
+git worktree add -b ai/<task-id>-<slug> .trees/<task-id>-<slug> feat/<integration-branch>
+cd .trees/<task-id>-<slug>
+bun install
+```
+
+Branch prefix `ai/` enables bulk cleanup: `git branch --list 'ai/*' | xargs -n 1 git branch -D`.
+
+**One task, one agent, one file (or small set).** Task granularity guidance:
+
+- **Ideal:** single-file, single-function tasks with explicit acceptance criteria.
+- **Acceptable:** 2–3 files within one well-defined module.
+- **Risky:** 4+ files or crossing module boundaries — split instead.
+- **Avoid:** monolithic tasks given to a single agent.
+
+Never let two in-flight agents edit the same file. Hotspot files (registries, barrel exports, `package.json`, shared type files) must be assigned to exactly one agent, serialized ahead of fan-out waves, or auto-generated rather than hand-edited. Each task declares its allowed files in the queue doc; agents must stay within that list.
+
+**Interface-first decomposition.** Define contracts (TypeScript interfaces, OpenAPI specs, schemas) in a sequential Wave 0, then fan out parallel implementation tasks against those contracts, then converge to a sequential integration/merge phase. This pattern drives the wave structure in the task queues.
+
+**E2E tests are the validation gate.** Not human inspection. Every task has a `bun test <spec>` and/or `bunx playwright test <spec>` command as its acceptance criterion. CLAUDE.md's rule "Run `bun run typecheck` and tests — all must pass before claiming completion" applies per worktree. Agents self-correct on test failure (up to 3 retries reading the test output), then dead-letter the task for human review.
+
+**Playwright specs live at** `apps/web/client/e2e/<feature>/`. Use the Onlook Editor via Chrome DevTools MCP for end-to-end UI flows when Playwright isn't sufficient.
+
+**Port allocation for 16 slots.** To avoid dev-server collisions across worktrees, each slot gets a numeric offset added to base ports:
+
+| Slot | Web (Next.js) | Mobile HTTP | Mobile WS |
+|---|---|---|---|
+| 0  | 3100 | 8787 | 8887 |
+| 1  | 3101 | 8788 | 8888 |
+| 2  | 3102 | 8789 | 8889 |
+| 3  | 3103 | 8790 | 8890 |
+| 4  | 3104 | 8791 | 8891 |
+| 5  | 3105 | 8792 | 8892 |
+| 6  | 3106 | 8793 | 8893 |
+| 7  | 3107 | 8794 | 8894 |
+| 8  | 3108 | 8795 | 8895 |
+| 9  | 3109 | 8796 | 8896 |
+| 10 | 3110 | 8797 | 8897 |
+| 11 | 3111 | 8798 | 8898 |
+| 12 | 3112 | 8799 | 8899 |
+| 13 | 3113 | 8800 | 8900 |
+| 14 | 3114 | 8801 | 8901 |
+| 15 | 3115 | 8802 | 8902 |
+
+Per worktree, export before running anything:
+
+```bash
+export PREVIEW_SLOT=<0-15>
+export WEB_PORT=$((3100 + PREVIEW_SLOT))
+export MOBILE_PREVIEW_PORT=$((8787 + PREVIEW_SLOT))
+export MOBILE_PREVIEW_WS_PORT=$((8887 + PREVIEW_SLOT))
+export PLAYWRIGHT_BASE_URL="http://127.0.0.1:${WEB_PORT}"
+export NEXT_PUBLIC_MOBILE_PREVIEW_URL="http://127.0.0.1:${MOBILE_PREVIEW_PORT}"
+```
+
+**Integration branches, not main.** Agents merge to `feat/<area>` (e.g. `feat/mobile-preview-shim`), never directly to `main`. The integration branch has a stable E2E suite that runs on every merge; wave gates require full-suite green before fan-out to the next wave.
+
+**DAG scheduling.** Tasks in a queue declare `Blocks on:` and `Blocks:`. An agent picks the highest-priority task whose `Blocks on:` list is all `done`. When a task completes, its dependents flip to `pending`. The queue doc's `Status log` table is the source of truth.
+
+**Runtime isolation beyond git.** Worktrees isolate source code but share the OS. Risk points:
+- Shared Supabase Postgres — don't drop or reset while others are testing. Coordinate schema changes via Wave 0 migration tasks.
+- Shared Docker daemon for supabase containers.
+- Shared `/tmp/cf-builds/` directory — use slot-prefixed subdirectories.
+- Expo Go on a physical phone — one device, one active runtime. Device tests are serialized; automated E2E runs via Playwright without a phone.
+
+**Full methodology detail:** `plans/parallel-execution-methodology.md` — branch model, cleanup commands, failure modes, shared-resource coordination table, wave pattern deep-dive.
+
 ### What is Onlook?
 
 Onlook is an open-source, visual-first code editor ("Cursor for Designers"). It enables:
@@ -40,8 +128,8 @@ Onlook is an open-source, visual-first code editor ("Cursor for Designers"). It 
 - Prefer local patterns and existing abstractions; avoid one-off frameworks.
 - Do not modify build outputs, generated files, or lockfiles.
 - Use Bun for all scripts; do not introduce npm/yarn.
-- Avoid running the local dev server in automation contexts.
-- Respect type safety and
+- Avoid running the local dev server in automation contexts (except inside a dedicated parallel-execution worktree with an assigned slot — see "Parallel execution methodology" above).
+- Respect type safety.
 
 ### Next.js App Router
 

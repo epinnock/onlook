@@ -1,12 +1,13 @@
 'use client';
 
 /**
- * TQ3.3 — "Preview on device" button.
+ * "Preview on device" button.
  *
- * Renders only when the active branch is an ExpoBrowser branch (the
- * Expo-Go-via-cf-esm-builder runtime). Clicking the button kicks off a
- * one-shot build via `usePreviewOnDevice` (TQ3.2) and opens a QR modal
- * (TQ3.1) that the user scans on a real device with Expo Go.
+ * Renders only when the active branch is an ExpoBrowser branch. Clicking
+ * the button polls the mobile-preview server's `/status` endpoint and
+ * opens a QR modal pointing at the pre-staged static runtime bundle.
+ * Component edits flow over the WebSocket eval channel on the same server
+ * (wired separately) — no per-click build pipeline.
  *
  * The component intentionally returns `null` for non-ExpoBrowser branches
  * so the regular CodeSandbox/Cloudflare flows aren't cluttered with a
@@ -19,11 +20,10 @@
  * the outer observer for non-ExpoBrowser branches.
  */
 
-import type { CodeFileSystem } from '@onlook/file-system';
 import { useEditorEngine } from '@/components/store/editor';
 import { QrModal } from '@/components/ui/qr-modal';
 import { env } from '@/env';
-import { usePreviewOnDevice } from '@/hooks/use-preview-on-device';
+import { useMobilePreviewStatus } from '@/hooks/use-mobile-preview-status';
 import { Button } from '@onlook/ui/button';
 import { observer } from 'mobx-react-lite';
 
@@ -36,36 +36,23 @@ export const PreviewOnDeviceButton = observer(function PreviewOnDeviceButton() {
         return null;
     }
 
-    return (
-        <PreviewOnDeviceInner
-            fs={editorEngine.fileSystem}
-            projectId={editorEngine.projectId}
-            branchId={activeBranch.id}
-        />
-    );
+    return <PreviewOnDeviceInner fileSystem={editorEngine.fileSystem} />;
 });
 
-interface PreviewOnDeviceInnerProps {
-    fs: CodeFileSystem;
-    projectId: string;
-    branchId: string;
-}
-
 function PreviewOnDeviceInner({
-    fs,
-    projectId,
-    branchId,
-}: PreviewOnDeviceInnerProps) {
-    // Pass the Phase H/Q endpoints from @/env. In dev these point at the
-    // local-builder-shim + local-relay-shim (port 8788/8787) over LAN IP;
-    // in production they point at the deployed cf-esm-builder + cf-expo-relay
-    // Worker URLs. When unset, the hook surfaces a clear error in the modal.
-    const preview = usePreviewOnDevice({
-        fs,
-        projectId,
-        branchId,
-        builderBaseUrl: env.NEXT_PUBLIC_CF_ESM_BUILDER_URL,
-        relayBaseUrl: env.NEXT_PUBLIC_CF_EXPO_RELAY_URL,
+    fileSystem,
+}: {
+    fileSystem: ReturnType<typeof useEditorEngine>['fileSystem'];
+}) {
+    // Browser-only mobile preview: hits the mobile-preview server's
+    // /status endpoint to fetch the pre-staged static runtime manifest URL.
+    // In dev this points at packages/mobile-preview/server (port 8787) over
+    // LAN IP; in production it points at the deployed CF Worker that serves
+    // the static runtime manifest. When unset, the hook surfaces a clear
+    // error in the modal.
+    const preview = useMobilePreviewStatus({
+        serverBaseUrl: env.NEXT_PUBLIC_MOBILE_PREVIEW_URL,
+        fileSystem,
     });
 
     const handleClick = () => {

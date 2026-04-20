@@ -97,6 +97,7 @@ function buildManifest(bundleHash: string, fields: any, platform: string): strin
 // --- Runtime bundle management ---
 
 let currentRuntimeHash: string | null = null;
+let lastPushedMessage: string | null = null;
 
 function ensureRuntimeStaged(): string {
   if (currentRuntimeHash) return currentRuntimeHash;
@@ -146,6 +147,14 @@ function ensureRuntimeStaged(): string {
 
 const wsClients = new Set<any>();
 
+function broadcastMessage(message: string): number {
+  lastPushedMessage = message;
+  for (const ws of wsClients) {
+    try { ws.send(message); } catch (_) {}
+  }
+  return wsClients.size;
+}
+
 const wsServer = Bun.serve({
   port: WS_PORT,
   fetch(req, server) {
@@ -154,10 +163,7 @@ const wsServer = Bun.serve({
 
     if (url.pathname === '/push' && req.method === 'POST') {
       return req.text().then((body) => {
-        for (const ws of wsClients) {
-          try { ws.send(body); } catch (_) {}
-        }
-        return Response.json({ ok: true, clients: wsClients.size });
+        return Response.json({ ok: true, clients: broadcastMessage(body) });
       });
     }
 
@@ -174,9 +180,13 @@ const wsServer = Bun.serve({
     return new Response(`mobile-preview ws (${wsClients.size} clients)`);
   },
   websocket: {
+    idleTimeout: 120,
     open(ws) {
       wsClients.add(ws);
       console.log(`[mobile-preview] WS client connected (${wsClients.size} total)`);
+      if (lastPushedMessage) {
+        try { ws.send(lastPushedMessage); } catch (_) {}
+      }
     },
     close(ws) {
       wsClients.delete(ws);
@@ -225,6 +235,17 @@ const httpServer = Bun.serve({
           ? `exp://${LAN_IP}:${HTTP_PORT}/manifest/${currentRuntimeHash}`
           : null,
       }));
+    }
+
+    if (path === '/push' && req.method === 'POST') {
+      return req.text().then((body) =>
+        withCors(
+          Response.json({
+            ok: true,
+            clients: broadcastMessage(body),
+          }),
+        ),
+      );
     }
 
     // Manifest

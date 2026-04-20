@@ -7,7 +7,7 @@
  *
  *   - `@/components/store/editor`  — provides a fake editor engine so we
  *     can toggle `activeBranch.sandbox.providerType`
- *   - `@/hooks/use-preview-on-device` — returns a deterministic status
+ *   - `@/hooks/use-mobile-preview-status` — returns a deterministic status
  *     object + spy handles for `open` / `close` / `retry`
  *   - `@/components/ui/qr-modal` — stubbed to a trivial div so we don't
  *     pull Radix's portal machinery into a portal-less SSR render
@@ -83,8 +83,14 @@ mock.module('@/components/store/editor', () => ({
     useEditorEngine: () => engineRef.current,
 }));
 
-mock.module('@/hooks/use-preview-on-device', () => ({
-    usePreviewOnDevice: (_opts: unknown) => previewRef.current,
+mock.module('@/hooks/use-mobile-preview-status', () => ({
+    useMobilePreviewStatus: (_opts: unknown) => previewRef.current,
+}));
+
+mock.module('@/env', () => ({
+    env: {
+        NEXT_PUBLIC_MOBILE_PREVIEW_URL: 'http://localhost:8787',
+    },
 }));
 
 // Stub QrModal to a trivial marker div so renderToStaticMarkup doesn't try
