@@ -93,6 +93,7 @@ export const env = createEnv({
         // flow. Local dev: http://<lan-ip>:8787. Production: the deployed
         // CF Worker that serves the static runtime manifest.
         NEXT_PUBLIC_MOBILE_PREVIEW_URL: z.string().optional(),
+        NEXT_PUBLIC_MOBILE_PREVIEW_PIPELINE: z.enum(['shim', 'two-tier']).default('shim'),
     },
 
     /**
@@ -130,6 +131,7 @@ export const env = createEnv({
         NEXT_PUBLIC_CF_ESM_BUILDER_URL: process.env.NEXT_PUBLIC_CF_ESM_BUILDER_URL,
         NEXT_PUBLIC_CF_EXPO_RELAY_URL: process.env.NEXT_PUBLIC_CF_EXPO_RELAY_URL,
         NEXT_PUBLIC_MOBILE_PREVIEW_URL: process.env.NEXT_PUBLIC_MOBILE_PREVIEW_URL,
+        NEXT_PUBLIC_MOBILE_PREVIEW_PIPELINE: process.env.NEXT_PUBLIC_MOBILE_PREVIEW_PIPELINE,
 
         // Hosting
         FREESTYLE_API_KEY: process.env.FREESTYLE_API_KEY,
