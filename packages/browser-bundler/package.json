@@ -30,6 +30,7 @@
     "devDependencies": {
         "@onlook/eslint": "*",
         "@onlook/typescript": "*",
+        "esbuild-wasm": "^0.24.0",
         "eslint": "^9.0.0",
         "typescript": "^5.5.4"
     }

@@ -309,6 +309,30 @@
         "typescript": "^5.5.4",
       },
     },
+    "packages/base-bundle-builder": {
+      "name": "@onlook/base-bundle-builder",
+      "version": "0.0.0",
+      "bin": {
+        "onlook-base-bundle": "./src/cli.ts",
+      },
+      "devDependencies": {
+        "@onlook/eslint": "*",
+        "@onlook/typescript": "*",
+        "eslint": "^9.0.0",
+        "typescript": "^5.5.4",
+      },
+    },
+    "packages/browser-bundler": {
+      "name": "@onlook/browser-bundler",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@onlook/eslint": "*",
+        "@onlook/typescript": "*",
+        "esbuild-wasm": "^0.24.0",
+        "eslint": "^9.0.0",
+        "typescript": "^5.5.4",
+      },
+    },
     "packages/browser-metro": {
       "name": "@onlook/browser-metro",
       "version": "0.0.0",
@@ -1488,6 +1512,10 @@
     "@onlook/ai": ["@onlook/ai@workspace:packages/ai"],
 
     "@onlook/backend": ["@onlook/backend@workspace:apps/backend"],
+
+    "@onlook/base-bundle-builder": ["@onlook/base-bundle-builder@workspace:packages/base-bundle-builder"],
+
+    "@onlook/browser-bundler": ["@onlook/browser-bundler@workspace:packages/browser-bundler"],
 
     "@onlook/browser-metro": ["@onlook/browser-metro@workspace:packages/browser-metro"],
 
@@ -2970,6 +2998,8 @@
     "esbuild": ["esbuild@0.27.3", "", { "optionalDependencies": { "@esbuild/aix-ppc64": "0.27.3", "@esbuild/android-arm": "0.27.3", "@esbuild/android-arm64": "0.27.3", "@esbuild/android-x64": "0.27.3", "@esbuild/darwin-arm64": "0.27.3", "@esbuild/darwin-x64": "0.27.3", "@esbuild/freebsd-arm64": "0.27.3", "@esbuild/freebsd-x64": "0.27.3", "@esbuild/linux-arm": "0.27.3", "@esbuild/linux-arm64": "0.27.3", "@esbuild/linux-ia32": "0.27.3", "@esbuild/linux-loong64": "0.27.3", "@esbuild/linux-mips64el": "0.27.3", "@esbuild/linux-ppc64": "0.27.3", "@esbuild/linux-riscv64": "0.27.3", "@esbuild/linux-s390x": "0.27.3", "@esbuild/linux-x64": "0.27.3", "@esbuild/netbsd-arm64": "0.27.3", "@esbuild/netbsd-x64": "0.27.3", "@esbuild/openbsd-arm64": "0.27.3", "@esbuild/openbsd-x64": "0.27.3", "@esbuild/openharmony-arm64": "0.27.3", "@esbuild/sunos-x64": "0.27.3", "@esbuild/win32-arm64": "0.27.3", "@esbuild/win32-ia32": "0.27.3", "@esbuild/win32-x64": "0.27.3" }, "bin": { "esbuild": "bin/esbuild" } }, "sha512-8VwMnyGCONIs6cWue2IdpHxHnAjzxnw2Zr7MkVxB2vjmQ2ivqGFb4LEG3SMnv0Gb2F/G/2yA8zUaiL1gywDCCg=="],
 
     "esbuild-register": ["esbuild-register@3.6.0", "", { "dependencies": { "debug": "^4.3.4" }, "peerDependencies": { "esbuild": ">=0.12 <1" } }, "sha512-H2/S7Pm8a9CL1uhp9OvjwrBh5Pvx0H8qVOxNu8Wed9Y7qv56MPtq+GGM8RJpq6glYJn9Wspr8uw7l55uyinNeg=="],
+
+    "esbuild-wasm": ["esbuild-wasm@0.24.2", "", { "bin": { "esbuild": "bin/esbuild" } }, "sha512-03/7Z1gD+ohDnScFztvI4XddTAbKVmMEzCvvkBpQdWKEXJ+73dTyeNrmdxP1Q0zpDMFjzUJwtK4rLjqwiHbzkw=="],
 
     "escalade": ["escalade@3.2.0", "", {}, "sha512-WUj2qlxaQtO4g6Pq5c29GTcWGDyd8itL8zTlipgECz3JesAiiOKotd8JU6otB3PACgG6xkJUyVhboMS+bje/jA=="],
 

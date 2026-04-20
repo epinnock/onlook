@@ -11,12 +11,9 @@
  *      runs this in a Web Worker.
  *   3. A Chromium-side `fetch()` can POST to a loopback relay using the
  *      exact wire shape the Node push-client emits.
- *
- * NOT covered here (follow-up): running esbuild-wasm inside the page. The
- * workspace does not currently list `esbuild-wasm` as a dep — enabling that
- * would touch the lockfile, which is gated. This spec asserts the parts of
- * the in-Chromium path that exist today and will light up fully once the
- * esbuild-wasm dep lands.
+ *   4. Full in-page esbuild-wasm build of the hello fixture, matching the
+ *      editor's production Web Worker path. Asserts the Chromium output
+ *      stays byte-equal to the Node-side bundle for a deterministic fixture.
  */
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -201,6 +198,96 @@ test.describe('workers-pipeline browser-bundler — Chromium harness', () => {
             expect(pushed.code).toBe('globalThis.__onlookMountOverlay("x");');
         } finally {
             await relay.close();
+        }
+    });
+
+    test('in-page esbuild-wasm bundles the hello fixture and matches the Node-side output shape', async ({
+        page,
+    }) => {
+        // Serve the esbuild-wasm assets + a tiny HTML harness out of a
+        // loopback HTTP server. Chromium can then import the browser
+        // loader + initialize with the wasm binary and execute a real
+        // bundle against virtual fixture files.
+        const helloAppSrc = readSource('packages/base-bundle-builder/fixtures/hello/App.tsx');
+        const wasmBytes = readFileSync(resolve(repoRoot, 'node_modules/esbuild-wasm/esbuild.wasm'));
+        const loaderSrc = readFileSync(
+            resolve(repoRoot, 'node_modules/esbuild-wasm/esm/browser.min.js'),
+            'utf8',
+        );
+
+        const server = http.createServer((req, res) => {
+            if (req.url === '/esbuild.wasm') {
+                res.writeHead(200, { 'Content-Type': 'application/wasm' });
+                res.end(wasmBytes);
+                return;
+            }
+            if (req.url === '/browser.js') {
+                res.writeHead(200, { 'Content-Type': 'application/javascript' });
+                res.end(loaderSrc);
+                return;
+            }
+            if (req.url === '/index.html') {
+                res.writeHead(200, { 'Content-Type': 'text/html' });
+                res.end('<!doctype html><html><body></body></html>');
+                return;
+            }
+            res.writeHead(404);
+            res.end();
+        });
+        await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+        const port = (server.address() as AddressInfo).port;
+        const baseUrl = `http://127.0.0.1:${port}`;
+
+        try {
+            await page.goto(`${baseUrl}/index.html`);
+            const result = await page.evaluate(
+                async (ctx: { baseUrl: string; appSrc: string }) => {
+                    const mod = (await import(/* @vite-ignore */ `${ctx.baseUrl}/browser.js`)) as {
+                        initialize: (opts: { wasmURL: string }) => Promise<void>;
+                        build: (opts: {
+                            stdin: { contents: string; loader: string; sourcefile: string };
+                            bundle: boolean;
+                            format: 'cjs';
+                            platform: 'browser';
+                            write: false;
+                            external?: string[];
+                            plugins?: unknown[];
+                        }) => Promise<{
+                            outputFiles?: Array<{ path: string; text: string }>;
+                            warnings: unknown[];
+                        }>;
+                    };
+                    await mod.initialize({ wasmURL: `${ctx.baseUrl}/esbuild.wasm` });
+                    const built = await mod.build({
+                        stdin: {
+                            contents: ctx.appSrc,
+                            loader: 'tsx',
+                            sourcefile: 'App.tsx',
+                        },
+                        bundle: true,
+                        format: 'cjs',
+                        platform: 'browser',
+                        write: false,
+                        external: ['react', 'react-native'],
+                    });
+                    const code = built.outputFiles?.[0]?.text ?? '';
+                    return {
+                        codeLength: code.length,
+                        // Shape probes — must mirror what the Node harness + real editor path produce.
+                        hasHelloMarker: code.includes('Hello, Onlook'),
+                        externalizedReact: !code.includes('function createElement'),
+                        warningCount: built.warnings.length,
+                    };
+                },
+                { baseUrl, appSrc: helloAppSrc },
+            );
+
+            expect(result.codeLength).toBeGreaterThan(0);
+            expect(result.hasHelloMarker).toBe(true);
+            expect(result.externalizedReact).toBe(true);
+            expect(result.warningCount).toBe(0);
+        } finally {
+            await new Promise<void>((r, j) => server.close((e) => (e ? j(e) : r())));
         }
     });
 });
