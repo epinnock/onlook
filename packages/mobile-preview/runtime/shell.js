@@ -312,3 +312,96 @@ globalThis.onlookMount = function onlookMount(props) {
   }
 };
 _log('B13 onlookMount installed');
+
+// ─── Two-tier overlay mount ──────────────────────────────────────────────
+//
+// wrapOverlayCode() from @onlook/browser-bundler emits code of the form:
+//
+//     (function(){
+//       const mount = globalThis["__onlookMountOverlay"];
+//       if (typeof mount !== 'function') throw new Error(...);
+//       mount("<cjs code as a string>");
+//     })();
+//
+// `__onlookMountOverlay` evaluates the CJS string in a fresh module/exports
+// scope, pulls out the default export (the React component the user
+// edited), and mounts it via the same `renderApp` + `_initReconciler`
+// primitives `onlookMount` already uses. This lets the cf-expo-relay
+// /hmr/:sessionId path hot-swap the user's app code without
+// re-mounting the base bundle — which is the whole point of the two-tier
+// pipeline.
+//
+// Separate from `onlookMount` on purpose:
+//   - `onlookMount` is the first-mount path (calls _initReconciler, sets
+//     currentRootTag, wires the WS once).
+//   - `__onlookMountOverlay` is the Nth-mount path (reconciler already
+//     initialised, root tag already set, WS already open — just swap the
+//     element tree).
+globalThis.__onlookMountOverlay = function __onlookMountOverlay(cjsCode) {
+  _log('B13 __onlookMountOverlay invoked (bytes=' + (cjsCode && cjsCode.length) + ')');
+  try {
+    if (typeof cjsCode !== 'string' || cjsCode.length === 0) {
+      _log('B13 __onlookMountOverlay: empty cjsCode, skipping');
+      return;
+    }
+    if (typeof globalThis.renderApp !== 'function') {
+      _log('B13 __onlookMountOverlay: renderApp missing — call onlookMount first');
+      return;
+    }
+    var R = globalThis.React;
+    if (!R) {
+      _log('B13 __onlookMountOverlay: React missing');
+      return;
+    }
+
+    // Evaluate CJS in a sandboxed module scope. Using Function over eval so
+    // the overlay's internal `var`s don't pollute globalThis. We expose a
+    // minimal `require` that routes the base-externals through whatever the
+    // base bundle installed globally.
+    var module = { exports: {} };
+    var exports = module.exports;
+    var requireFn = typeof globalThis.__require === 'function'
+      ? globalThis.__require
+      : function(specifier) {
+          // Fallback — look up on globalThis by module-name convention
+          // the base bundle tier publishes (e.g. react / react-native).
+          var hit = globalThis[specifier];
+          if (hit) return hit;
+          throw new Error('overlay require: missing "' + specifier + '"');
+        };
+
+    var factory = new Function('module', 'exports', 'require', cjsCode);
+    factory(module, exports, requireFn);
+
+    var App = (module.exports && module.exports.default) || module.exports;
+    if (!App || (typeof App !== 'function' && typeof App !== 'object')) {
+      _log('B13 __onlookMountOverlay: overlay did not export a component');
+      return;
+    }
+
+    var element = typeof App === 'function'
+      ? R.createElement(App, null)
+      : R.isValidElement && R.isValidElement(App) ? App : null;
+
+    if (!element) {
+      _log('B13 __onlookMountOverlay: could not construct element from export');
+      return;
+    }
+
+    globalThis.renderApp(element);
+    _log('B13 __onlookMountOverlay: overlay mounted');
+  } catch (e) {
+    _log('B13 __onlookMountOverlay ERROR: ' + (e && e.message));
+    if (typeof globalThis.OnlookRuntime !== 'undefined'
+        && globalThis.OnlookRuntime
+        && typeof globalThis.OnlookRuntime.dispatchEvent === 'function') {
+      try {
+        globalThis.OnlookRuntime.dispatchEvent('onlook:error', {
+          kind: 'overlay-mount',
+          message: (e && e.message) || String(e),
+        });
+      } catch (_dispatchErr) { /* swallow — mount failure is already logged */ }
+    }
+  }
+};
+_log('B13 __onlookMountOverlay installed');
