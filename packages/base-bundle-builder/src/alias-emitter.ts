@@ -7,7 +7,18 @@ import {
     type AliasMapInput,
 } from './adapter/alias-map';
 
-export type AliasEmitterInput = AliasMapInput;
+export interface AliasEmitterModuleRecord {
+    readonly id?: number;
+    readonly moduleId?: number;
+    readonly path?: string;
+    readonly specifier?: string;
+}
+
+export interface AliasEmitterModuleGraphInput {
+    readonly modules: readonly AliasEmitterModuleRecord[];
+}
+
+export type AliasEmitterInput = AliasMapInput | AliasEmitterModuleGraphInput;
 
 export interface AliasEmitterSidecar {
     readonly aliases: Readonly<Record<string, number>>;
@@ -58,6 +69,10 @@ export function stringifyAliasEmitterSidecar(
 function normalizeAliasEmitterInput(
     input: AliasEmitterInput,
 ): readonly AliasMapEntry[] {
+    if (isAliasEmitterModuleGraphInput(input)) {
+        return normalizeAliasEmitterModuleGraphInput(input);
+    }
+
     const entries = Array.isArray(input)
         ? input
         : Object.entries(input).map(([specifier, moduleId]) => ({
@@ -66,6 +81,59 @@ function normalizeAliasEmitterInput(
         }));
 
     return [...entries].sort(compareAliasMapEntries);
+}
+
+function normalizeAliasEmitterModuleGraphInput(
+    input: AliasEmitterModuleGraphInput,
+): readonly AliasMapEntry[] {
+    return input.modules
+        .flatMap((module) => {
+            const specifier = getAliasEmitterModuleSpecifier(module);
+            const moduleId = getAliasEmitterModuleId(module);
+
+            if (specifier === undefined || moduleId === undefined) {
+                return [];
+            }
+
+            return [{ specifier, moduleId }];
+        })
+        .sort(compareAliasMapEntries);
+}
+
+function isAliasEmitterModuleGraphInput(
+    input: AliasEmitterInput,
+): input is AliasEmitterModuleGraphInput {
+    return (
+        typeof input === 'object' &&
+        input !== null &&
+        !Array.isArray(input) &&
+        Array.isArray((input as { modules?: unknown }).modules)
+    );
+}
+
+function getAliasEmitterModuleSpecifier(
+    module: AliasEmitterModuleRecord,
+): string | undefined {
+    if (typeof module.specifier !== 'string') {
+        return undefined;
+    }
+
+    const specifier = module.specifier.trim();
+    return specifier.length === 0 ? undefined : specifier;
+}
+
+function getAliasEmitterModuleId(
+    module: AliasEmitterModuleRecord,
+): number | undefined {
+    if (typeof module.moduleId === 'number') {
+        return module.moduleId;
+    }
+
+    if (typeof module.id === 'number') {
+        return module.id;
+    }
+
+    return undefined;
 }
 
 function compareAliasMapEntries(

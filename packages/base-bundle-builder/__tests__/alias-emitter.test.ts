@@ -35,6 +35,42 @@ describe('alias-emitter', () => {
         expect(fromRecord.sidecarJson).toBe(fromArray.sidecarJson);
     });
 
+    test('emits deterministic sidecar output from a module graph input', () => {
+        const fromGraph = createAliasEmitterOutput({
+            modules: [
+                {
+                    path: '/repo/node_modules/react-native/index.js',
+                    specifier: 'react-native',
+                    id: 42,
+                },
+                {
+                    path: '/repo/src/app.js',
+                    id: 7,
+                },
+                {
+                    path: '/repo/node_modules/react/index.js',
+                    specifier: 'react',
+                    moduleId: 1,
+                },
+            ],
+        });
+
+        expect(fromGraph.aliasMap.entries).toEqual([
+            { specifier: 'react', moduleId: 1 },
+            { specifier: 'react-native', moduleId: 42 },
+        ]);
+        expect(fromGraph.sidecar).toEqual({
+            aliases: {
+                react: 1,
+                'react-native': 42,
+            },
+            specifiers: ['react', 'react-native'],
+        });
+        expect(fromGraph.sidecarJson).toBe(
+            '{"aliases":{"react":1,"react-native":42},"specifiers":["react","react-native"]}',
+        );
+    });
+
     test('stringifies a prebuilt alias map sidecar deterministically', () => {
         const aliasMap = createAliasMap({
             'react-native-safe-area-context': 99,
@@ -72,5 +108,50 @@ describe('alias-emitter', () => {
                 react: 1.5,
             }),
         ).toThrow('Alias map entry for "react" must use an integer module id');
+    });
+
+    test('ignores graph modules without known specifiers', () => {
+        const fromGraph = createAliasEmitterOutput({
+            modules: [
+                {
+                    path: '/repo/src/app.js',
+                    id: 7,
+                },
+                {
+                    path: '/repo/node_modules/react/index.js',
+                    specifier: 'react',
+                    id: 1,
+                },
+            ],
+        });
+
+        expect(fromGraph.aliasMap.entries).toEqual([
+            { specifier: 'react', moduleId: 1 },
+        ]);
+        expect(fromGraph.sidecar).toEqual({
+            aliases: {
+                react: 1,
+            },
+            specifiers: ['react'],
+        });
+    });
+
+    test('rejects duplicate aliases extracted from graph modules', () => {
+        expect(() =>
+            createAliasEmitterOutput({
+                modules: [
+                    {
+                        path: '/repo/node_modules/react/index.js',
+                        specifier: 'react',
+                        id: 1,
+                    },
+                    {
+                        path: '/repo/node_modules/react/index.js',
+                        specifier: 'react',
+                        moduleId: 2,
+                    },
+                ],
+            }),
+        ).toThrow('Alias map contains duplicate specifier "react"');
     });
 });
