@@ -6,7 +6,19 @@ import { NodeFsProvider, type NodeFsProviderOptions } from './providers/nodefs';
 export * from './providers';
 export type { CloudflareProviderOptions } from './providers/cloudflare/types';
 export { CodesandboxProvider } from './providers/codesandbox';
-export { ExpoBrowserProvider, PROVIDER_NO_SHELL } from './providers/expo-browser';
+export {
+    EXPO_BROWSER_TEMPLATES,
+    ExpoBrowserProvider,
+    expoBlankTemplate,
+    PROVIDER_NO_SHELL,
+    seedExpoBrowserStorage,
+} from './providers/expo-browser';
+export type {
+    ExpoBrowserTemplateFile,
+    ExpoBrowserTemplateId,
+    SeedExpoBrowserStorageOptions,
+    SeedExpoBrowserStorageResult,
+} from './providers/expo-browser';
 export type { ExpoBrowserProviderOptions } from './providers/expo-browser/types';
 export { NodeFsProvider } from './providers/nodefs';
 export * from './types';

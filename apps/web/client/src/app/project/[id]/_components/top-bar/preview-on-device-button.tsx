@@ -59,6 +59,8 @@ function PreviewOnDeviceInner({
         void preview.open();
     };
 
+    const hasConnectedDevices = preview.clientCount > 0;
+
     return (
         <>
             <Button
@@ -70,11 +72,21 @@ function PreviewOnDeviceInner({
                 aria-label="Preview on device"
             >
                 Preview on device
+                {hasConnectedDevices && (
+                    <span
+                        data-testid="preview-on-device-count"
+                        className="ml-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-500/20 px-1.5 text-xs font-medium text-emerald-400"
+                        title={`${preview.clientCount} device${preview.clientCount === 1 ? '' : 's'} connected`}
+                    >
+                        {preview.clientCount}
+                    </span>
+                )}
             </Button>
             <QrModal
                 open={preview.isOpen}
                 onClose={preview.close}
                 status={preview.status}
+                clientCount={preview.clientCount}
                 onRetry={preview.retry}
             />
         </>

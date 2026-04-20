@@ -37,12 +37,15 @@ export interface QrModalProps {
     open: boolean;
     onClose: () => void;
     status: QrModalStatus;
+    /** Number of devices currently connected over WebSocket. 0 hides the row. */
+    clientCount?: number;
     /** Called when the user clicks "Retry" after an error. */
     onRetry?: () => void;
 }
 
 export interface QrModalBodyProps {
     status: QrModalStatus;
+    clientCount?: number;
     onRetry?: () => void;
     /** Override the copy handler (tests can inject a stub in environments without navigator.clipboard). */
     onCopy?: (manifestUrl: string) => void;
@@ -53,7 +56,7 @@ export interface QrModalBodyProps {
  * unit-tested without dragging in Radix's portal/ref machinery (which
  * requires a real DOM).
  */
-export function QrModalBody({ status, onRetry, onCopy }: QrModalBodyProps) {
+export function QrModalBody({ status, clientCount = 0, onRetry, onCopy }: QrModalBodyProps) {
     return (
         <div data-testid="qr-modal-body" className="flex flex-col gap-4">
             {status.kind === 'idle' && (
@@ -96,6 +99,18 @@ export function QrModalBody({ status, onRetry, onCopy }: QrModalBodyProps) {
                     >
                         {status.onlookUrl}
                     </code>
+                    <div
+                        data-testid="qr-client-count"
+                        className="flex items-center gap-2 text-xs text-foreground-secondary"
+                    >
+                        <span
+                            className={`inline-block h-2 w-2 rounded-full ${clientCount > 0 ? 'bg-emerald-400' : 'bg-foreground-tertiary/40'}`}
+                            aria-hidden="true"
+                        />
+                        {clientCount === 0
+                            ? 'No devices connected yet — scan the QR with Expo Go.'
+                            : `${clientCount} device${clientCount === 1 ? '' : 's'} connected`}
+                    </div>
                     <button
                         type="button"
                         data-testid="qr-copy-btn"
@@ -154,7 +169,7 @@ export function QrModalBody({ status, onRetry, onCopy }: QrModalBodyProps) {
     );
 }
 
-export function QrModal({ open, onClose, status, onRetry }: QrModalProps) {
+export function QrModal({ open, onClose, status, clientCount, onRetry }: QrModalProps) {
     return (
         <Dialog
             open={open}
@@ -169,7 +184,11 @@ export function QrModal({ open, onClose, status, onRetry }: QrModalProps) {
                         Scan the QR code with the Onlook Mobile app to open this project on your phone.
                     </DialogDescription>
                 </DialogHeader>
-                <QrModalBody status={status} onRetry={onRetry} />
+                <QrModalBody
+                    status={status}
+                    clientCount={clientCount}
+                    onRetry={onRetry}
+                />
             </DialogContent>
         </Dialog>
     );
