@@ -25,4 +25,7 @@ export * from './inspector.ts';
 // MCF7 — runtime version constant + compatibility matrix
 export * from './runtime-version.ts';
 
+// QC-06 — overlay protocol message schema
+export * from './overlay.ts';
+
 export const PROTOCOL_PACKAGE_NAME = '@onlook/mobile-client-protocol' as const;
