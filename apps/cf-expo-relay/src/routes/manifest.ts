@@ -52,12 +52,19 @@ export interface ManifestRouteEnv {
     ESM_CACHE_URL: string;
 }
 
+export interface TwoTierManifestRouteParams {
+    readonly sessionId: string;
+    readonly platform: ExpoPlatform;
+}
+
 /** Shape of `meta.json` we care about; the rest is ignored on purpose. */
 interface MetaJson {
     builtAt?: string;
 }
 
 const HEX64 = /^[0-9a-f]{64}$/;
+const TWO_TIER_SESSION_ID = /^[a-zA-Z0-9_-]{1,128}$/;
+const TWO_TIER_MANIFEST_ROUTE = /^\/manifest\/([^/]+)$/;
 
 /**
  * Resolve the target platform for the manifest's `launchAsset.url` from
@@ -87,6 +94,28 @@ export function resolvePlatform(request: Request): ExpoPlatform {
     }
 
     return 'android';
+}
+
+/**
+ * Parse the future workers-only `GET /manifest/:sessionId` route without
+ * changing today's strict 64-hex cf-esm manifest route. A 64-hex segment is
+ * intentionally treated as legacy and returns null.
+ */
+export function parseTwoTierManifestRoute(
+    request: Request,
+): TwoTierManifestRouteParams | null {
+    const url = new URL(request.url);
+    const match = url.pathname.match(TWO_TIER_MANIFEST_ROUTE);
+    const sessionId = match?.[1];
+
+    if (!sessionId || HEX64.test(sessionId) || !TWO_TIER_SESSION_ID.test(sessionId)) {
+        return null;
+    }
+
+    return {
+        sessionId,
+        platform: resolvePlatform(request),
+    };
 }
 
 /**
