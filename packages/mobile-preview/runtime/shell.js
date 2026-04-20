@@ -13,90 +13,6 @@
  *   renderApp(React.createElement(View, {style:{flex:1}}, ...))
  */
 
-// MC2.3: register native OnlookRuntime host object on globalThis. Must run
-// before any other runtime setup so user code never observes a moment
-// where OnlookRuntime is undefined. The install method lives in the
-// native TurboModule `OnlookRuntimeInstaller`
-// (apps/mobile-client/cpp/OnlookRuntimeInstaller.{h,cpp,mm}); when
-// invoked it calls `runtime.global().setProperty("OnlookRuntime", …)`
-// with a `jsi::Object::createFromHostObject` wrapping an instance of
-// `onlook::OnlookRuntime`. Any failure is logged via
-// `nativeLoggingHook` so it's visible in `xcrun simctl spawn booted
-// log stream`; we do NOT throw because a missing installer should not
-// take the whole runtime down — it's a hard dependency for user code
-// calling into the runtime API but not for the base render path.
-(function() {
-  try {
-    var proxy = globalThis.__turboModuleProxy || globalThis.nativeModuleProxy;
-    var installer = null;
-    if (typeof proxy === 'function') {
-      installer = proxy('OnlookRuntimeInstaller');
-    } else if (proxy && typeof proxy === 'object') {
-      installer = proxy.OnlookRuntimeInstaller || null;
-    }
-    if (installer && typeof installer.install === 'function') {
-      installer.install();
-    } else if (typeof globalThis.nativeLoggingHook === 'function') {
-      globalThis.nativeLoggingHook('[onlook-runtime] OnlookRuntimeInstaller not reachable — TurboModule proxy missing', 1);
-    }
-  } catch (err) {
-    if (typeof globalThis.nativeLoggingHook === 'function') {
-      globalThis.nativeLoggingHook('[onlook-runtime] OnlookRuntimeInstaller.install threw: ' + (err && err.message), 1);
-    }
-  }
-})();
-
-// MC4.1: register native OnlookInspector host object on globalThis. Lives
-// alongside the OnlookRuntime install above — same TurboModule pattern,
-// separate module name + global key. The install method lives in
-// `OnlookInspectorInstaller` (apps/mobile-client/cpp/OnlookInspectorInstaller.{h,cpp,mm}).
-// When invoked it calls `runtime.global().setProperty("OnlookInspector", …)`
-// with a `jsi::Object::createFromHostObject` wrapping an instance of
-// `onlook::OnlookInspector`. Any failure is logged via `nativeLoggingHook`
-// rather than thrown so a missing inspector doesn't take the runtime down
-// — the inspector is only exercised by the editor's relay-driven
-// tap-to-select / walk-tree / screenshot / highlight flows (MC4.2..MC4.5);
-// user bundles that never touch `globalThis.OnlookInspector` still run.
-(function() {
-  try {
-    var proxy = globalThis.__turboModuleProxy || globalThis.nativeModuleProxy;
-    var inspector = null;
-    if (typeof proxy === 'function') {
-      inspector = proxy('OnlookInspectorInstaller');
-    } else if (proxy && typeof proxy === 'object') {
-      inspector = proxy.OnlookInspectorInstaller || null;
-    }
-    if (inspector && typeof inspector.install === 'function') {
-      inspector.install();
-    } else if (typeof globalThis.nativeLoggingHook === 'function') {
-      globalThis.nativeLoggingHook('[onlook-inspector] OnlookInspectorInstaller not reachable — TurboModule proxy missing', 1);
-    }
-  } catch (err) {
-    if (typeof globalThis.nativeLoggingHook === 'function') {
-      globalThis.nativeLoggingHook('[onlook-inspector] OnlookInspectorInstaller.install threw: ' + (err && err.message), 1);
-    }
-  }
-})();
-
-// Everything below this line is the B13 browser-preview shell machinery:
-// RN$AppRegistry shadow, RN$registerCallableModule overrides for HMR /
-// RCTDeviceEventEmitter, Fabric registerEventHandler with empty stub,
-// websocket-eval loop. It's designed for the Spike B browser preview
-// pipeline where no main.jsbundle exists. Running it inside the Onlook
-// Mobile Client (Hermes) shadows RN's own primitives and breaks RN's
-// reconciler — in particular, an empty fab.registerEventHandler and a
-// stubbed RCTDeviceEventEmitter prevent React hook dispatchers from
-// being assigned, yielding "Cannot read property 'useState' of null".
-// See plans/post-mortems/2026-04-16-runtime-d-r-clobber.md. The JSI
-// installers above this line are the only shell code that must run in
-// both modes; they're always safe because TurboModule install() calls
-// are idempotent and do not touch RN bootstrap primitives.
-if (typeof window === 'undefined') {
-  // Hermes / RN path — let main.jsbundle own AppRegistry, HMR, event
-  // emitters, Fabric event handler. Our JSI bindings are already installed.
-  return;
-}
-
 // Scheduler polyfill — react-reconciler needs setTimeout/clearTimeout
 if (typeof globalThis.setTimeout === 'undefined') {
   // Use the native timer module if available
@@ -181,7 +97,7 @@ if (typeof globalThis.performance === 'undefined') {
 globalThis._log = function(msg) {
   try {
     if (typeof globalThis.nativeLoggingHook === 'function') {
-      globalThis.nativeLoggingHook('[onlook-runtime] ' + msg, 1);
+      globalThis.nativeLoggingHook('[SPIKE_B] ' + msg, 1);
     }
   } catch (_) {}
 };
@@ -333,7 +249,66 @@ globalThis.RN$AppRegistry = {
 
 _log('B13 shell ready');
 
-// NOTE: the dual-React guard (delete globalThis.React inside Hermes) runs
-// in build-runtime.ts's suffix AFTER __r(0) completes — not here. shell.js
-// evaluates before runtime.js sets globalThis.React, so a delete here would
-// be a no-op. See build-runtime.ts line 58+ for the post-__r(0) guard.
+// ── Onlook Mobile Client mount bridge ─────────────────────────────────────
+// The native C++ `OnlookRuntime::runApplication(bundleSource, props)` looks
+// for `globalThis.onlookMount(props)` after eval. In Expo Go the bundle's
+// RN$AppRegistry.runApplication is triggered by RN's native bootstrap, but
+// on the mobile-client we're eval'ing this bundle on-demand inside an
+// already-running RN app, so nothing calls it. Define onlookMount here so
+// the mount-convention path in OnlookRuntime_runApplication.cpp fires.
+//
+// rootTag resolution: prefer props.rootTag (if the native side ever injects
+// one), fall back to globalThis.currentRootTag, then to 1 (RN's default
+// first Fabric surface on new-arch). Reconciler init on a tag that already
+// has a React tree attached will clobber the host app's LauncherScreen —
+// which is what the caller wants: render the preview on top.
+globalThis.onlookMount = function onlookMount(props) {
+  var rootTag =
+    (props && typeof props.rootTag === 'number') ? props.rootTag
+    : (typeof globalThis.currentRootTag === 'number' && globalThis.currentRootTag) ? globalThis.currentRootTag
+    : 11;
+  _log('B13 onlookMount invoked rootTag=' + rootTag + ' sessionId=' + (props && props.sessionId));
+  try {
+    // Call the runtime helpers DIRECTLY — RN AppRegistry overwrites our
+    // shell.js stub during main-bundle eval, so going through it hits RN's
+    // runnables map which knows OnlookMobileClient but not OnlookApp.
+    if (typeof globalThis._initReconciler !== 'function') {
+      _log('B13 onlookMount: _initReconciler missing'); return;
+    }
+    if (typeof globalThis.renderApp !== 'function') {
+      _log('B13 onlookMount: renderApp missing'); return;
+    }
+    if (!globalThis.fab) {
+      _log('B13 onlookMount: fab missing'); return;
+    }
+    globalThis.currentRootTag = rootTag;
+    globalThis._initReconciler(globalThis.fab, rootTag);
+    _log('B13 onlookMount: reconciler initialized for rootTag=' + rootTag);
+    var R = globalThis.React;
+    if (!R) { _log('B13 onlookMount: React missing'); return; }
+    globalThis.renderApp(
+      R.createElement('View', { style: { flex: 1, backgroundColor: 0xFF2d1b69 | 0, justifyContent: 'center', alignItems: 'center' } },
+        R.createElement('RCTText', { style: { fontSize: 24, fontWeight: '700', color: 0xFFFFFFFF | 0 } },
+          R.createElement('RCTRawText', { text: 'Onlook Runtime Ready' })
+        ),
+        R.createElement('RCTText', { style: { fontSize: 14, color: 0xFFA78BFA | 0, marginTop: 12 } },
+          R.createElement('RCTRawText', { text: 'Waiting for component code...' })
+        )
+      )
+    );
+    _log('B13 onlookMount: renderApp returned (rootTag=' + rootTag + ')');
+    // Connect WS to relay so component-code pushes can arrive
+    try {
+      if (typeof globalThis._tryConnectWebSocket === 'function') {
+        var host = (props && props.relayHost) || '192.168.0.17';
+        var port = (props && props.relayPort) || 8788;
+        _log('B13 onlookMount: connecting WS to ' + host + ':' + port);
+        globalThis._tryConnectWebSocket(host, port);
+      }
+    } catch (wsErr) { _log('B13 onlookMount WS err: ' + (wsErr && wsErr.message)); }
+  } catch (e) {
+    _log('B13 onlookMount ERROR: ' + (e && e.message));
+    if (e && e.stack) _log('B13 onlookMount stack: ' + e.stack.substring(0, 400));
+  }
+};
+_log('B13 onlookMount installed');

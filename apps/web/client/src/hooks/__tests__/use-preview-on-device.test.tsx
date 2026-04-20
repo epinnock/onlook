@@ -132,8 +132,9 @@ describe('runPreviewOnDevice', () => {
         }
         const ready = finalStatus as QrModalStatus & { kind: 'ready' };
         expect(ready.manifestUrl.length).toBeGreaterThan(0);
-        expect(ready.onlookUrl.length).toBeGreaterThan(0);
-        expect(ready.onlookUrl).toContain('onlook://launch');
+        expect(ready.onlookUrl).toBeDefined();
+        expect(ready.onlookUrl!.length).toBeGreaterThan(0);
+        expect(ready.onlookUrl!).toContain('onlook://launch');
         expect(ready.qrSvg.length).toBeGreaterThan(0);
     });
 

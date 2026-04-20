@@ -31,7 +31,7 @@ export type QrModalStatus =
     | { kind: 'idle' }
     | { kind: 'preparing' }
     | { kind: 'building' }
-    | { kind: 'ready'; manifestUrl: string; onlookUrl: string; qrSvg: string }
+    | { kind: 'ready'; manifestUrl: string; qrSvg: string; onlookUrl?: string }
     | { kind: 'error'; message: string };
 
 export type SimulatorTabStatus =
@@ -113,46 +113,78 @@ export function QrModalBody({ status, onRetry, onCopy }: QrModalBodyProps) {
                         dangerouslySetInnerHTML={{ __html: status.qrSvg }}
                     />
                     <p className="text-center text-sm text-foreground-secondary">
-                        Scan with the Onlook Mobile app, or open one of these URLs:
+                        Scan with the Onlook Mobile app, or open this URL:
                     </p>
-                    <code
-                        data-testid="qr-onlook-url"
-                        className="w-full break-all rounded-md bg-background-secondary px-3 py-2 text-xs"
-                    >
-                        {status.onlookUrl}
-                    </code>
-                    <button
-                        type="button"
-                        data-testid="qr-copy-btn"
-                        className={BUTTON_CLS}
-                        onClick={() => {
-                            if (onCopy) {
-                                onCopy(status.onlookUrl);
-                                return;
-                            }
-                            if (
-                                typeof navigator !== 'undefined' &&
-                                navigator.clipboard
-                            ) {
-                                void navigator.clipboard.writeText(
-                                    status.onlookUrl,
-                                );
-                            }
-                        }}
-                    >
-                        Copy Onlook URL
-                    </button>
-                    <details className="w-full">
-                        <summary className="cursor-pointer text-xs text-foreground-secondary">
-                            Expo Go fallback URL
-                        </summary>
-                        <code
-                            data-testid="qr-manifest-url"
-                            className="mt-1 block w-full break-all rounded-md bg-background-secondary px-3 py-2 text-xs"
-                        >
-                            {status.manifestUrl}
-                        </code>
-                    </details>
+                    {status.onlookUrl ? (
+                        <>
+                            <code
+                                data-testid="qr-onlook-url"
+                                className="w-full break-all rounded-md bg-background-secondary px-3 py-2 text-xs"
+                            >
+                                {status.onlookUrl}
+                            </code>
+                            <button
+                                type="button"
+                                data-testid="qr-copy-btn"
+                                className={BUTTON_CLS}
+                                onClick={() => {
+                                    const url = status.onlookUrl!;
+                                    if (onCopy) {
+                                        onCopy(url);
+                                        return;
+                                    }
+                                    if (
+                                        typeof navigator !== 'undefined' &&
+                                        navigator.clipboard
+                                    ) {
+                                        void navigator.clipboard.writeText(url);
+                                    }
+                                }}
+                            >
+                                Copy Onlook URL
+                            </button>
+                            <details className="w-full">
+                                <summary className="cursor-pointer text-xs text-foreground-secondary">
+                                    Expo Go fallback URL
+                                </summary>
+                                <code
+                                    data-testid="qr-manifest-url"
+                                    className="mt-1 block w-full break-all rounded-md bg-background-secondary px-3 py-2 text-xs"
+                                >
+                                    {status.manifestUrl}
+                                </code>
+                            </details>
+                        </>
+                    ) : (
+                        <>
+                            <code
+                                data-testid="qr-manifest-url"
+                                className="w-full break-all rounded-md bg-background-secondary px-3 py-2 text-xs"
+                            >
+                                {status.manifestUrl}
+                            </code>
+                            <button
+                                type="button"
+                                data-testid="qr-copy-btn"
+                                className={BUTTON_CLS}
+                                onClick={() => {
+                                    const url = status.manifestUrl;
+                                    if (onCopy) {
+                                        onCopy(url);
+                                        return;
+                                    }
+                                    if (
+                                        typeof navigator !== 'undefined' &&
+                                        navigator.clipboard
+                                    ) {
+                                        void navigator.clipboard.writeText(url);
+                                    }
+                                }}
+                            >
+                                Copy URL
+                            </button>
+                        </>
+                    )}
                 </div>
             )}
             {status.kind === 'error' && (

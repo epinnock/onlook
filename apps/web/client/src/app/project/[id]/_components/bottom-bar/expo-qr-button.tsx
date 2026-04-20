@@ -3,7 +3,7 @@
 import { useActiveProjectType } from '../editor-bar/hooks/use-project-type';
 import { useEditorEngine } from '@/components/store/editor';
 import { env } from '@/env';
-import { usePreviewOnDevice } from '@/hooks/use-preview-on-device';
+import { useMobilePreviewStatus } from '@/hooks/use-mobile-preview-status';
 import { ProjectType, getSandboxPreviewUrl, SandboxTemplates, Templates } from '@onlook/constants';
 import { Icons } from '@onlook/ui/icons';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@onlook/ui/tooltip';
@@ -34,21 +34,14 @@ export const ExpoQrButton = observer(() => {
     const sandbox = activeBranch ? editorEngine.branches.getSandboxById(activeBranch.id) : undefined;
     const tunnelUrl = sandbox?.expoTunnelUrl;
 
-    // FOUND-Q3.4 follow-up (2026-04-08): wire the Wave H/Q Hermes flow into
-    // the legacy ExpoQrButton so the existing UI affordance produces a real
-    // Expo Go manifest URL instead of the canvas iframe URL. The hook drives
-    // builder POST + poll + manifest-url construction; when ready, we render
-    // the manifest URL in the QR. Falls back to tunnel/web URL if the
-    // builder env vars aren't configured (preserves the legacy behavior).
-    const fs = editorEngine.fileSystem;
-    const projectId = editorEngine.projectId;
-    const branchId = activeBranch?.id;
-    const preview = usePreviewOnDevice({
-        fs,
-        projectId,
-        branchId: branchId ?? '',
-        builderBaseUrl: env.NEXT_PUBLIC_CF_ESM_BUILDER_URL,
-        relayBaseUrl: env.NEXT_PUBLIC_CF_EXPO_RELAY_URL,
+    // Browser-only mobile preview (2026-04-11): the QR points at the
+    // mobile-preview server's pre-staged static runtime bundle, NOT at a
+    // per-click Metro+Hermes build. Component edits flow over the WebSocket
+    // eval channel on the same server (wired separately). Falls back to
+    // tunnel/web URL when NEXT_PUBLIC_MOBILE_PREVIEW_URL is unset.
+    const preview = useMobilePreviewStatus({
+        serverBaseUrl: env.NEXT_PUBLIC_MOBILE_PREVIEW_URL,
+        fileSystem: editorEngine.fileSystem,
     });
 
     // Auto-trigger the build when the popup opens. Idempotent — the hook
@@ -60,16 +53,16 @@ export const ExpoQrButton = observer(() => {
     }, [showQr, preview]);
 
     // Pick the BEST URL to encode in the QR. Priority order:
-    //   1. Hermes manifest URL from the Wave H/Q flow (when builder is up)
+    //   1. mobile-preview manifest URL (browser-only path, runtime bundle)
     //   2. Legacy expo-cli tunnel URL (if a real `expo start --tunnel` is running)
     //   3. Canvas iframe URL (web preview, the original behavior)
     const manifestUrl =
         preview.status.kind === 'ready' ? preview.status.manifestUrl : null;
     const qrUrl = manifestUrl ?? tunnelUrl ?? webUrl;
     const hasExpoGoUrl = !!manifestUrl || !!tunnelUrl;
-    const isBuilding =
+    const isConnecting =
         preview.status.kind === 'preparing' || preview.status.kind === 'building';
-    const buildError =
+    const previewError =
         preview.status.kind === 'error' ? preview.status.message : null;
 
     // Early returns must come AFTER all hooks above so the hook order
@@ -139,17 +132,16 @@ export const ExpoQrButton = observer(() => {
                         </div>
                         <div className="flex flex-col gap-3">
                             <div className="flex items-center justify-center p-3 bg-white rounded-lg min-h-[180px] min-w-[180px]">
-                                {isBuilding ? (
+                                {isConnecting ? (
                                     <div className="flex flex-col items-center gap-2 text-foreground-tertiary text-xs text-center">
                                         <Icons.Reload className="w-5 h-5 animate-spin" />
-                                        <span>Building Hermes bundle...</span>
-                                        <span className="text-[10px]">~90s first time, instant on cache</span>
+                                        <span>Connecting to preview server...</span>
                                     </div>
-                                ) : buildError ? (
+                                ) : previewError ? (
                                     <div className="flex flex-col items-center gap-2 text-red-500 text-xs text-center px-2">
                                         <Icons.ExclamationTriangle className="w-5 h-5" />
-                                        <span className="font-medium">Build failed</span>
-                                        <span className="text-[10px] text-foreground-tertiary line-clamp-3">{buildError}</span>
+                                        <span className="font-medium">Preview unavailable</span>
+                                        <span className="text-[10px] text-foreground-tertiary line-clamp-3">{previewError}</span>
                                         <button
                                             onClick={() => void preview.retry()}
                                             className="mt-1 px-2 py-1 text-[10px] bg-background-tertiary hover:bg-background-tertiary/80 rounded"

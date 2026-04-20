@@ -1,22 +1,25 @@
 'use client';
 
 /**
- * TQ3.3 — "Preview on device" button.
+ * "Preview on device" button.
  *
- * Renders only when the active branch is an ExpoBrowser branch (the
- * Expo-Go-via-cf-esm-builder runtime). Clicking the button kicks off a
- * one-shot build via `usePreviewOnDevice` (TQ3.2) and opens a QR modal
- * (TQ3.1) that the user scans on a real device with Expo Go.
+ * Renders only when the active branch is an ExpoBrowser branch. The modal
+ * gives the user two ways to preview:
+ *
+ * - **On device (QR)** — polls the mobile-preview server's `/status`
+ *   endpoint and renders a QR pointing at the pre-staged static runtime
+ *   bundle. Component edits flow over the WebSocket eval channel on the
+ *   same server (wired separately).
+ *
+ * - **In browser (simulator)** — behind the
+ *   `NEXT_PUBLIC_FEATURE_SPECTRA_PREVIEW` flag, runs a full cf-esm-builder
+ *   build, provisions a Spectra-managed iOS simulator, and drops an
+ *   ephemeral simulator frame onto the canvas streaming the live MJPEG.
  *
  * The component intentionally returns `null` for non-ExpoBrowser branches
  * so the regular CodeSandbox/Cloudflare flows aren't cluttered with a
- * dead button. ExpoBrowser is detected via the persisted
- * `branch.sandbox.providerType` (set in branch settings, mirrored at
- * boot in `apps/web/client/src/components/store/editor/sandbox/session.ts`).
- *
- * The hook is invoked from a sub-component (`PreviewOnDeviceInner`) so
- * the Rules of Hooks aren't violated when we early-return `null` from
- * the outer observer for non-ExpoBrowser branches.
+ * dead button. The inner hook is invoked from a sub-component so the
+ * Rules of Hooks aren't violated when we early-return `null`.
  */
 
 import type { CodeFileSystem } from '@onlook/file-system';
@@ -27,7 +30,7 @@ import {
     type SimulatorTabStatus,
 } from '@/components/ui/qr-modal';
 import { env } from '@/env';
-import { usePreviewOnDevice } from '@/hooks/use-preview-on-device';
+import { useMobilePreviewStatus } from '@/hooks/use-mobile-preview-status';
 import { usePreviewInBrowser } from '@/hooks/use-preview-in-browser';
 import { api } from '@/trpc/react';
 import { Button } from '@onlook/ui/button';
@@ -44,7 +47,7 @@ export const PreviewOnDeviceButton = observer(function PreviewOnDeviceButton() {
 
     return (
         <PreviewOnDeviceInner
-            fs={editorEngine.fileSystem}
+            fileSystem={editorEngine.fileSystem}
             projectId={editorEngine.projectId}
             branchId={activeBranch.id}
         />
@@ -52,30 +55,27 @@ export const PreviewOnDeviceButton = observer(function PreviewOnDeviceButton() {
 });
 
 interface PreviewOnDeviceInnerProps {
-    fs: CodeFileSystem;
+    fileSystem: CodeFileSystem;
     projectId: string;
     branchId: string;
 }
 
 function PreviewOnDeviceInner({
-    fs,
+    fileSystem,
     projectId,
     branchId,
 }: PreviewOnDeviceInnerProps) {
-    // Pass the Phase H/Q endpoints from @/env. In dev these point at the
-    // local-builder-shim + local-relay-shim (port 8788/8787) over LAN IP;
-    // in production they point at the deployed cf-esm-builder + cf-expo-relay
-    // Worker URLs. When unset, the hook surfaces a clear error in the modal.
-    const preview = usePreviewOnDevice({
-        fs,
-        projectId,
-        branchId,
-        builderBaseUrl: env.NEXT_PUBLIC_CF_ESM_BUILDER_URL,
-        relayBaseUrl: env.NEXT_PUBLIC_CF_EXPO_RELAY_URL,
+    // On-device QR flow — new mobile-preview-shim static-runtime path.
+    const preview = useMobilePreviewStatus({
+        serverBaseUrl: env.NEXT_PUBLIC_MOBILE_PREVIEW_URL,
+        fileSystem,
     });
 
+    // Inline simulator flow — cf-esm-builder + Spectra. Gated by the
+    // feature flag; the hook short-circuits into an error state if the
+    // flag is off.
     const browser = usePreviewInBrowser({
-        fs,
+        fs: fileSystem,
         projectId,
         branchId,
         builderBaseUrl: env.NEXT_PUBLIC_CF_ESM_BUILDER_URL,
@@ -83,14 +83,11 @@ function PreviewOnDeviceInner({
     });
 
     const spectraEnabled = env.NEXT_PUBLIC_FEATURE_SPECTRA_PREVIEW;
-    // Only query health when the flag is on — otherwise the endpoint throws
-    // PRECONDITION_FAILED.
+    // Only query health when the flag is on — otherwise the endpoint
+    // throws PRECONDITION_FAILED.
     const healthQuery = api.spectra.health.useQuery(undefined, {
         enabled: spectraEnabled,
-        // Re-check every 30s while the modal is open so we notice if Spectra
-        // goes down mid-session. tRPC will back off automatically on failure.
         refetchInterval: preview.isOpen ? 30_000 : false,
-        // Don't retry on PRECONDITION_FAILED — the message is descriptive.
         retry: false,
     });
 
@@ -135,7 +132,9 @@ function PreviewOnDeviceInner({
     );
 }
 
-function toSimulatorTabStatus(status: ReturnType<typeof usePreviewInBrowser>['status']): SimulatorTabStatus {
+function toSimulatorTabStatus(
+    status: ReturnType<typeof usePreviewInBrowser>['status'],
+): SimulatorTabStatus {
     switch (status.kind) {
         case 'idle':
         case 'building':
