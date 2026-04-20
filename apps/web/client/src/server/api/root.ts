@@ -19,6 +19,7 @@ import {
 import { mobileInspectorRouter } from './routers/mobile-inspector';
 import { branchRouter } from './routers/project/branch';
 import { cfSandboxRouter } from './routers/project/cf-sandbox';
+import { spectraRouter } from './routers/spectra';
 
 /**
  * This is the primary router for your server.
@@ -44,6 +45,7 @@ export const appRouter = createTRPCRouter({
     usage: usageRouter,
     publish: publishRouter,
     mobileInspector: mobileInspectorRouter,
+    spectra: spectraRouter,
 });
 
 // export type definition of API

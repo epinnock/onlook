@@ -16,6 +16,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@onlook/ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@onlook/ui/tabs';
 
 // NOTE: `QrModalBody` intentionally uses plain <button> elements rather
 // than `@onlook/ui/button`. The `@onlook/ui` package pins React 18 in its
@@ -30,8 +31,26 @@ export type QrModalStatus =
     | { kind: 'idle' }
     | { kind: 'preparing' }
     | { kind: 'building' }
-    | { kind: 'ready'; manifestUrl: string; onlookUrl: string; qrSvg: string }
+    | { kind: 'ready'; manifestUrl: string; qrSvg: string; onlookUrl?: string }
     | { kind: 'error'; message: string };
+
+export type SimulatorTabStatus =
+    | { kind: 'idle' }
+    | { kind: 'building' }
+    | { kind: 'launching' }
+    | { kind: 'ready'; sessionId: string }
+    | { kind: 'error'; message: string };
+
+export interface SimulatorTabProps {
+    status: SimulatorTabStatus;
+    onLaunch: () => void;
+    onRetry?: () => void;
+    /**
+     * True when Spectra responds healthy. When false, the UI disables
+     * the Launch button and shows an inline explanation.
+     */
+    healthy: boolean;
+}
 
 export interface QrModalProps {
     open: boolean;
@@ -39,6 +58,12 @@ export interface QrModalProps {
     status: QrModalStatus;
     /** Called when the user clicks "Retry" after an error. */
     onRetry?: () => void;
+    /**
+     * Optional — supply to render the "In browser" tab. Omitted when the
+     * Spectra feature flag is off; falsy values collapse the tab list and
+     * the modal renders exactly like the pre-tabs version.
+     */
+    simulator?: SimulatorTabProps;
 }
 
 export interface QrModalBodyProps {
@@ -88,46 +113,78 @@ export function QrModalBody({ status, onRetry, onCopy }: QrModalBodyProps) {
                         dangerouslySetInnerHTML={{ __html: status.qrSvg }}
                     />
                     <p className="text-center text-sm text-foreground-secondary">
-                        Scan with the Onlook Mobile app, or open one of these URLs:
+                        Scan with the Onlook Mobile app, or open this URL:
                     </p>
-                    <code
-                        data-testid="qr-onlook-url"
-                        className="w-full break-all rounded-md bg-background-secondary px-3 py-2 text-xs"
-                    >
-                        {status.onlookUrl}
-                    </code>
-                    <button
-                        type="button"
-                        data-testid="qr-copy-btn"
-                        className={BUTTON_CLS}
-                        onClick={() => {
-                            if (onCopy) {
-                                onCopy(status.onlookUrl);
-                                return;
-                            }
-                            if (
-                                typeof navigator !== 'undefined' &&
-                                navigator.clipboard
-                            ) {
-                                void navigator.clipboard.writeText(
-                                    status.onlookUrl,
-                                );
-                            }
-                        }}
-                    >
-                        Copy Onlook URL
-                    </button>
-                    <details className="w-full">
-                        <summary className="cursor-pointer text-xs text-foreground-secondary">
-                            Expo Go fallback URL
-                        </summary>
-                        <code
-                            data-testid="qr-manifest-url"
-                            className="mt-1 block w-full break-all rounded-md bg-background-secondary px-3 py-2 text-xs"
-                        >
-                            {status.manifestUrl}
-                        </code>
-                    </details>
+                    {status.onlookUrl ? (
+                        <>
+                            <code
+                                data-testid="qr-onlook-url"
+                                className="w-full break-all rounded-md bg-background-secondary px-3 py-2 text-xs"
+                            >
+                                {status.onlookUrl}
+                            </code>
+                            <button
+                                type="button"
+                                data-testid="qr-copy-btn"
+                                className={BUTTON_CLS}
+                                onClick={() => {
+                                    const url = status.onlookUrl!;
+                                    if (onCopy) {
+                                        onCopy(url);
+                                        return;
+                                    }
+                                    if (
+                                        typeof navigator !== 'undefined' &&
+                                        navigator.clipboard
+                                    ) {
+                                        void navigator.clipboard.writeText(url);
+                                    }
+                                }}
+                            >
+                                Copy Onlook URL
+                            </button>
+                            <details className="w-full">
+                                <summary className="cursor-pointer text-xs text-foreground-secondary">
+                                    Expo Go fallback URL
+                                </summary>
+                                <code
+                                    data-testid="qr-manifest-url"
+                                    className="mt-1 block w-full break-all rounded-md bg-background-secondary px-3 py-2 text-xs"
+                                >
+                                    {status.manifestUrl}
+                                </code>
+                            </details>
+                        </>
+                    ) : (
+                        <>
+                            <code
+                                data-testid="qr-manifest-url"
+                                className="w-full break-all rounded-md bg-background-secondary px-3 py-2 text-xs"
+                            >
+                                {status.manifestUrl}
+                            </code>
+                            <button
+                                type="button"
+                                data-testid="qr-copy-btn"
+                                className={BUTTON_CLS}
+                                onClick={() => {
+                                    const url = status.manifestUrl;
+                                    if (onCopy) {
+                                        onCopy(url);
+                                        return;
+                                    }
+                                    if (
+                                        typeof navigator !== 'undefined' &&
+                                        navigator.clipboard
+                                    ) {
+                                        void navigator.clipboard.writeText(url);
+                                    }
+                                }}
+                            >
+                                Copy URL
+                            </button>
+                        </>
+                    )}
                 </div>
             )}
             {status.kind === 'error' && (
@@ -154,7 +211,7 @@ export function QrModalBody({ status, onRetry, onCopy }: QrModalBodyProps) {
     );
 }
 
-export function QrModal({ open, onClose, status, onRetry }: QrModalProps) {
+export function QrModal({ open, onClose, status, onRetry, simulator }: QrModalProps) {
     return (
         <Dialog
             open={open}
@@ -164,13 +221,96 @@ export function QrModal({ open, onClose, status, onRetry }: QrModalProps) {
         >
             <DialogContent className="max-w-md">
                 <DialogHeader>
-                    <DialogTitle>Preview on device</DialogTitle>
+                    <DialogTitle>Preview</DialogTitle>
                     <DialogDescription>
-                        Scan the QR code with the Onlook Mobile app to open this project on your phone.
+                        {simulator
+                            ? 'Scan with the Onlook Mobile app, or run it on an inline simulator.'
+                            : 'Scan the QR code with the Onlook Mobile app to open this project on your phone.'}
                     </DialogDescription>
                 </DialogHeader>
-                <QrModalBody status={status} onRetry={onRetry} />
+                {simulator ? (
+                    <Tabs defaultValue="device" className="w-full">
+                        <TabsList className="w-full" data-testid="qr-modal-tabs">
+                            <TabsTrigger value="device" data-testid="qr-tab-device">
+                                On device
+                            </TabsTrigger>
+                            <TabsTrigger value="browser" data-testid="qr-tab-browser">
+                                In browser
+                            </TabsTrigger>
+                        </TabsList>
+                        <TabsContent value="device">
+                            <QrModalBody status={status} onRetry={onRetry} />
+                        </TabsContent>
+                        <TabsContent value="browser">
+                            <SimulatorTabBody {...simulator} />
+                        </TabsContent>
+                    </Tabs>
+                ) : (
+                    <QrModalBody status={status} onRetry={onRetry} />
+                )}
             </DialogContent>
         </Dialog>
+    );
+}
+
+export function SimulatorTabBody({ status, onLaunch, onRetry, healthy }: SimulatorTabProps) {
+    return (
+        <div data-testid="sim-tab-body" className="flex flex-col gap-3">
+            {!healthy && (
+                <p
+                    data-testid="sim-status-unhealthy"
+                    className="text-sm text-foreground-secondary"
+                >
+                    Simulator unavailable. Check that Spectra is running and reachable from the Onlook server.
+                </p>
+            )}
+            {status.kind === 'idle' && healthy && (
+                <div className="flex flex-col gap-2">
+                    <p className="text-sm text-foreground-secondary">
+                        Runs your build on an inline iOS simulator. You can still use the QR tab to preview on a physical device.
+                    </p>
+                    <button
+                        type="button"
+                        data-testid="sim-launch-btn"
+                        className={BUTTON_CLS}
+                        onClick={onLaunch}
+                    >
+                        Launch simulator
+                    </button>
+                </div>
+            )}
+            {status.kind === 'building' && (
+                <p data-testid="sim-status-building" className="text-sm text-foreground-secondary">
+                    Bundling your project&hellip;
+                </p>
+            )}
+            {status.kind === 'launching' && (
+                <p data-testid="sim-status-launching" className="text-sm text-foreground-secondary">
+                    Starting simulator&hellip; this can take up to a minute the first time.
+                </p>
+            )}
+            {status.kind === 'ready' && (
+                <p data-testid="sim-status-ready" className="text-sm text-foreground-secondary">
+                    Simulator live on the canvas. Close the modal to keep it open, or tear it down here.
+                </p>
+            )}
+            {status.kind === 'error' && (
+                <div className="flex flex-col gap-3">
+                    <p data-testid="sim-status-error" className="text-sm text-red-300">
+                        Error: {status.message}
+                    </p>
+                    {onRetry && (
+                        <button
+                            type="button"
+                            data-testid="sim-retry-btn"
+                            className={BUTTON_CLS}
+                            onClick={onRetry}
+                        >
+                            Retry
+                        </button>
+                    )}
+                </div>
+            )}
+        </div>
     );
 }

@@ -322,4 +322,23 @@ export class FramesManager {
             await this.delete(frame.frame.id);
         }
     }
+
+    /**
+     * Add a frame to the in-memory canvas without persisting to the DB.
+     * Used for Spectra simulator preview sessions, which live only for the
+     * duration of the "Preview in browser" flow and never need to survive
+     * a reload. Pair with {@link removeEphemeral} for teardown.
+     */
+    createEphemeral(frame: Frame): void {
+        this._frameIdToData.set(frame.id, { frame, view: null, selected: false });
+        this.notify();
+    }
+
+    /** Inverse of {@link createEphemeral}. No-op if the id isn't registered. */
+    removeEphemeral(id: string): void {
+        if (!this._frameIdToData.has(id)) return;
+        this._frameIdToData.delete(id);
+        this._navigation.removeFrame(id);
+        this.notify();
+    }
 }
