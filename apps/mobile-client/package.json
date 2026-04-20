@@ -1,0 +1,66 @@
+{
+    "name": "@onlook/mobile-client",
+    "version": "0.0.0",
+    "private": true,
+    "description": "Purpose-built iOS/Android client that replaces stock Expo Go in the Onlook preview pipeline. Consumes cf-expo-relay bundles via a documented OnlookRuntime JSI binding instead of the Spike B scraping path. See plans/onlook-mobile-client-plan.md.",
+    "main": "index.js",
+    "type": "module",
+    "scripts": {
+        "start": "expo start --dev-client",
+        "ios": "expo run:ios",
+        "android": "expo run:android",
+        "prebuild": "expo prebuild --clean",
+        "typecheck": "tsc --noEmit",
+        "test": "bun run scripts/run-tests-isolated.ts",
+        "lint": "eslint . --max-warnings 0",
+        "format": "eslint --fix .",
+        "clean": "rm -rf node_modules",
+        "bundle-runtime": "bun run scripts/bundle-runtime.ts",
+        "mobile:build:ios": "bun run scripts/run-build.ts",
+        "mobile:install:device": "bun run scripts/install-device.ts",
+        "mobile:audit:size": "bun run scripts/run-audit-size.ts",
+        "mobile:build:testflight": "bash scripts/build-testflight.sh",
+        "mobile:build:play-internal": "bash scripts/build-play-internal.sh",
+        "eas:build:preview": "bun x eas-cli build --profile preview --platform ios --non-interactive",
+        "eas:submit:preview": "bun x eas-cli submit --profile preview --platform ios --non-interactive",
+        "eas:build:preview:android": "bun x eas-cli build --profile preview --platform android --non-interactive",
+        "eas:submit:preview:android": "bun x eas-cli submit --profile preview --platform android --non-interactive --track internal",
+        "mobile:e2e:ios": "bun run scripts/run-e2e.ts",
+        "mobile:e2e:android": "bun run scripts/run-e2e.ts",
+        "mobile:audit:bundle-size": "bun --cwd ../../packages/browser-metro scripts/bundle-size-audit.ts --fixture=hello-onlook"
+    },
+    "dependencies": {
+        "@onlook/mobile-client-protocol": "*",
+        "expo": "~54.0.33",
+        "expo-camera": "~17.0.10",
+        "expo-haptics": "~15.0.8",
+        "expo-secure-store": "~15.0.8",
+        "react": "19.1.4",
+        "react-native": "0.81.6",
+        "zod": "^3.23.8"
+    },
+    "devDependencies": {
+        "@onlook/eslint": "*",
+        "@onlook/typescript": "*",
+        "@types/react": "~19.1.0",
+        "eslint": "^9.0.0",
+        "typescript": "^5.5.4"
+    },
+    "keywords": [
+        "onlook",
+        "mobile-client",
+        "expo",
+        "react-native",
+        "jsi"
+    ],
+    "author": {
+        "name": "Onlook",
+        "email": "contact@onlook.com"
+    },
+    "license": "Apache-2.0",
+    "homepage": "https://onlook.com",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/onlook-dev/onlook.git"
+    }
+}

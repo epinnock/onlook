@@ -1,0 +1,35 @@
+# 19-navigation.yaml — Wave 3 task MC3.20 of plans/onlook-mobile-client-task-queue.md.
+#
+# Asserts the app router wires screens correctly:
+#   1. Launch — LauncherScreen is the initial screen
+#   2. Navigate to Settings — tap "Settings", assert settings visible
+#   3. Go back — tap "Back", assert launcher visible again
+#
+# NOTE: This flow requires a built .app with MC3.20 wiring in place.
+
+appId: com.onlook.mobile
+---
+- launchApp:
+    clearState: true
+- waitForAnimationToEnd:
+    timeout: 8000
+
+# Assert launcher screen is visible on cold start
+- assertVisible: "Scan QR"
+- assertVisible: "Recent sessions"
+- assertVisible: "Settings"
+
+# Navigate to Settings
+- tapOn: "Settings"
+- waitForAnimationToEnd:
+    timeout: 3000
+- assertVisible: "Relay host"
+- assertVisible: "Clear recent sessions"
+- assertVisible: "Dev menu"
+
+# Go back to launcher
+- tapOn: "Back"
+- waitForAnimationToEnd:
+    timeout: 3000
+- assertVisible: "Scan QR"
+- assertVisible: "Settings"

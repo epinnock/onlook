@@ -80,6 +80,31 @@ export function toExpoScheme(baseUrl: string): string {
     return baseUrl;
 }
 
+/**
+ * Build an `onlook://launch?session=<bundleHash>&relay=<relayBaseUrl>` deep
+ * link. The Onlook Mobile Client (MC3.3 parser + MC3.4 handler) resolves
+ * this scheme natively.
+ *
+ * The `session` parameter carries the 64-char hex bundle hash so the client
+ * can fetch the correct manifest from the relay. The `relay` parameter is
+ * the HTTP(S) base URL of cf-expo-relay (e.g.
+ * `http://192.168.1.42:8787`); the client rewrites it to the transport URL
+ * internally.
+ *
+ * @example
+ *   buildOnlookDeepLink(hash, { relayBaseUrl: 'http://192.168.1.42:8787' })
+ *   // => 'onlook://launch?session=<hash>&relay=http%3A%2F%2F192.168.1.42%3A8787'
+ */
+export function buildOnlookDeepLink(
+    bundleHash: string,
+    opts: { relayBaseUrl: string },
+): string {
+    validateBundleHash(bundleHash);
+    const relay = stripTrailingSlash(opts.relayBaseUrl);
+    const params = new URLSearchParams({ session: bundleHash, relay });
+    return `onlook://launch?${params.toString()}`;
+}
+
 function stripTrailingSlash(url: string): string {
     return url.endsWith('/') ? url.slice(0, -1) : url;
 }

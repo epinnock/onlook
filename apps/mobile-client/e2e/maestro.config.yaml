@@ -1,0 +1,18 @@
+# Maestro harness config for @onlook/mobile-client.
+# Phase F task MCF9 of plans/onlook-mobile-client-task-queue.md.
+#
+# Flows live under apps/mobile-client/e2e/flows/<NN>-<slug>.yaml and are
+# driven by `maestro test e2e/flows/<flow>.yaml`. Results land in
+# apps/mobile-client/verification/results.json which the orchestrator
+# jq-checks for pass/fail gates.
+#
+# The `flattenDebugOutput: true` setting keeps Maestro's debug artifacts
+# under apps/mobile-client/verification/maestro-debug/ instead of a nested
+# tree, matching the path the CI `actions/upload-artifact@v4` step expects.
+
+appId: com.onlook.mobile
+flattenDebugOutput: true
+
+# Maestro cloud is NOT used in v1. The harness runs locally on an iOS
+# Simulator / Android Emulator via `maestro test` or in CI via the same
+# command on a macos-14 runner.

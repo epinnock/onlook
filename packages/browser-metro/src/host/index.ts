@@ -19,9 +19,13 @@ import { rewriteBareImports } from './bare-import-rewriter';
 import { walkVfs } from './file-walker';
 import { resolveEntry } from './entry-resolver';
 import { wrapAsIIFE, type IIFEModule } from './iife-wrapper';
+import { checkReactVersions } from './react-version-guard';
+import { transformWithJsxSource } from './sucrase-jsx-source';
 import {
     BundleError,
     type BrowserMetroOptions,
+    type BundleOptions,
+    type BundleTarget,
     type BundleModule,
     type BundleResult,
     type Vfs,
@@ -31,6 +35,8 @@ export class BrowserMetro {
     private readonly vfs: Vfs;
     private readonly esmUrl: string;
     private readonly broadcastChannelName: string;
+    private readonly target: BundleTarget;
+    private readonly isDev: boolean;
     private readonly logger: BrowserMetroOptions['logger'];
     private channel: BroadcastChannel | null = null;
     private latestBundle: BundleResult | null = null;
@@ -39,6 +45,8 @@ export class BrowserMetro {
     constructor(options: BrowserMetroOptions) {
         this.vfs = options.vfs;
         this.esmUrl = options.esmUrl;
+        this.target = options.target ?? 'expo-go';
+        this.isDev = options.isDev !== false;
         this.broadcastChannelName = options.broadcastChannel ?? 'onlook-preview';
         this.logger = options.logger ?? {
             debug: (m) => console.debug('[browser-metro]', m),
@@ -73,10 +81,31 @@ export class BrowserMetro {
      * Walk the Vfs, rewrite bare imports, transpile each file, resolve the
      * entry, and wrap everything in a self-contained IIFE.
      * Throws BundleError on transpile failure.
+     *
+     * When `options.projectDependencies` is provided, the bundler first runs
+     * the MC6.4 React version guard and throws a `BundleError` on mismatch
+     * before any transpile work. Omitting the option preserves back-compat
+     * for callers without access to the project's `package.json`.
      */
-    async bundle(): Promise<BundleResult> {
+    async bundle(options: BundleOptions = {}): Promise<BundleResult> {
         const start = performance.now();
         try {
+            // 0. MC6.4: bundle-time React version guard. Only runs when the
+            // caller supplies the project's dependency map; otherwise we skip
+            // silently for back-compat with existing callers (e.g. the TR4.1
+            // file-watcher loop and the legacy host tests).
+            if (options.projectDependencies) {
+                const guard = checkReactVersions({
+                    react: options.projectDependencies.react,
+                    'react-reconciler': options.projectDependencies['react-reconciler'],
+                });
+                if (!guard.ok) {
+                    throw new BundleError(
+                        `React version guard failed:\n  - ${guard.errors.join('\n  - ')}`,
+                    );
+                }
+            }
+
             // 1. Walk the Vfs.
             const walked = await walkVfs(this.vfs);
 
@@ -120,6 +149,14 @@ export class BrowserMetro {
                 });
             };
 
+            // MC4.13: when targeting onlook-client in dev mode, use the
+            // jsx-source transform (MC4.12) so every React.createElement
+            // call carries __source metadata for the inspector. This swaps
+            // the JSX runtime from automatic to classic and adds a second
+            // Sucrase pass for the `imports` transform.
+            const useJsxSource =
+                this.target === 'onlook-client' && this.isDev;
+
             for (const file of walked) {
                 try {
                     const rewritten = rewriteBareImports(file.content, {
@@ -131,15 +168,37 @@ export class BrowserMetro {
                     for (const url of rewritten.bareImportUrls) {
                         allBareUrls.add(url);
                     }
-                    const transformed = transform(rewritten.code, {
-                        transforms: ['jsx', 'typescript', 'imports'],
-                        production: false,
-                        jsxRuntime: 'automatic',
-                        filePath: file.path,
-                    });
+
+                    let transpiled: string;
+                    if (useJsxSource) {
+                        // Step A: jsx + ts via classic runtime with __source
+                        // injection (MC4.12).
+                        const jsxResult = transformWithJsxSource(
+                            rewritten.code,
+                            file.path,
+                            { isDev: true },
+                        );
+                        // Step B: CJS module transform (import/export →
+                        // require/module.exports) so the IIFE wrapper's
+                        // require() runtime can resolve modules.
+                        const importsResult = transform(jsxResult.code, {
+                            transforms: ['imports'],
+                            filePath: file.path,
+                        });
+                        transpiled = importsResult.code;
+                    } else {
+                        const transformed = transform(rewritten.code, {
+                            transforms: ['jsx', 'typescript', 'imports'],
+                            production: false,
+                            jsxRuntime: 'automatic',
+                            filePath: file.path,
+                        });
+                        transpiled = transformed.code;
+                    }
+
                     // Post-sucrase rewrite: catch any require('bare-name')
                     // that the JSX runtime auto-injection added.
-                    const finalCode = rewritePostSucraseRequires(transformed.code);
+                    const finalCode = rewritePostSucraseRequires(transpiled);
                     modules[file.path] = {
                         path: file.path,
                         code: finalCode,
@@ -197,9 +256,13 @@ export class BrowserMetro {
     /**
      * Re-run the bundle. Used by BrowserTask.restart() and the
      * file-watcher debounce in the Wave H integration.
+     *
+     * Accepts the same `BundleOptions` as `bundle()` so callers can re-run
+     * with a fresh `projectDependencies` snapshot (e.g. after the user edits
+     * `package.json`).
      */
-    async invalidate(): Promise<void> {
-        await this.bundle();
+    async invalidate(options: BundleOptions = {}): Promise<void> {
+        await this.bundle(options);
     }
 
     /** Tear down the BroadcastChannel and clear listeners. */

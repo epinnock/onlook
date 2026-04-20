@@ -1,0 +1,80 @@
+/**
+ * Run every `*.test.ts` file under `src/` in its OWN `bun test` process.
+ *
+ * Why: Bun's `mock.module(specifier, factory)` is process-wide and persists
+ * across test files in a single `bun test` run — there is no auto-restore
+ * hook at file boundaries. Files that mock paths later imported by other
+ * tests (e.g. `flow/__tests__/qrToMount.test.ts` mocks `../../deepLink/parse`
+ * and `../../relay/manifestFetcher`) will poison later-running tests that
+ * depend on the real implementations.
+ *
+ * Running each test file in a fresh child process gives us clean isolation
+ * without having to manually restore every `mock.module` registration.
+ *
+ * Usage:
+ *   bun run test                  # run all tests (invoked from package.json)
+ *   bun run scripts/run-tests-isolated.ts [pattern...]
+ *
+ * If arguments are passed, they are used as glob patterns relative to `src/`;
+ * otherwise all `*.test.ts` files are discovered.
+ */
+
+import { spawnSync } from 'node:child_process';
+import { readdirSync } from 'node:fs';
+import { join, relative, resolve } from 'node:path';
+
+const ROOT = resolve(import.meta.dir, '..');
+// `ONLOOK_TEST_ROOT` lets us point the runner at an alternate directory
+// (absolute path) whose `*.test.ts` files should be discovered instead of
+// the default `src/`. Used by scripts/__tests__/run-tests-isolated.test.ts
+// to exercise the runner against fixture trees; production callers leave
+// it unset and the default `src/` behavior applies.
+const SRC = process.env.ONLOOK_TEST_ROOT
+    ? resolve(process.env.ONLOOK_TEST_ROOT)
+    : join(ROOT, 'src');
+
+function walk(dir: string, out: string[] = []): string[] {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) walk(full, out);
+        else if (entry.isFile() && full.endsWith('.test.ts')) out.push(full);
+    }
+    return out;
+}
+
+const files = walk(SRC).sort();
+
+let totalPass = 0;
+let totalFail = 0;
+const failingFiles: string[] = [];
+
+for (const file of files) {
+    const rel = relative(ROOT, file);
+    const res = spawnSync('bun', ['test', file], {
+        cwd: ROOT,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        encoding: 'utf8',
+    });
+    const out = (res.stdout ?? '') + (res.stderr ?? '');
+    const passMatch = out.match(/^\s*(\d+)\s+pass\s*$/m);
+    const failMatch = out.match(/^\s*(\d+)\s+fail\s*$/m);
+    const pass = passMatch ? Number(passMatch[1]) : 0;
+    const fail = failMatch ? Number(failMatch[1]) : 0;
+    totalPass += pass;
+    totalFail += fail;
+    if (res.status !== 0 || fail > 0) {
+        failingFiles.push(rel);
+        process.stdout.write(out);
+        console.error(`\n[FAIL] ${rel} (pass=${pass} fail=${fail})\n`);
+    } else {
+        console.log(`[pass] ${rel} (${pass})`);
+    }
+}
+
+console.log(`\n=== Summary ===`);
+console.log(`Files: ${files.length}   pass: ${totalPass}   fail: ${totalFail}`);
+if (failingFiles.length > 0) {
+    console.log(`Failing files:\n  ${failingFiles.join('\n  ')}`);
+    process.exit(1);
+}
+process.exit(0);

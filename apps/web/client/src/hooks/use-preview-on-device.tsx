@@ -23,7 +23,11 @@ import {
     BuildOrchestrator,
     type BuildStatus,
 } from '@/services/expo-builder';
-import { buildManifestUrl, renderQrSvg } from '@/services/expo-relay';
+import {
+    buildManifestUrl,
+    buildOnlookDeepLink,
+    renderQrSvg,
+} from '@/services/expo-relay';
 
 import type { QrModalStatus } from '@/components/ui/qr-modal';
 
@@ -40,6 +44,7 @@ export interface UsePreviewOnDeviceDeps {
         branchId: string;
     }) => Pick<BuildOrchestrator, 'build' | 'dispose'>;
     buildManifestUrl?: typeof buildManifestUrl;
+    buildOnlookDeepLink?: typeof buildOnlookDeepLink;
     renderQrSvg?: typeof renderQrSvg;
 }
 
@@ -127,6 +132,8 @@ export async function runPreviewOnDevice(args: {
                     branchId: bid,
                 }));
         const manifestUrlBuilder = deps?.buildManifestUrl ?? buildManifestUrl;
+        const onlookDeepLinkBuilder =
+            deps?.buildOnlookDeepLink ?? buildOnlookDeepLink;
         const qrRenderer = deps?.renderQrSvg ?? renderQrSvg;
 
         const client = clientFactory(builderBaseUrl);
@@ -155,9 +162,15 @@ export async function runPreviewOnDevice(args: {
         const manifestUrl = manifestUrlBuilder(result.bundleHash, {
             relayBaseUrl,
         });
-        const qrSvg = await qrRenderer(manifestUrl);
+        const onlookUrl = onlookDeepLinkBuilder(result.bundleHash, {
+            relayBaseUrl,
+        });
+        // QR encodes the onlook:// deep link — the Onlook Mobile Client
+        // is the primary scan target (MC3.19). The exp:// manifest URL is
+        // kept as a secondary fallback displayed in the modal.
+        const qrSvg = await qrRenderer(onlookUrl);
 
-        setStatus({ kind: 'ready', manifestUrl, qrSvg });
+        setStatus({ kind: 'ready', manifestUrl, onlookUrl, qrSvg });
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         setStatus({ kind: 'error', message });

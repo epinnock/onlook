@@ -1,6 +1,8 @@
 /// <reference types="bun" />
 import { describe, expect, test } from "bun:test";
 
+import { ONLOOK_RUNTIME_VERSION } from "@onlook/mobile-client-protocol";
+
 import {
     buildManifest,
     bundleHashToUuidV4,
@@ -145,6 +147,25 @@ describe("buildManifest", () => {
     test("extra.expoClient.hostUri is set to the relay host", () => {
         const manifest = buildManifest(baseInput());
         expect(manifest.extra.expoClient.hostUri).toBe(FIXED_RELAY_HOST);
+    });
+
+    test("extra.expoClient.onlookRuntimeVersion is sourced from @onlook/mobile-client-protocol (MC6.2)", () => {
+        const manifest = buildManifest(baseInput());
+        // Must come from the protocol package's SSOT — never hardcoded here,
+        // so MCF7/MC6.1 bumps propagate automatically.
+        expect(manifest.extra.expoClient.onlookRuntimeVersion).toBe(
+            ONLOOK_RUNTIME_VERSION,
+        );
+        expect(manifest.extra.expoClient.onlookRuntimeVersion).toMatch(
+            /^\d+\.\d+\.\d+$/,
+        );
+    });
+
+    test("extra.expoClient.onlookRuntimeVersion is present on both ios and android manifests", () => {
+        const a = buildManifest(baseInput({ platform: "android" }));
+        const i = buildManifest(baseInput({ platform: "ios" }));
+        expect(a.extra.expoClient.onlookRuntimeVersion).toBe(ONLOOK_RUNTIME_VERSION);
+        expect(i.extra.expoClient.onlookRuntimeVersion).toBe(ONLOOK_RUNTIME_VERSION);
     });
 
     test("extra.expoGo block matches expo-cli's exact shape", () => {

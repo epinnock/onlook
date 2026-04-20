@@ -1,0 +1,22 @@
+# 18-error-screen.yaml — Wave 3 task MC3.17 of plans/onlook-mobile-client-task-queue.md.
+#
+# Asserts the error screen renders its key affordances:
+#   1. Error title heading
+#   2. Error message body
+#   3. "Retry" action button
+#   4. "Go back" action button
+#
+# NOTE: This flow will timeout on the bare-scaffold app because App.tsx
+# doesn't yet route to ErrorScreen. The wiring lands in MC3.20 (app
+# router). The flow file is authored now so validate-task.ts can locate
+# it and the maestro YAML is ready when the router is in place.
+
+appId: com.onlook.mobile
+---
+- launchApp:
+    clearState: true
+- waitForAnimationToEnd:
+    timeout: 8000
+- assertVisible: "Something went wrong"
+- assertVisible: "Retry"
+- assertVisible: "Go back"

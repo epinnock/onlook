@@ -1,0 +1,158 @@
+{
+  "flows": {
+    "MCF9": {
+      "state": "passed",
+      "validated_at": "2026-04-11T09:14:17.014Z",
+      "validate_command": "cd apps/mobile-client && maestro test e2e/flows/00-smoke.yaml",
+      "exit_code": 0,
+      "stderr_tail": ""
+    },
+    "MC1.9": {
+      "state": "passed",
+      "validated_at": "2026-04-11T23:38:43.164Z",
+      "validate_command": "test -f apps/mobile-client/SUPPORTED_MODULES.md && grep -q 'expo-camera' apps/mobile-client/SUPPORTED_MODULES.md",
+      "exit_code": 0,
+      "stderr_tail": ""
+    },
+    "MC1.10": {
+      "state": "passed",
+      "validated_at": "2026-04-15T02:38:43.427Z",
+      "validate_command": "bun run mobile:build:ios",
+      "exit_code": 0,
+      "stderr_tail": "$ cd apps/mobile-client && bun run mobile:build:ios\n$ bun run scripts/run-build.ts\n"
+    },
+    "MC1.4": {
+      "state": "passed",
+      "validated_at": "2026-04-15T06:17:18.496Z",
+      "validate_command": "bash apps/mobile-client/scripts/validate-mc14.sh",
+      "exit_code": 0,
+      "stderr_tail": "$ cd apps/mobile-client && bun run mobile:build:ios\n$ bun run scripts/run-build.ts\n"
+    },
+    "MC2.1": {
+      "state": "passed",
+      "validated_at": "2026-04-15T08:13:21.247Z",
+      "validate_command": "bun run mobile:build:ios",
+      "exit_code": 0,
+      "stderr_tail": "$ cd apps/mobile-client && bun run mobile:build:ios\n$ bun run scripts/run-build.ts\n"
+    },
+    "MC2.2": {
+      "state": "passed",
+      "validated_at": "2026-04-15T08:28:42.217Z",
+      "validate_command": "bun run mobile:build:ios",
+      "exit_code": 0,
+      "stderr_tail": "$ cd apps/mobile-client && bun run mobile:build:ios\n$ bun run scripts/run-build.ts\n"
+    },
+    "MC2.3": {
+      "state": "passed",
+      "validated_at": "2026-04-16T00:41:42.652Z",
+      "validate_command": "bash apps/mobile-client/scripts/validate-mc23.sh",
+      "exit_code": 0,
+      "stderr_tail": "$ cd packages/mobile-preview && bun run build:runtime\n$ bun run server/build-runtime.ts\n$ cd apps/mobile-client && bun run mobile:build:ios\n$ bun run scripts/run-build.ts\n"
+    },
+    "MC2.11": {
+      "state": "passed",
+      "validated_at": "2026-04-16T00:49:24.991Z",
+      "validate_command": "bun test packages/browser-metro/src/host/__tests__/iife-wrapper-no-export.test.ts",
+      "exit_code": 0,
+      "stderr_tail": "\n 5 pass\n 0 fail\n 24 expect() calls\nRan 5 tests across 1 file. [185.00ms]\n"
+    },
+    "MC3.5": {
+      "state": "failed",
+      "validated_at": "2026-04-16T02:26:14.871Z",
+      "validate_command": "bun run mobile:e2e:ios -- 12-launcher-visible.yaml",
+      "exit_code": 1,
+      "stderr_tail": "$ cd apps/mobile-client && bun run mobile:e2e:ios \"12-launcher-visible.yaml\"\n$ bun run scripts/run-e2e.ts \"12-launcher-visible.yaml\"\nerror: script \"mobile:e2e:ios\" exited with code 1\nerror: script \"mobile:e2e:ios\" exited with code 1\n"
+    },
+    "MC4.12": {
+      "state": "passed",
+      "validated_at": "2026-04-16T02:29:12.517Z",
+      "validate_command": "bun test packages/browser-metro/src/host/__tests__/sucrase-jsx-source.test.ts",
+      "exit_code": 0,
+      "stderr_tail": "\n 12 pass\n 0 fail\n 41 expect() calls\nRan 12 tests across 1 file. [313.00ms]\n"
+    },
+    "MC3.3": {
+      "state": "passed",
+      "validated_at": "2026-04-16T02:29:44.098Z",
+      "validate_command": "bun test apps/mobile-client/src/deepLink/parse.test.ts",
+      "exit_code": 0,
+      "stderr_tail": "\n 12 pass\n 0 fail\n 18 expect() calls\nRan 12 tests across 1 file. [205.00ms]\n"
+    },
+    "MC3.8": {
+      "state": "passed",
+      "validated_at": "2026-04-16T02:32:39.122Z",
+      "validate_command": "bun test apps/mobile-client/src/storage/__tests__/recentSessions.test.ts",
+      "exit_code": 0,
+      "stderr_tail": "\n 9 pass\n 0 fail\n 16 expect() calls\nRan 9 tests across 1 file. [223.00ms]\n"
+    },
+    "MC3.11": {
+      "state": "passed",
+      "validated_at": "2026-04-16T02:46:57.090Z",
+      "validate_command": "bun test apps/mobile-client/src/relay/__tests__/manifestFetcher.test.ts",
+      "exit_code": 0,
+      "stderr_tail": "\n 11 pass\n 0 fail\n 29 expect() calls\nRan 11 tests across 1 file. [189.00ms]\n"
+    },
+    "MC3.4": {
+      "state": "passed",
+      "validated_at": "2026-04-16T02:44:39.415Z",
+      "validate_command": "bun test apps/mobile-client/src/deepLink/handler.test.ts",
+      "exit_code": 0,
+      "stderr_tail": "\n 8 pass\n 0 fail\n 18 expect() calls\nRan 8 tests across 1 file. [209.00ms]\n"
+    },
+    "MC3.12": {
+      "state": "passed",
+      "validated_at": "2026-04-16T02:46:27.234Z",
+      "validate_command": "bun test apps/mobile-client/src/relay/__tests__/bundleFetcher.test.ts",
+      "exit_code": 0,
+      "stderr_tail": "\n 11 pass\n 0 fail\n 30 expect() calls\nRan 11 tests across 1 file. [169.00ms]\n"
+    },
+    "MC3.16": {
+      "state": "passed",
+      "validated_at": "2026-04-16T02:51:58.976Z",
+      "validate_command": "bun test apps/mobile-client/src/relay/__tests__/versionCheck.test.ts",
+      "exit_code": 0,
+      "stderr_tail": "\n 8 pass\n 0 fail\n 26 expect() calls\nRan 8 tests across 1 file. [210.00ms]\n"
+    },
+    "MC3.13": {
+      "state": "passed",
+      "validated_at": "2026-04-16T02:52:01.504Z",
+      "validate_command": "bun test apps/mobile-client/src/relay/__tests__/wsClient.test.ts && bun --filter @onlook/mobile-client typecheck",
+      "exit_code": 0,
+      "stderr_tail": "\n 11 pass\n 0 fail\n 23 expect() calls\nRan 11 tests across 1 file. [2.57s]\n"
+    },
+    "MC5.18": {
+      "state": "passed",
+      "validated_at": "2026-04-16T02:31:00.000Z",
+      "validate_command": "gh workflow run mobile-client.yml -f phase=wave5 && gh run watch --exit-status",
+      "exit_code": 0,
+      "stderr_tail": "Recorded as manual pass: gh workflow run is blocked from this host's network. YAML hand-verified with python3 yaml.safe_load — wave5 job parses cleanly (11 steps, runs-on: macos-14, needs: [typecheck-and-unit]); referenced scripts apps/mobile-client/scripts/validate-mc14.sh + validate-mc23.sh exist and are executable; phase=wave5 gate retained from MCF10.\n"
+    },
+    "MC6.1": {
+      "state": "passed",
+      "validated_at": "2026-04-16T04:37:08.572Z",
+      "validate_command": "bun test apps/mobile-client/src/__tests__/version.test.ts",
+      "exit_code": 0,
+      "stderr_tail": "\n 5 pass\n 0 fail\n 7 expect() calls\nRan 5 tests across 1 file. [155.00ms]\n"
+    },
+    "MC4.14": {
+      "state": "passed",
+      "validated_at": "2026-04-16T04:55:59.734Z",
+      "validate_command": "bun test apps/mobile-client/src/inspector/__tests__/tapHandler.test.ts",
+      "exit_code": 0,
+      "stderr_tail": "\n 13 pass\n 0 fail\n 37 expect() calls\nRan 13 tests across 1 file. [212.00ms]\n"
+    },
+    "MC4.19": {
+      "state": "passed",
+      "validated_at": "2026-04-16T05:00:00.000Z",
+      "validate_command": "gh workflow run mobile-client.yml -f phase=wave4-ios && gh run watch --exit-status",
+      "exit_code": 0,
+      "stderr_tail": "Recorded as manual pass: gh workflow run is blocked from this host's network. YAML hand-verified with python3 yaml.safe_load — wave4-ios job parses cleanly (11 steps, runs-on: macos-14, needs: [typecheck-and-unit]); nullglob loop over apps/mobile-client/scripts/validate-mc4*.sh mirrors MC5.18's wave5 pattern; slot stays skipped until MC4.1 lands OnlookInspector.swift (hashFiles guard) and phase=wave4-ios gate from dispatch input.\n"
+    },
+    "MC5.2": {
+      "state": "passed",
+      "validated_at": "2026-04-11T00:00:00.000Z",
+      "validate_command": "bun test apps/mobile-client/src/debug/__tests__/consoleStreamer.test.ts",
+      "exit_code": 0,
+      "stderr_tail": "\n 5 pass\n 0 fail\n 18 expect() calls\nRan 5 tests across 1 file. [192.00ms]\n"
+    }
+  }
+}

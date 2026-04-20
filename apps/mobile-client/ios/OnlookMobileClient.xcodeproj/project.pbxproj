@@ -1,0 +1,634 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 54;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
+		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
+		45A820ADCF976C4E539BD479 /* OnlookLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CCEB76AA8C8E65563C3D265 /* OnlookLogger.swift */; };
+		7A4E10C62E111046A46C4C01 /* OnlookTapForwarder.mm in Sources */ = {isa = PBXBuildFile; fileRef = 7A4E10C72E111046A46C4C02 /* OnlookTapForwarder.mm */; };
+		7A4E10C82E111046A46C4C03 /* FabricEventBootstrap.mm in Sources */ = {isa = PBXBuildFile; fileRef = 7A4E10C92E111046A46C4C04 /* FabricEventBootstrap.mm */; };
+		5FCE3FAAF7C72C95A290B230 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD0EEBAEA629EA0B4A4A98FE /* ExpoModulesProvider.swift */; };
+		27698B7609D7DA4A53B360FF /* OnlookInspectorInstaller.mm in Sources */ = {isa = PBXBuildFile; fileRef = A3792952804A3839A0DF131C /* OnlookInspectorInstaller.mm */; };
+		A4F58B1CD2E90734C16A5501 /* OnlookInspector_highlight.mm in Sources */ = {isa = PBXBuildFile; fileRef = B7C39D48E1F05082A84C6612 /* OnlookInspector_highlight.mm */; };
+		A4F58B1CD2E90734C16A5502 /* OnlookInspector_screenshot.mm in Sources */ = {isa = PBXBuildFile; fileRef = B7C39D48E1F05082A84C6613 /* OnlookInspector_screenshot.mm */; };
+		C4F58B1CD2E90734C16A5503 /* OnlookInspector_walkTree.mm in Sources */ = {isa = PBXBuildFile; fileRef = C7C39D48E1F05082A84C6614 /* OnlookInspector_walkTree.mm */; };
+		6B5441152D0DC84F4FE4C4B4 /* OnlookInspector.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 38AD43BCD60F61B17E5BB688 /* OnlookInspector.cpp */; };
+		D1E7A2F40AB91C58B7C3E215 /* InspectorPrewarm.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D1E7A2F40AB91C58B7C3E216 /* InspectorPrewarm.cpp */; };
+		9A78FF78EE5F3DCB2E060C8E /* OnlookRuntimeInstaller.mm in Sources */ = {isa = PBXBuildFile; fileRef = DAEB2E8EEEADD1A86CC53822 /* OnlookRuntimeInstaller.mm */; };
+		9AA77EE9615F1F28B0460B8A /* HermesBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 751569567CF7839D697C2619 /* HermesBootstrap.swift */; };
+		9D125CFB192329F77F327B59 /* OnlookRuntime_version.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 71F9FC1DB09E06FE78D6C0CD /* OnlookRuntime_version.cpp */; };
+		C7E2A4F0D1B92E4F7C2A8B01 /* OnlookRuntime_runApplication.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C7E2A4F0D1B92E4F7C2A8B02 /* OnlookRuntime_runApplication.cpp */; };
+		D8F3B5E1C2A40B5D8E3F9C01 /* OnlookRuntime_reloadBundle.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D8F3B5E1C2A40B5D8E3F9C02 /* OnlookRuntime_reloadBundle.cpp */; };
+		E9A4C6F2D3B51C6E9F4A0D01 /* OnlookRuntime_dispatchEvent.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E9A4C6F2D3B51C6E9F4A0D02 /* OnlookRuntime_dispatchEvent.cpp */; };
+		F0B5D7E3C4A62D7F0A5B1E01 /* OnlookRuntime_errorSurface.cpp in Sources */ = {isa = PBXBuildFile; fileRef = F0B5D7E3C4A62D7F0A5B1E02 /* OnlookRuntime_errorSurface.cpp */; };
+		A58D0EA15864227556AF31AB /* OnlookRuntimeInstaller.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E88BDC9667D6375490824DF1 /* OnlookRuntimeInstaller.cpp */; };
+		BF372BE4763A0A8073CC7D94 /* OnlookInspectorInstaller.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 33A946F1E2C2023B0E6A4C22 /* OnlookInspectorInstaller.cpp */; };
+		A97B3DB5E491B8B1F7B71D2D /* libPods-OnlookMobileClient.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A73E8FA38A23CD5C50605EA4 /* libPods-OnlookMobileClient.a */; };
+		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
+		BBFDB5E7DD3BFA8610AE4940 /* main.jsbundle in Resources */ = {isa = PBXBuildFile; fileRef = 89B0D449CECFEC04F71DBCDD /* main.jsbundle */; };
+		C5E502ECCC78ACE098F956AE /* OnlookRuntime.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 64E869267D63E50111AD93BD /* OnlookRuntime.cpp */; };
+		E39D494E18A1615B949298D6 /* onlook-runtime.js in Resources */ = {isa = PBXBuildFile; fileRef = EC86DCCB7DE93DCD86EE9F9F /* onlook-runtime.js */; };
+		F0D24F166FDA72378CE986C6 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 48E3EF96145B6BAC5F2AF4D9 /* PrivacyInfo.xcprivacy */; };
+		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		13B07F961A680F5B00A75B9A /* OnlookMobileClient.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OnlookMobileClient.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = OnlookMobileClient/Images.xcassets; sourceTree = "<group>"; };
+		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = OnlookMobileClient/Info.plist; sourceTree = "<group>"; };
+		33A946F1E2C2023B0E6A4C22 /* OnlookInspectorInstaller.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; name = OnlookInspectorInstaller.cpp; path = ../cpp/OnlookInspectorInstaller.cpp; sourceTree = "<group>"; };
+		38AD43BCD60F61B17E5BB688 /* OnlookInspector.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; name = OnlookInspector.cpp; path = ../cpp/OnlookInspector.cpp; sourceTree = "<group>"; };
+		D1E7A2F40AB91C58B7C3E216 /* InspectorPrewarm.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; name = InspectorPrewarm.cpp; path = ../cpp/InspectorPrewarm.cpp; sourceTree = "<group>"; };
+		3B157860CDE10F8994B5CA50 /* OnlookRuntime.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = OnlookRuntime.h; path = ../cpp/OnlookRuntime.h; sourceTree = "<group>"; };
+		47F0BD4FD6854685DEE69E11 /* OnlookInspectorInstaller.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = OnlookInspectorInstaller.h; path = ../cpp/OnlookInspectorInstaller.h; sourceTree = "<group>"; };
+		48E3EF96145B6BAC5F2AF4D9 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = OnlookMobileClient/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		4CCEB76AA8C8E65563C3D265 /* OnlookLogger.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = OnlookLogger.swift; path = OnlookMobileClient/OnlookLogger.swift; sourceTree = "<group>"; };
+		7A4E10C72E111046A46C4C02 /* OnlookTapForwarder.mm */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.objcpp; name = OnlookTapForwarder.mm; path = OnlookMobileClient/OnlookTapForwarder.mm; sourceTree = "<group>"; };
+		7A4E10C92E111046A46C4C04 /* FabricEventBootstrap.mm */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.objcpp; name = FabricEventBootstrap.mm; path = OnlookMobileClient/FabricEventBootstrap.mm; sourceTree = "<group>"; };
+		7A4E10CA2E111046A46C4C05 /* FabricEventBootstrap.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = FabricEventBootstrap.h; path = OnlookMobileClient/FabricEventBootstrap.h; sourceTree = "<group>"; };
+		64E869267D63E50111AD93BD /* OnlookRuntime.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; name = OnlookRuntime.cpp; path = ../cpp/OnlookRuntime.cpp; sourceTree = "<group>"; };
+		71F9FC1DB09E06FE78D6C0CD /* OnlookRuntime_version.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; name = OnlookRuntime_version.cpp; path = ../cpp/OnlookRuntime_version.cpp; sourceTree = "<group>"; };
+		C7E2A4F0D1B92E4F7C2A8B02 /* OnlookRuntime_runApplication.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; name = OnlookRuntime_runApplication.cpp; path = ../cpp/OnlookRuntime_runApplication.cpp; sourceTree = "<group>"; };
+		D8F3B5E1C2A40B5D8E3F9C02 /* OnlookRuntime_reloadBundle.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; name = OnlookRuntime_reloadBundle.cpp; path = ../cpp/OnlookRuntime_reloadBundle.cpp; sourceTree = "<group>"; };
+		E9A4C6F2D3B51C6E9F4A0D02 /* OnlookRuntime_dispatchEvent.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; name = OnlookRuntime_dispatchEvent.cpp; path = ../cpp/OnlookRuntime_dispatchEvent.cpp; sourceTree = "<group>"; };
+		F0B5D7E3C4A62D7F0A5B1E02 /* OnlookRuntime_errorSurface.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; name = OnlookRuntime_errorSurface.cpp; path = ../cpp/OnlookRuntime_errorSurface.cpp; sourceTree = "<group>"; };
+		751569567CF7839D697C2619 /* HermesBootstrap.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HermesBootstrap.swift; path = OnlookMobileClient/HermesBootstrap.swift; sourceTree = "<group>"; };
+		89B0D449CECFEC04F71DBCDD /* main.jsbundle */ = {isa = PBXFileReference; includeInIndex = 1; name = main.jsbundle; path = OnlookMobileClient/Resources/main.jsbundle; sourceTree = "<group>"; };
+		8EB9D69A6F02685C021163CF /* OnlookRuntimeInstaller.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = OnlookRuntimeInstaller.h; path = ../cpp/OnlookRuntimeInstaller.h; sourceTree = "<group>"; };
+		A3792952804A3839A0DF131C /* OnlookInspectorInstaller.mm */ = {isa = PBXFileReference; includeInIndex = 1; name = OnlookInspectorInstaller.mm; path = ../cpp/OnlookInspectorInstaller.mm; sourceTree = "<group>"; };
+		B7C39D48E1F05082A84C6612 /* OnlookInspector_highlight.mm */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.objcpp; name = OnlookInspector_highlight.mm; path = ../cpp/OnlookInspector_highlight.mm; sourceTree = "<group>"; };
+		B7C39D48E1F05082A84C6613 /* OnlookInspector_screenshot.mm */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.objcpp; name = OnlookInspector_screenshot.mm; path = ../cpp/OnlookInspector_screenshot.mm; sourceTree = "<group>"; };
+		C7C39D48E1F05082A84C6614 /* OnlookInspector_walkTree.mm */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.objcpp; name = OnlookInspector_walkTree.mm; path = ../cpp/OnlookInspector_walkTree.mm; sourceTree = "<group>"; };
+		A73E8FA38A23CD5C50605EA4 /* libPods-OnlookMobileClient.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-OnlookMobileClient.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = OnlookMobileClient/SplashScreen.storyboard; sourceTree = "<group>"; };
+		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
+		BD0EEBAEA629EA0B4A4A98FE /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-OnlookMobileClient/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
+		DAEB2E8EEEADD1A86CC53822 /* OnlookRuntimeInstaller.mm */ = {isa = PBXFileReference; includeInIndex = 1; name = OnlookRuntimeInstaller.mm; path = ../cpp/OnlookRuntimeInstaller.mm; sourceTree = "<group>"; };
+		E68C0C3FCDF9A37C6C65EE02 /* Pods-OnlookMobileClient.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-OnlookMobileClient.debug.xcconfig"; path = "Target Support Files/Pods-OnlookMobileClient/Pods-OnlookMobileClient.debug.xcconfig"; sourceTree = "<group>"; };
+		E88BDC9667D6375490824DF1 /* OnlookRuntimeInstaller.cpp */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.cpp.cpp; name = OnlookRuntimeInstaller.cpp; path = ../cpp/OnlookRuntimeInstaller.cpp; sourceTree = "<group>"; };
+		EEEB4B8A2C1104CB5A235C0C /* OnlookInspector.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; name = OnlookInspector.h; path = ../cpp/OnlookInspector.h; sourceTree = "<group>"; };
+		EC3FF8084B4F4A28C692F46F /* Pods-OnlookMobileClient.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-OnlookMobileClient.release.xcconfig"; path = "Target Support Files/Pods-OnlookMobileClient/Pods-OnlookMobileClient.release.xcconfig"; sourceTree = "<group>"; };
+		EC86DCCB7DE93DCD86EE9F9F /* onlook-runtime.js */ = {isa = PBXFileReference; includeInIndex = 1; name = "onlook-runtime.js"; path = "OnlookMobileClient/Resources/onlook-runtime.js"; sourceTree = "<group>"; };
+		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
+		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = OnlookMobileClient/AppDelegate.swift; sourceTree = "<group>"; };
+		F11748442D0722820044C1D9 /* OnlookMobileClient-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "OnlookMobileClient-Bridging-Header.h"; path = "OnlookMobileClient/OnlookMobileClient-Bridging-Header.h"; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		13B07F8C1A680F5B00A75B9A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A97B3DB5E491B8B1F7B71D2D /* libPods-OnlookMobileClient.a in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		13B07FAE1A68108700A75B9A /* OnlookMobileClient */ = {
+			isa = PBXGroup;
+			children = (
+				F11748412D0307B40044C1D9 /* AppDelegate.swift */,
+				F11748442D0722820044C1D9 /* OnlookMobileClient-Bridging-Header.h */,
+				BB2F792B24A3F905000567C9 /* Supporting */,
+				13B07FB51A68108700A75B9A /* Images.xcassets */,
+				13B07FB61A68108700A75B9A /* Info.plist */,
+				AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */,
+				48E3EF96145B6BAC5F2AF4D9 /* PrivacyInfo.xcprivacy */,
+				4CCEB76AA8C8E65563C3D265 /* OnlookLogger.swift */,
+				7A4E10C72E111046A46C4C02 /* OnlookTapForwarder.mm */,
+				7A4E10C92E111046A46C4C04 /* FabricEventBootstrap.mm */,
+				7A4E10CA2E111046A46C4C05 /* FabricEventBootstrap.h */,
+				EC86DCCB7DE93DCD86EE9F9F /* onlook-runtime.js */,
+				751569567CF7839D697C2619 /* HermesBootstrap.swift */,
+				89B0D449CECFEC04F71DBCDD /* main.jsbundle */,
+				3B157860CDE10F8994B5CA50 /* OnlookRuntime.h */,
+				64E869267D63E50111AD93BD /* OnlookRuntime.cpp */,
+				8EB9D69A6F02685C021163CF /* OnlookRuntimeInstaller.h */,
+				E88BDC9667D6375490824DF1 /* OnlookRuntimeInstaller.cpp */,
+				DAEB2E8EEEADD1A86CC53822 /* OnlookRuntimeInstaller.mm */,
+				71F9FC1DB09E06FE78D6C0CD /* OnlookRuntime_version.cpp */,
+				C7E2A4F0D1B92E4F7C2A8B02 /* OnlookRuntime_runApplication.cpp */,
+				D8F3B5E1C2A40B5D8E3F9C02 /* OnlookRuntime_reloadBundle.cpp */,
+				E9A4C6F2D3B51C6E9F4A0D02 /* OnlookRuntime_dispatchEvent.cpp */,
+				F0B5D7E3C4A62D7F0A5B1E02 /* OnlookRuntime_errorSurface.cpp */,
+				EEEB4B8A2C1104CB5A235C0C /* OnlookInspector.h */,
+				38AD43BCD60F61B17E5BB688 /* OnlookInspector.cpp */,
+				47F0BD4FD6854685DEE69E11 /* OnlookInspectorInstaller.h */,
+				33A946F1E2C2023B0E6A4C22 /* OnlookInspectorInstaller.cpp */,
+				A3792952804A3839A0DF131C /* OnlookInspectorInstaller.mm */,
+				B7C39D48E1F05082A84C6612 /* OnlookInspector_highlight.mm */,
+				B7C39D48E1F05082A84C6613 /* OnlookInspector_screenshot.mm */,
+				C7C39D48E1F05082A84C6614 /* OnlookInspector_walkTree.mm */,
+				D1E7A2F40AB91C58B7C3E216 /* InspectorPrewarm.cpp */,
+			);
+			name = OnlookMobileClient;
+			sourceTree = "<group>";
+		};
+		2D16E6871FA4F8E400B85C8A /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
+				A73E8FA38A23CD5C50605EA4 /* libPods-OnlookMobileClient.a */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		63AE8B439B3C08CC407327DC /* Pods */ = {
+			isa = PBXGroup;
+			children = (
+				E68C0C3FCDF9A37C6C65EE02 /* Pods-OnlookMobileClient.debug.xcconfig */,
+				EC3FF8084B4F4A28C692F46F /* Pods-OnlookMobileClient.release.xcconfig */,
+			);
+			name = Pods;
+			path = Pods;
+			sourceTree = "<group>";
+		};
+		832341AE1AAA6A7D00B99B32 /* Libraries */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Libraries;
+			sourceTree = "<group>";
+		};
+		83CBB9F61A601CBA00E9B192 = {
+			isa = PBXGroup;
+			children = (
+				13B07FAE1A68108700A75B9A /* OnlookMobileClient */,
+				832341AE1AAA6A7D00B99B32 /* Libraries */,
+				83CBBA001A601CBA00E9B192 /* Products */,
+				2D16E6871FA4F8E400B85C8A /* Frameworks */,
+				63AE8B439B3C08CC407327DC /* Pods */,
+				D7EAAB5D383E506EE67938DA /* ExpoModulesProviders */,
+			);
+			indentWidth = 2;
+			sourceTree = "<group>";
+			tabWidth = 2;
+			usesTabs = 0;
+		};
+		83CBBA001A601CBA00E9B192 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				13B07F961A680F5B00A75B9A /* OnlookMobileClient.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		84FFC3AA0B36BB13FE2E8E48 /* OnlookMobileClient */ = {
+			isa = PBXGroup;
+			children = (
+				BD0EEBAEA629EA0B4A4A98FE /* ExpoModulesProvider.swift */,
+			);
+			name = OnlookMobileClient;
+			sourceTree = "<group>";
+		};
+		BB2F792B24A3F905000567C9 /* Supporting */ = {
+			isa = PBXGroup;
+			children = (
+				BB2F792C24A3F905000567C9 /* Expo.plist */,
+			);
+			name = Supporting;
+			path = OnlookMobileClient/Supporting;
+			sourceTree = "<group>";
+		};
+		D7EAAB5D383E506EE67938DA /* ExpoModulesProviders */ = {
+			isa = PBXGroup;
+			children = (
+				84FFC3AA0B36BB13FE2E8E48 /* OnlookMobileClient */,
+			);
+			name = ExpoModulesProviders;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		13B07F861A680F5B00A75B9A /* OnlookMobileClient */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "OnlookMobileClient" */;
+			buildPhases = (
+				08A4A3CD28434E44B6B9DE2E /* [CP] Check Pods Manifest.lock */,
+				447CEED5604E5BBD96A323DE /* [Expo] Configure project */,
+				13B07F871A680F5B00A75B9A /* Sources */,
+				13B07F8C1A680F5B00A75B9A /* Frameworks */,
+				13B07F8E1A680F5B00A75B9A /* Resources */,
+				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
+				800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */,
+				9EE18AD88BA8ADB95B666554 /* [CP] Embed Pods Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = OnlookMobileClient;
+			productName = OnlookMobileClient;
+			productReference = 13B07F961A680F5B00A75B9A /* OnlookMobileClient.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		83CBB9F71A601CBA00E9B192 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				LastUpgradeCheck = 1130;
+				TargetAttributes = {
+					13B07F861A680F5B00A75B9A = {
+						LastSwiftMigration = 1250;
+					};
+				};
+			};
+			buildConfigurationList = 83CBB9FA1A601CBA00E9B192 /* Build configuration list for PBXProject "OnlookMobileClient" */;
+			compatibilityVersion = "Xcode 3.2";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 83CBB9F61A601CBA00E9B192;
+			productRefGroup = 83CBBA001A601CBA00E9B192 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				13B07F861A680F5B00A75B9A /* OnlookMobileClient */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		13B07F8E1A680F5B00A75B9A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BB2F792D24A3F905000567C9 /* Expo.plist in Resources */,
+				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
+				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
+				F0D24F166FDA72378CE986C6 /* PrivacyInfo.xcprivacy in Resources */,
+				E39D494E18A1615B949298D6 /* onlook-runtime.js in Resources */,
+				BBFDB5E7DD3BFA8610AE4940 /* main.jsbundle in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/.xcode.env",
+				"$(SRCROOT)/.xcode.env.local",
+			);
+			name = "Bundle React Native code and images";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if [[ -f \"$PODS_ROOT/../.xcode.env\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env\"\nfi\nif [[ -f \"$PODS_ROOT/../.xcode.env.local\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env.local\"\nfi\n\n# The project root by default is one level up from the ios directory\nexport PROJECT_ROOT=\"$PROJECT_DIR\"/..\n\nif [[ \"$CONFIGURATION\" = *Debug* ]]; then\n  export SKIP_BUNDLING=1\nfi\nif [[ -z \"$ENTRY_FILE\" ]]; then\n  # Set the entry JS file using the bundler's entry resolution.\n  export ENTRY_FILE=\"$(\"$NODE_BINARY\" -e \"require('expo/scripts/resolveAppEntry')\" \"$PROJECT_ROOT\" ios absolute | tail -n 1)\"\nfi\n\nif [[ -z \"$CLI_PATH\" ]]; then\n  # Use Expo CLI\n  export CLI_PATH=\"$(\"$NODE_BINARY\" --print \"require.resolve('@expo/cli', { paths: [require.resolve('expo/package.json')] })\")\"\nfi\nif [[ -z \"$BUNDLE_COMMAND\" ]]; then\n  # Default Expo CLI command for bundling\n  export BUNDLE_COMMAND=\"export:embed\"\nfi\n\n# Source .xcode.env.updates if it exists to allow\n# SKIP_BUNDLING to be unset if needed\nif [[ -f \"$PODS_ROOT/../.xcode.env.updates\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env.updates\"\nfi\n# Source local changes to allow overrides\n# if needed\nif [[ -f \"$PODS_ROOT/../.xcode.env.local\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env.local\"\nfi\n\n`\"$NODE_BINARY\" --print \"require('path').dirname(require.resolve('react-native/package.json')) + '/scripts/react-native-xcode.sh'\"`\n\n";
+		};
+		08A4A3CD28434E44B6B9DE2E /* [CP] Check Pods Manifest.lock */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
+				"${PODS_ROOT}/Manifest.lock",
+			);
+			name = "[CP] Check Pods Manifest.lock";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/Pods-OnlookMobileClient-checkManifestLockResult.txt",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			showEnvVarsInLog = 0;
+		};
+		447CEED5604E5BBD96A323DE /* [Expo] Configure project */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/.xcode.env",
+				"$(SRCROOT)/.xcode.env.local",
+				"$(SRCROOT)/OnlookMobileClient/OnlookMobileClient.entitlements",
+				"$(SRCROOT)/Pods/Target Support Files/Pods-OnlookMobileClient/expo-configure-project.sh",
+			);
+			name = "[Expo] Configure project";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(SRCROOT)/Pods/Target Support Files/Pods-OnlookMobileClient/ExpoModulesProvider.swift",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# This script configures Expo modules and generates the modules provider file.\nbash -l -c \"./Pods/Target\\ Support\\ Files/Pods-OnlookMobileClient/expo-configure-project.sh\"\n";
+		};
+		800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-OnlookMobileClient/Pods-OnlookMobileClient-resources.sh",
+				"${PODS_CONFIGURATION_BUILD_DIR}/EXConstants/EXConstants.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/EXConstants/ExpoConstants_privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/ExpoFileSystem/ExpoFileSystem_privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/React-Core/React-Core_privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/React-cxxreact/React-cxxreact_privacy.bundle",
+			);
+			name = "[CP] Copy Pods Resources";
+			outputPaths = (
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/EXConstants.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ExpoConstants_privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ExpoFileSystem_privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/React-Core_privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/React-cxxreact_privacy.bundle",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-OnlookMobileClient/Pods-OnlookMobileClient-resources.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
+		9EE18AD88BA8ADB95B666554 /* [CP] Embed Pods Frameworks */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-OnlookMobileClient/Pods-OnlookMobileClient-frameworks.sh",
+				"${PODS_XCFRAMEWORKS_BUILD_DIR}/React-Core-prebuilt/React.framework/React",
+				"${PODS_XCFRAMEWORKS_BUILD_DIR}/ReactNativeDependencies/ReactNativeDependencies.framework/ReactNativeDependencies",
+				"${PODS_XCFRAMEWORKS_BUILD_DIR}/hermes-engine/Pre-built/hermes.framework/hermes",
+			);
+			name = "[CP] Embed Pods Frameworks";
+			outputPaths = (
+				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/React.framework",
+				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/ReactNativeDependencies.framework",
+				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/hermes.framework",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-OnlookMobileClient/Pods-OnlookMobileClient-frameworks.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		13B07F871A680F5B00A75B9A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */,
+				5FCE3FAAF7C72C95A290B230 /* ExpoModulesProvider.swift in Sources */,
+				45A820ADCF976C4E539BD479 /* OnlookLogger.swift in Sources */,
+				7A4E10C62E111046A46C4C01 /* OnlookTapForwarder.mm in Sources */,
+				7A4E10C82E111046A46C4C03 /* FabricEventBootstrap.mm in Sources */,
+				9AA77EE9615F1F28B0460B8A /* HermesBootstrap.swift in Sources */,
+				C5E502ECCC78ACE098F956AE /* OnlookRuntime.cpp in Sources */,
+				A58D0EA15864227556AF31AB /* OnlookRuntimeInstaller.cpp in Sources */,
+				9A78FF78EE5F3DCB2E060C8E /* OnlookRuntimeInstaller.mm in Sources */,
+				9D125CFB192329F77F327B59 /* OnlookRuntime_version.cpp in Sources */,
+				C7E2A4F0D1B92E4F7C2A8B01 /* OnlookRuntime_runApplication.cpp in Sources */,
+				D8F3B5E1C2A40B5D8E3F9C01 /* OnlookRuntime_reloadBundle.cpp in Sources */,
+				E9A4C6F2D3B51C6E9F4A0D01 /* OnlookRuntime_dispatchEvent.cpp in Sources */,
+				F0B5D7E3C4A62D7F0A5B1E01 /* OnlookRuntime_errorSurface.cpp in Sources */,
+				6B5441152D0DC84F4FE4C4B4 /* OnlookInspector.cpp in Sources */,
+				BF372BE4763A0A8073CC7D94 /* OnlookInspectorInstaller.cpp in Sources */,
+				27698B7609D7DA4A53B360FF /* OnlookInspectorInstaller.mm in Sources */,
+				A4F58B1CD2E90734C16A5501 /* OnlookInspector_highlight.mm in Sources */,
+				A4F58B1CD2E90734C16A5502 /* OnlookInspector_screenshot.mm in Sources */,
+				C4F58B1CD2E90734C16A5503 /* OnlookInspector_walkTree.mm in Sources */,
+				D1E7A2F40AB91C58B7C3E215 /* InspectorPrewarm.cpp in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		13B07F941A680F5B00A75B9A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = E68C0C3FCDF9A37C6C65EE02 /* Pods-OnlookMobileClient.debug.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = OnlookMobileClient/OnlookMobileClient.entitlements;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_BITCODE = NO;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"FB_SONARKIT_ENABLED=1",
+				);
+				INFOPLIST_FILE = OnlookMobileClient/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-ObjC",
+					"-lc++",
+				);
+				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
+				PRODUCT_BUNDLE_IDENTIFIER = com.onlook.mobile;
+				PRODUCT_NAME = OnlookMobileClient;
+				SWIFT_OBJC_BRIDGING_HEADER = "OnlookMobileClient/OnlookMobileClient-Bridging-Header.h";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VERSIONING_SYSTEM = "apple-generic";
+			};
+			name = Debug;
+		};
+		13B07F951A680F5B00A75B9A /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = EC3FF8084B4F4A28C692F46F /* Pods-OnlookMobileClient.release.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = OnlookMobileClient/OnlookMobileClient.entitlements;
+				CURRENT_PROJECT_VERSION = 1;
+				INFOPLIST_FILE = OnlookMobileClient/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-ObjC",
+					"-lc++",
+				);
+				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
+				PRODUCT_BUNDLE_IDENTIFIER = com.onlook.mobile;
+				PRODUCT_NAME = OnlookMobileClient;
+				SWIFT_OBJC_BRIDGING_HEADER = "OnlookMobileClient/OnlookMobileClient-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VERSIONING_SYSTEM = "apple-generic";
+			};
+			name = Release;
+		};
+		83CBBA201A601CBA00E9B192 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "c++20";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
+				COPY_PHASE_STRIP = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu99;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
+				LD_RUNPATH_SEARCH_PATHS = (
+					/usr/lib/swift,
+					"$(inherited)",
+				);
+				LIBRARY_SEARCH_PATHS = "$(SDKROOT)/usr/lib/swift\"$(inherited)\"";
+				MTL_ENABLE_DEBUG_INFO = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				REACT_NATIVE_PATH = "${PODS_ROOT}/../../../../node_modules/react-native";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) DEBUG";
+				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
+				USE_HERMES = true;
+			};
+			name = Debug;
+		};
+		83CBBA211A601CBA00E9B192 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "c++20";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
+				COPY_PHASE_STRIP = YES;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu99;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
+				LD_RUNPATH_SEARCH_PATHS = (
+					/usr/lib/swift,
+					"$(inherited)",
+				);
+				LIBRARY_SEARCH_PATHS = "$(SDKROOT)/usr/lib/swift\"$(inherited)\"";
+				MTL_ENABLE_DEBUG_INFO = NO;
+				REACT_NATIVE_PATH = "${PODS_ROOT}/../../../../node_modules/react-native";
+				SDKROOT = iphoneos;
+				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
+				USE_HERMES = true;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "OnlookMobileClient" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				13B07F941A680F5B00A75B9A /* Debug */,
+				13B07F951A680F5B00A75B9A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		83CBB9FA1A601CBA00E9B192 /* Build configuration list for PBXProject "OnlookMobileClient" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				83CBBA201A601CBA00E9B192 /* Debug */,
+				83CBBA211A601CBA00E9B192 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 83CBB9F71A601CBA00E9B192 /* Project object */;
+}

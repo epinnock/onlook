@@ -1,0 +1,31 @@
+# Generated runtime artifacts — see scripts/bundle-runtime.ts (MCF11).
+# Source of truth is packages/mobile-preview/runtime/bundle.js (itself built
+# by `bun run build:mobile-runtime`); bundle-runtime.ts copies it into the
+# iOS Resources dir + Android assets dir on every build so the .app / .apk
+# picks it up through Xcode's Copy Bundle Resources / Gradle's asset-merge.
+# The copies must not be committed or they drift silently from the source.
+ios/OnlookMobileClient/Resources/onlook-runtime.js
+ios/OnlookMobileClient/Resources/onlook-runtime.meta.json
+ios/OnlookMobileClient/Resources/main.jsbundle
+ios/OnlookMobileClient/Resources/assets/
+android/app/src/main/assets/onlook-runtime.js
+android/app/src/main/assets/onlook-runtime.meta.json
+
+# Generated C++ header for the runtime version — written by
+# scripts/generate-version-header.ts from @onlook/mobile-client-protocol's
+# ONLOOK_RUNTIME_VERSION constant before every xcodebuild (MC2.12). Source
+# of truth is the TS constant; this file must never be committed.
+cpp/*.generated.h
+
+# Google Play Console service-account JSON — referenced by
+# submit.*.android.serviceAccountKeyPath in eas.json (MC6.6). CI writes
+# this file from the GOOGLE_PLAY_SERVICE_ACCOUNT_KEY secret at job start
+# and removes it on EXIT; local dev drops the file here manually. Never
+# commit — the JSON grants Release Manager permission on com.onlook.mobile.
+google-play-service-account.json
+
+# Expo caches — created by `expo prebuild` / EAS CLI on every run. Stores
+# fingerprint data, device registration state, and asset hashes that are
+# machine-local and regenerated on demand. Never commit.
+.expo/
+.expo-shared/

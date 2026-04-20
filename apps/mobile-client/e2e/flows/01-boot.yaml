@@ -1,0 +1,26 @@
+# 01-boot.yaml — Wave 1 task MC1.1 of plans/onlook-mobile-client-task-queue.md.
+#
+# Asserts the app launches without crashing. Prior to 2026-04-16 this flow
+# only used `waitForAnimationToEnd` as a soft launch signal because App.tsx
+# rendered nothing visible (bare scaffold); `waitForAnimationToEnd` would
+# hang indefinitely on the empty root view. Now that LauncherScreen is
+# wired into App.tsx via the screens barrel + AppRouter (MC3.20), we can
+# assert on real rendered text as proof the RN root mounted and the JS
+# bundle ran through the first render pass.
+#
+# We assert on the "Onlook" branding header because it's the topmost,
+# always-visible element on LauncherScreen — if that's on-screen, the app
+# booted, Hermes evaled the bundle, React mounted, and no red-box error
+# took over the window.
+#
+# Log-line scraping (MC1.4 `[onlook-runtime] hermes ready`) remains the job
+# of validate-task.ts's post-check; see 03-hermes-eval.yaml for the
+# companion flow.
+
+appId: com.onlook.mobile
+---
+- launchApp:
+    clearState: true
+- assertVisible:
+    text: "Onlook"
+    timeout: 8000

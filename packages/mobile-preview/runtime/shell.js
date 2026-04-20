@@ -263,19 +263,49 @@ _log('B13 shell ready');
 // has a React tree attached will clobber the host app's LauncherScreen —
 // which is what the caller wants: render the preview on top.
 globalThis.onlookMount = function onlookMount(props) {
-  // debug: introspect fab + find active surface tags if possible
-  try {
-    var fabKeys = Object.keys(globalThis.nativeFabricUIManager || {});
-    _log("B13 fab keys: " + fabKeys.join(","));
-  } catch (e) { _log("B13 fab introspect err: " + e.message); }
   var rootTag =
     (props && typeof props.rootTag === 'number') ? props.rootTag
     : (typeof globalThis.currentRootTag === 'number' && globalThis.currentRootTag) ? globalThis.currentRootTag
-    : 11;  // RN new-arch first-surface tag default
+    : 11;
   _log('B13 onlookMount invoked rootTag=' + rootTag + ' sessionId=' + (props && props.sessionId));
   try {
-    globalThis.RN$AppRegistry.runApplication('OnlookApp', Object.assign({}, props || {}, { rootTag: rootTag }));
-    _log('B13 onlookMount: RN$AppRegistry.runApplication returned');
+    // Call the runtime helpers DIRECTLY — RN AppRegistry overwrites our
+    // shell.js stub during main-bundle eval, so going through it hits RN's
+    // runnables map which knows OnlookMobileClient but not OnlookApp.
+    if (typeof globalThis._initReconciler !== 'function') {
+      _log('B13 onlookMount: _initReconciler missing'); return;
+    }
+    if (typeof globalThis.renderApp !== 'function') {
+      _log('B13 onlookMount: renderApp missing'); return;
+    }
+    if (!globalThis.fab) {
+      _log('B13 onlookMount: fab missing'); return;
+    }
+    globalThis.currentRootTag = rootTag;
+    globalThis._initReconciler(globalThis.fab, rootTag);
+    _log('B13 onlookMount: reconciler initialized for rootTag=' + rootTag);
+    var R = globalThis.React;
+    if (!R) { _log('B13 onlookMount: React missing'); return; }
+    globalThis.renderApp(
+      R.createElement('View', { style: { flex: 1, backgroundColor: 0xFF2d1b69 | 0, justifyContent: 'center', alignItems: 'center' } },
+        R.createElement('RCTText', { style: { fontSize: 24, fontWeight: '700', color: 0xFFFFFFFF | 0 } },
+          R.createElement('RCTRawText', { text: 'Onlook Runtime Ready' })
+        ),
+        R.createElement('RCTText', { style: { fontSize: 14, color: 0xFFA78BFA | 0, marginTop: 12 } },
+          R.createElement('RCTRawText', { text: 'Waiting for component code...' })
+        )
+      )
+    );
+    _log('B13 onlookMount: renderApp returned (rootTag=' + rootTag + ')');
+    // Connect WS to relay so component-code pushes can arrive
+    try {
+      if (typeof globalThis._tryConnectWebSocket === 'function') {
+        var host = (props && props.relayHost) || '192.168.0.17';
+        var port = (props && props.relayPort) || 8788;
+        _log('B13 onlookMount: connecting WS to ' + host + ':' + port);
+        globalThis._tryConnectWebSocket(host, port);
+      }
+    } catch (wsErr) { _log('B13 onlookMount WS err: ' + (wsErr && wsErr.message)); }
   } catch (e) {
     _log('B13 onlookMount ERROR: ' + (e && e.message));
     if (e && e.stack) _log('B13 onlookMount stack: ' + e.stack.substring(0, 400));
