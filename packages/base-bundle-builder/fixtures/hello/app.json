@@ -1,0 +1,18 @@
+{
+    "expo": {
+        "name": "base-bundle-hello",
+        "slug": "base-bundle-hello",
+        "version": "1.0.0",
+        "orientation": "portrait",
+        "userInterfaceStyle": "automatic",
+        "newArchEnabled": true,
+        "jsEngine": "hermes",
+        "ios": {
+            "supportsTablet": true,
+            "bundleIdentifier": "com.onlook.basebundle.hello"
+        },
+        "android": {
+            "package": "com.onlook.basebundle.hello"
+        }
+    }
+}

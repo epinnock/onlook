@@ -1,0 +1,20 @@
+{
+    "name": "@onlook/base-bundle-builder-fixture-hello",
+    "version": "1.0.0",
+    "private": true,
+    "main": "index.ts",
+    "scripts": {
+        "bundle:android": "expo export:embed --platform android --dev false --minify true --bundle-output dist/index.android.bundle --assets-dest dist/assets",
+        "bundle:ios": "expo export:embed --platform ios --dev false --minify true --bundle-output dist/index.ios.bundle --assets-dest dist/assets"
+    },
+    "dependencies": {
+        "expo": "~54.0.33",
+        "react": "19.1.4",
+        "react-native": "0.81.6"
+    },
+    "devDependencies": {
+        "@babel/core": "^7.25.0",
+        "@types/react": "~19.1.0",
+        "typescript": "^5.5.4"
+    }
+}
