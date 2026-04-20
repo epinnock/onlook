@@ -19,6 +19,7 @@
  */
 import { handleManifest, type ServiceBinding } from './routes/manifest';
 import { ExpoSession } from './session';
+export { HmrSession } from './do/hmr-session';
 
 export { ExpoSession };
 
