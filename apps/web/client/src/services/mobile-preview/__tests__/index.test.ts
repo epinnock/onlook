@@ -1,11 +1,34 @@
-import { describe, expect, test } from 'bun:test';
+import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import React from 'react';
-import {
+import type { MobilePreviewVfs } from '../index';
+import type { MobilePreviewPipelineKind } from '../pipelines/types';
+
+const mockEnv: {
+    NEXT_PUBLIC_MOBILE_PREVIEW_PIPELINE?: MobilePreviewPipelineKind;
+    NEXT_PUBLIC_MOBILE_PREVIEW_URL?: string;
+    NEXT_PUBLIC_CF_ESM_BUILDER_URL?: string;
+    NEXT_PUBLIC_CF_EXPO_RELAY_URL?: string;
+} = {};
+
+mock.module('@/env', () => ({
+    env: mockEnv,
+}));
+
+const {
     buildMobilePreviewBundle,
+    createMobilePreviewPipeline,
+    getMobilePreviewPipelineCapabilities,
     MobilePreviewBundleError,
+    resolveMobilePreviewPipelineConfig,
     shouldSyncMobilePreviewPath,
-    type MobilePreviewVfs,
-} from '../index';
+} = await import('../index');
+
+beforeEach(() => {
+    mockEnv.NEXT_PUBLIC_MOBILE_PREVIEW_PIPELINE = undefined;
+    mockEnv.NEXT_PUBLIC_MOBILE_PREVIEW_URL = 'http://mobile-preview.test';
+    mockEnv.NEXT_PUBLIC_CF_ESM_BUILDER_URL = 'https://builder.test';
+    mockEnv.NEXT_PUBLIC_CF_EXPO_RELAY_URL = 'https://relay.test';
+});
 
 function makeFakeVfs(files: Record<string, string>): MobilePreviewVfs {
     const normalizedFiles = new Map(
@@ -136,5 +159,57 @@ describe('shouldSyncMobilePreviewPath', () => {
             false,
         );
         expect(shouldSyncMobilePreviewPath('/bun.lock')).toBe(false);
+    });
+});
+
+describe('createMobilePreviewPipeline', () => {
+    test('creates the shim pipeline by default', () => {
+        expect(resolveMobilePreviewPipelineConfig()).toEqual({
+            kind: 'shim',
+            serverBaseUrl: 'http://mobile-preview.test',
+        });
+
+        const pipeline = createMobilePreviewPipeline();
+
+        expect(pipeline.kind).toBe('shim');
+        expect(pipeline.capabilities).toEqual({
+            liveUpdates: true,
+            onlookDeepLink: false,
+        });
+    });
+
+    test('creates the two-tier pipeline when the pipeline flag selects it', () => {
+        mockEnv.NEXT_PUBLIC_MOBILE_PREVIEW_PIPELINE = 'two-tier';
+
+        expect(resolveMobilePreviewPipelineConfig()).toEqual({
+            kind: 'two-tier',
+            builderBaseUrl: 'https://builder.test',
+            relayBaseUrl: 'https://relay.test',
+        });
+
+        const pipeline = createMobilePreviewPipeline();
+
+        expect(pipeline.kind).toBe('two-tier');
+        expect(pipeline.capabilities).toEqual({
+            liveUpdates: true,
+            onlookDeepLink: true,
+        });
+        expect(pipeline.shouldSyncPath('/App.tsx')).toBe(true);
+        expect(pipeline.shouldSyncPath('/bun.lock')).toBe(false);
+    });
+
+    test('lets explicit options override the selected pipeline', () => {
+        mockEnv.NEXT_PUBLIC_MOBILE_PREVIEW_PIPELINE = 'two-tier';
+
+        const pipeline = createMobilePreviewPipeline({
+            kind: 'shim',
+            serverBaseUrl: 'http://override.test',
+        });
+
+        expect(pipeline.kind).toBe('shim');
+        expect(getMobilePreviewPipelineCapabilities('two-tier')).toEqual({
+            liveUpdates: true,
+            onlookDeepLink: true,
+        });
     });
 });
