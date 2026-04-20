@@ -7,6 +7,8 @@
  *
  * Routes:
  *   GET /manifest/:bundleHash   -> handleManifest (TQ1.2, 64-hex only)
+ *   ANY /base-bundle[/...]      -> 501 stub (Q0-23, route family reserved)
+ *   ANY /base-bundles[/...]     -> 501 stub (Q0-23, route family reserved)
  *   GET /session/:id/manifest   -> forwarded to ExpoSession DO (legacy)
  *   GET /session/:id/bundle.js  -> forwarded to ExpoSession DO (legacy)
  *   WS  /session/:id            -> upgraded + forwarded to ExpoSession DO
@@ -22,6 +24,12 @@ export { ExpoSession };
 
 export interface Env {
     BUNDLES: KVNamespace;
+    /**
+     * R2 bucket for two-tier base-bundle artifacts (Q0-22). Optional here so
+     * current unit tests and local stubs can keep constructing minimal Env
+     * objects until the concrete base-bundle handlers land.
+     */
+    BASE_BUNDLES?: R2Bucket;
     EXPO_SESSION: DurableObjectNamespace<import('./session').ExpoSession>;
     /**
      * Service binding to cf-esm-cache (TQ1.3). Present in deployed
@@ -48,6 +56,9 @@ interface ParsedSessionRoute {
  * ever added) from colliding with the new route.
  */
 const MANIFEST_HASH_ROUTE = /^\/manifest\/([0-9a-f]{64})$/;
+const BASE_BUNDLE_ROUTE_PREFIXES = ['/base-bundle', '/base-bundles'] as const;
+const BASE_BUNDLE_STUB_BODY =
+    'expo-relay: base-bundle routes are not implemented yet';
 
 function parseSessionRoute(pathname: string): ParsedSessionRoute | null {
     // Expected shapes:
@@ -67,6 +78,21 @@ function parseSessionRoute(pathname: string): ParsedSessionRoute | null {
     return { sessionId, subPath };
 }
 
+function isBaseBundleRoute(pathname: string): boolean {
+    return BASE_BUNDLE_ROUTE_PREFIXES.some(
+        (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+    );
+}
+
+function handleBaseBundleRouteStub(): Response {
+    return new Response(BASE_BUNDLE_STUB_BODY, {
+        status: 501,
+        headers: {
+            'Cache-Control': 'no-store',
+        },
+    });
+}
+
 export default {
     async fetch(request: Request, env: Env): Promise<Response> {
         const url = new URL(request.url);
@@ -82,6 +108,10 @@ export default {
                     return handleManifest(request, env, bundleHash);
                 }
             }
+        }
+
+        if (isBaseBundleRoute(url.pathname)) {
+            return handleBaseBundleRouteStub();
         }
 
         const route = parseSessionRoute(url.pathname);
