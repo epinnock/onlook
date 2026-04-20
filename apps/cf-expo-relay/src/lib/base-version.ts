@@ -7,6 +7,7 @@ export interface BaseBundleVersionRecord {
 
 export interface BaseVersionKV {
     get(key: string): Promise<string | null>;
+    put?(key: string, value: string): Promise<void>;
 }
 
 export interface BaseVersionEnv {
@@ -31,6 +32,21 @@ export async function readCurrentBaseBundleVersion(
     }
 
     return parseBaseBundleVersionRecord(parsed);
+}
+
+export async function writeCurrentBaseBundleVersion(
+    env: BaseVersionEnv,
+    record: BaseBundleVersionRecord,
+): Promise<void> {
+    if (!env.BUNDLES.put) {
+        throw new Error('Base-bundle version writer requires a KV put binding');
+    }
+
+    const validRecord = parseBaseBundleVersionRecord(record);
+    await env.BUNDLES.put(
+        CURRENT_BASE_BUNDLE_VERSION_KEY,
+        JSON.stringify(validRecord),
+    );
 }
 
 export function parseBaseBundleVersionRecord(

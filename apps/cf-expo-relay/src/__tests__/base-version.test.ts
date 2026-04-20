@@ -4,6 +4,7 @@ import {
     CURRENT_BASE_BUNDLE_VERSION_KEY,
     parseBaseBundleVersionRecord,
     readCurrentBaseBundleVersion,
+    writeCurrentBaseBundleVersion,
 } from '../lib/base-version';
 
 const HASH = 'a'.repeat(64);
@@ -40,5 +41,45 @@ describe('base bundle version reader', () => {
             .toThrow('invalid hash');
         expect(() => parseBaseBundleVersionRecord({ hash: HASH, createdAt: 'bad' }))
             .toThrow('invalid createdAt');
+    });
+
+    test('writes the current pointer as normalized JSON', async () => {
+        const writes: Array<{ key: string; value: string }> = [];
+
+        await writeCurrentBaseBundleVersion(
+            {
+                BUNDLES: {
+                    async get() {
+                        return null;
+                    },
+                    async put(key, value) {
+                        writes.push({ key, value });
+                    },
+                },
+            },
+            { hash: HASH, createdAt: CREATED_AT },
+        );
+
+        expect(writes).toEqual([
+            {
+                key: CURRENT_BASE_BUNDLE_VERSION_KEY,
+                value: JSON.stringify({ hash: HASH, createdAt: CREATED_AT }),
+            },
+        ]);
+    });
+
+    test('requires a KV put binding to write', async () => {
+        await expect(
+            writeCurrentBaseBundleVersion(
+                {
+                    BUNDLES: {
+                        async get() {
+                            return null;
+                        },
+                    },
+                },
+                { hash: HASH, createdAt: CREATED_AT },
+            ),
+        ).rejects.toThrow('KV put');
     });
 });
