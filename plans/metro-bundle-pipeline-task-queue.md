@@ -1,6 +1,6 @@
 # Workers-Only Two-Tier Bundle Pipeline - Parallel Task Queue
 
-**Status:** Wave 0 foundation in progress on `feat/two-tier-bundle`.
+**Status:** Wave 0 foundation complete on `feat/two-tier-bundle`.
 **Integration branch:** `feat/two-tier-bundle`
 **Worktree root:** `.trees/two-tier-bundle`
 
@@ -40,6 +40,7 @@ Completed on `feat/two-tier-bundle`:
 - `Q0-07` browser-bundler tsconfig/index
 - `Q0-08` hello fixture
 - `Q0-09` tabs-template fixture
+- `Q0-10` fixture registry test
 - `Q0-11` mobile-preview route contracts
 - `Q0-12` manifest/status helpers
 - `Q0-13` bundle-store/relay helpers
@@ -48,17 +49,14 @@ Completed on `feat/two-tier-bundle`:
 - `Q0-16` shim pipeline wrapper
 - `Q0-17` two-tier placeholder
 - `Q0-18` service pipeline selector
-- `Q0-22` R2 binding stub
-- `Q0-23` Worker base-bundle route stubs
-
-Remaining Wave 0 leaves:
-
-- `Q0-10` fixture registry test
 - `Q0-19` E2E fixture-project helper
 - `Q0-20` base-bundle harness helper
 - `Q0-21` baseline smoke spec
+- `Q0-22` R2 binding stub
+- `Q0-23` Worker base-bundle route stubs
+
+Remaining Wave 0 leaves: none.
 
 ## Validation Notes
 
 Focused validations are run per task. The full `bun run typecheck` currently fails on existing baseline errors outside this queue. `bun install --frozen-lockfile` also fails after adding new workspace packages because `bun.lock` needs workspace metadata, but lockfile edits are intentionally deferred to the maintainer per repo instructions.
-
