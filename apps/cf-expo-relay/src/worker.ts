@@ -20,6 +20,7 @@
 import { handleManifest } from './routes/manifest';
 import type { Env } from './env';
 import { ExpoSession } from './session';
+export { HmrSession } from './do/hmr-session';
 
 export { ExpoSession };
 export type { Env } from './env';
