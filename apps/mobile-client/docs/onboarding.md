@@ -69,6 +69,46 @@ Expected sequence:
 - `[onlook-runtime] OnlookRuntime installed on globalThis`
 - `[onlook-runtime] B13 shell ready`
 
+### 6a. JS-side diagnostics via `__onlookDirectLog`
+
+React Native's `globalThis.nativeLoggingHook` is overwritten by the
+bridgeless init path sometime after our TurboModule installer runs
+(verified on iOS 18.6 sim 2026-04-21). As a result, JS code that calls
+`globalThis.nativeLoggingHook(...)` directly will silently drop its
+messages once RN's own routing takes over.
+
+To work around this, the native `OnlookRuntimeInstaller` (see
+`cpp/OnlookRuntimeInstaller.cpp`) ALSO publishes a **private**
+`globalThis.__onlookDirectLog(message, level)` channel that nothing
+else in the system touches. It routes to `os_log` on iOS and
+`__android_log_print` on Android, prefixed with `[onlook-js]` so the
+log-stream predicate above catches it.
+
+**Prefer `__onlookDirectLog` over `nativeLoggingHook` in JS** whenever
+you need reliable sim-visible diagnostics. The pattern used across
+the codebase (manifestFetcher's `nlog`, bundleFetcher's `blog`,
+AppRouter's `_pipelineLog`):
+
+```ts
+try {
+  const gt = globalThis as unknown as {
+    __onlookDirectLog?: (m: string, level: number) => void;
+    nativeLoggingHook?: (m: string, level: number) => void;
+  };
+  const channel = gt.__onlookDirectLog ?? gt.nativeLoggingHook;
+  channel?.(`[my-module] ${msg}`, 1);
+} catch { /* diagnostic path must never throw */ }
+```
+
+Output appears in `log stream` like:
+
+```
+... OnlookMobileClient.debug.dylib [onlook-js] [my-module] your message
+```
+
+Filter with `grep onlook-js` on the log-stream command for a clean
+view of JS-originated breadcrumbs only.
+
 ## 7. Run tests
 ```bash
 # Protocol package has a dedicated test script
