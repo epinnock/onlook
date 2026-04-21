@@ -121,11 +121,11 @@ describe('startTwoTierBootstrap', () => {
         expect(logs.some((l) => l.includes('native bridge not ready'))).toBe(true);
     });
 
-    test('warns when __onlookMountOverlay is not installed (Phase F blocker)', () => {
+    test('warns when OnlookRuntime.reloadBundle is not available (runtime not booted)', () => {
         const fake = new FakeDispatcher();
         const logs: string[] = [];
-        const priorMount = globalThis.__onlookMountOverlay;
-        globalThis.__onlookMountOverlay = undefined;
+        const priorMount = globalThis.OnlookRuntime;
+        globalThis.OnlookRuntime = undefined;
         try {
             startTwoTierBootstrap({
                 sessionId: 'sess',
@@ -136,10 +136,31 @@ describe('startTwoTierBootstrap', () => {
             });
             fake.emit('globalThis.x=1;');
             expect(
-                logs.some((l) => l.includes('__onlookMountOverlay is not installed')),
+                logs.some((l) => l.includes('OnlookRuntime.reloadBundle is not available')),
             ).toBe(true);
         } finally {
-            globalThis.__onlookMountOverlay = priorMount;
+            globalThis.OnlookRuntime = priorMount;
+        }
+    });
+
+    test('delegates to globalThis.OnlookRuntime.reloadBundle by default', () => {
+        const fake = new FakeDispatcher();
+        const received: string[] = [];
+        const priorRuntime = globalThis.OnlookRuntime;
+        globalThis.OnlookRuntime = {
+            reloadBundle: (code: string) => received.push(code),
+        };
+        try {
+            startTwoTierBootstrap({
+                sessionId: 'sess',
+                relayUrl: 'ws://relay',
+                enabled: true,
+                createDispatcher: () => fake as unknown as OverlayDispatcher,
+            });
+            fake.emit('globalThis.onlookMount=function(){};');
+            expect(received).toEqual(['globalThis.onlookMount=function(){};']);
+        } finally {
+            globalThis.OnlookRuntime = priorRuntime;
         }
     });
 });

@@ -99,9 +99,11 @@ test.describe('workers-pipeline browser-bundler — Chromium harness', () => {
             return mod.wrapOverlayCode('console.log(1);').code;
         });
 
-        expect(result).toMatch(/^\s*\(function\(\)\s*\{/);
-        expect(result).toContain('globalThis["__onlookMountOverlay"]');
-        expect(result).toContain('mount(');
+        // Self-mounting form — installs globalThis.onlookMount for
+        // OnlookRuntime.reloadBundle to call.
+        expect(result).toMatch(/^\s*\(function\(globalThis\)\s*\{/);
+        expect(result).toContain('globalThis.onlookMount = function onlookMount(props)');
+        expect(result).toContain('globalThis.renderApp(element)');
     });
 
     test('preflightUnsupportedImports classifies imports identically in Chromium', async ({

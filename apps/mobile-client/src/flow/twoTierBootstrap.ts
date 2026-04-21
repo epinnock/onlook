@@ -6,19 +6,24 @@ import { isTwoTierPipelineEnabled } from './featureFlags';
  * Two-tier overlay bootstrap.
  *
  * Starts an OverlayDispatcher against `/hmr/:sessionId` when the two-tier
- * feature flag is enabled, and routes incoming overlays to the native
- * `__onlookMountOverlay` JSI binding. When the flag is off this is a no-op
- * and the legacy single-bundle path remains unchanged.
+ * feature flag is enabled, and hands each received overlay to the existing
+ * native `OnlookRuntime.reloadBundle(bundleSource)` JSI method (source plan
+ * Phase 2 / MC2.8). When the flag is off this is a no-op and the legacy
+ * single-bundle path is untouched.
  *
- * The OnlookRuntime native mount (`globalThis.__onlookMountOverlay`) is
- * currently being implemented behind the Xcode 16.1 device-build blocker
- * (see plans/onlook-mobile-client-plan.md). Until that lands, the overlay
- * is received and logged; nothing mounts. That is intentional — the TS
- * side must ship first so the native wiring has an observable target.
+ * The overlay payload is emitted by `@onlook/browser-bundler`'s
+ * `wrapOverlayCode` as a self-mounting bundle — it installs
+ * `globalThis.onlookMount` during eval, and `reloadBundle` then calls it.
+ * No JS-side shim in shell.js is required.
  */
 
 declare global {
-    var __onlookMountOverlay: ((code: string) => void) | undefined;
+    var OnlookRuntime:
+        | {
+              reloadBundle?: (bundleSource: string) => void;
+              version?: string | (() => string);
+          }
+        | undefined;
 }
 
 export interface TwoTierBootstrapOptions {
@@ -28,7 +33,13 @@ export interface TwoTierBootstrapOptions {
     readonly enabled?: boolean;
     /** Test override for the dispatcher factory. */
     readonly createDispatcher?: (url: string) => OverlayDispatcher;
-    /** Test override for the native mount hook. Defaults to `globalThis.__onlookMountOverlay`. */
+    /**
+     * Test override for the mount hook. Defaults to
+     * `globalThis.OnlookRuntime.reloadBundle`. The overlay bundle is
+     * self-mounting (see `wrapOverlayCode`) — `reloadBundle` tears down
+     * the prior tree via `onlookUnmount` then eval's the new bundle,
+     * which registers a fresh `onlookMount` and gets called immediately.
+     */
     readonly mountOverlay?: (code: string) => void;
     /** Side-channel logger used for diagnostics. */
     readonly log?: (message: string) => void;
@@ -71,18 +82,27 @@ export function startTwoTierBootstrap(options: TwoTierBootstrapOptions): TwoTier
         : new OverlayDispatcher(hmrUrl);
 
     const mount: OverlayListener = (msg) => {
-        const mountFn = options.mountOverlay ?? globalThis.__onlookMountOverlay;
-        if (typeof mountFn === 'function') {
+        const explicit = options.mountOverlay;
+        if (typeof explicit === 'function') {
             try {
-                mountFn(msg.code);
+                explicit(msg.code);
             } catch (err) {
                 log(`mount threw: ${err instanceof Error ? err.message : String(err)}`);
             }
             return;
         }
+        const reloadBundle = globalThis.OnlookRuntime?.reloadBundle;
+        if (typeof reloadBundle === 'function') {
+            try {
+                reloadBundle(msg.code);
+            } catch (err) {
+                log(`reloadBundle threw: ${err instanceof Error ? err.message : String(err)}`);
+            }
+            return;
+        }
         log(
-            `overlay received but __onlookMountOverlay is not installed yet ` +
-                `(${msg.code.length} bytes of CJS) — JSI mount is Phase F work`,
+            `overlay received but OnlookRuntime.reloadBundle is not available ` +
+                `(${msg.code.length} bytes of bundle) — runtime not booted yet`,
         );
     };
 

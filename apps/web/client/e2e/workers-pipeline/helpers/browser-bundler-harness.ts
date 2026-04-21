@@ -5,7 +5,7 @@
  * In these E2E specs we bundle fixture projects via a real `esbuild` service
  * from node_modules and then wrap the output with the production
  * `wrapOverlayCode`. This exercises the same output contract the editor
- * pushes over the wire (CJS wrapped with globalThis.__onlookMountOverlay,
+ * pushes over the wire (self-mounting bundle that installs globalThis.onlookMount,
  * sourcemap parseable, size/time budgets) without pulling in the in-browser
  * esbuild-wasm stack. The virtual-fs resolve/load plugins have exhaustive
  * unit tests under packages/browser-bundler/__tests__, so these specs focus

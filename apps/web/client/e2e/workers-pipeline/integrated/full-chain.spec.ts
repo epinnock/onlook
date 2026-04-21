@@ -7,7 +7,7 @@
  *                                                       ↓
  *                                   OverlayDispatcher (mobile-client module)
  *                                                       ↓
- *                                   __onlookMountOverlay stub fires
+ *                                   OnlookRuntime.reloadBundle stub fires
  *
  * Every component is the real production module — no mocks for the code
  * under test, only a minimal fake relay + an in-memory WebSocket pair to
@@ -116,7 +116,7 @@ test.describe('workers-pipeline integrated — full chain', () => {
 
                 expect(mounted).toHaveLength(1);
                 expect(mounted[0]).toBe(wrapped.code);
-                expect(mounted[0]).toContain('__onlookMountOverlay');
+                expect(mounted[0]).toContain('globalThis.onlookMount = function onlookMount(props)');
             } finally {
                 await relay.close();
             }

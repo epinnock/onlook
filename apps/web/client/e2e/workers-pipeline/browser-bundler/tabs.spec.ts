@@ -13,8 +13,8 @@ test.describe('workers-pipeline browser-bundler — tabs-template fixture', () =
     test('bundles multi-file project through the virtual FS + externalized base imports', async () => {
         const { wrapped, bundle } = await bundleFixtureAsOverlay('tabs-template');
 
-        expect(wrapped.code).toContain('globalThis["__onlookMountOverlay"]');
-        expect(wrapped.code).toContain('mount(');
+        expect(wrapped.code).toContain('globalThis.onlookMount = function onlookMount(props)');
+        expect(wrapped.code).toContain('globalThis.renderApp(element)');
 
         // None of the base externals should have been statically inlined into
         // the overlay output — the mobile-client base bundle provides them.

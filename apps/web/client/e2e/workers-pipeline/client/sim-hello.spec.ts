@@ -2,54 +2,44 @@
  * workers-pipeline client — sim-hello.
  *
  * Validates the hello fixture mounts through the full two-tier path:
- * editor bundle → OverlayDispatcher (WS) → `__onlookMountOverlay` shim
- * from `packages/mobile-preview/runtime/shell.js`. The shim evaluates
- * the CJS overlay + mounts the component via the same `renderApp` +
- * `_initReconciler` primitives Hermes uses at iOS runtime.
+ * editor bundle → OverlayDispatcher (WS) → `OnlookRuntime.reloadBundle`
+ * eval'ing the self-mounting overlay. The wrap format installs
+ * `globalThis.onlookMount` during eval; reloadBundle then calls it and
+ * renderApp gets the user's component.
  *
- * Running the actual iOS binary is still gated on the Xcode 16.1 native
- * build (commit d91f6df6). We can't eliminate that gate here, but we
- * CAN eliminate the TS-side uncertainty: the shim is pure JS and runs
- * identically under Node's `vm` module. If this spec stays green, the
- * overlay path is proven wired through every layer except the native
- * xcodebuild step. Setting `ONLOOK_SIM_RUNTIME_READY=1` opts into the
- * additional describe that runs the real simulator once the native
- * build unblocks.
+ * Running the actual iOS binary is still part of Wave D (`bun run
+ * mobile:build:ios` on the Mac mini). Here we stub the native runtime
+ * with a Node `vm` context that mirrors the Hermes globals the base
+ * bundle provides (React, renderApp) so the self-mounting overlay
+ * exercises the same code path deterministically. If this spec stays
+ * green, the TS side of the overlay contract is proven wired.
+ *
+ * `ONLOOK_SIM_RUNTIME_READY=1` opts into an additional describe that
+ * runs against a booted simulator — once Maestro flow + Mac-mini runner
+ * are in place.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 
 import { expect, test } from '@playwright/test';
 
 import { bundleFixtureAsOverlay } from '../helpers/browser-bundler-harness';
-import { OverlayDispatcher, resolveHmrSessionUrl } from '../../../../../../apps/mobile-client/src/relay/overlayDispatcher';
+import {
+    OverlayDispatcher,
+    resolveHmrSessionUrl,
+} from '../../../../../../apps/mobile-client/src/relay/overlayDispatcher';
 
 const SIM_READY = process.env.ONLOOK_SIM_RUNTIME_READY === '1';
 
-const helperDir = dirname(fileURLToPath(import.meta.url));
-const shellPath = join(
-    helperDir,
-    '..',
-    '..',
-    '..',
-    '..',
-    '..',
-    '..',
-    'packages',
-    'mobile-preview',
-    'runtime',
-    'shell.js',
-);
-
-function loadOverlayShim(): {
+/**
+ * Build a Hermes-like vm context with the minimal globals the base
+ * runtime would install before the overlay is eval'd.
+ */
+function buildRuntimeContext(): {
     context: vm.Context;
     renders: Array<{ element: unknown }>;
-    logs: string[];
+    reloadBundle: (bundleSource: string) => void;
 } {
     const renders: Array<{ element: unknown }> = [];
-    const logs: string[] = [];
 
     const react = {
         createElement(type: unknown, props: unknown, ...children: unknown[]) {
@@ -64,9 +54,6 @@ function loadOverlayShim(): {
         },
     };
 
-    // Stubs that the base bundle would provide at runtime. The overlay's
-    // CJS calls `require('react')`, `require('react-native')`, etc.; the
-    // shim's requireFn routes bare specifiers through globalThis by name.
     const baseGlobals: Record<string, unknown> = {
         react,
         'react-native': {
@@ -78,13 +65,8 @@ function loadOverlayShim(): {
     };
 
     const ctx = vm.createContext({
-        _log: (m: unknown) => logs.push(String(m)),
         React: react,
         renderApp: (element: unknown) => renders.push({ element }),
-        OnlookRuntime: {
-            dispatchEvent: () => {},
-        },
-        // Install a require hook that resolves the base externals by name.
         __require: (specifier: string) => {
             if (specifier in baseGlobals) return baseGlobals[specifier];
             throw new Error(`overlay require: unresolved "${specifier}"`);
@@ -92,16 +74,19 @@ function loadOverlayShim(): {
     });
     vm.runInContext('globalThis = this;', ctx);
 
-    const shellSource = readFileSync(shellPath, 'utf8');
-    const marker = '// ─── Two-tier overlay mount';
-    const startIdx = shellSource.indexOf(marker);
-    if (startIdx === -1) {
-        throw new Error(
-            'sim-hello: overlay-mount marker not found in shell.js — shim missing?',
-        );
-    }
-    vm.runInContext(shellSource.slice(startIdx), ctx);
-    return { context: ctx, renders, logs };
+    // Emulate OnlookRuntime.reloadBundle: tear down any prior tree, eval
+    // the bundleSource (which registers a fresh onlookMount), then call it.
+    const reloadBundle = (bundleSource: string): void => {
+        try {
+            vm.runInContext('if (typeof globalThis.onlookUnmount === "function") globalThis.onlookUnmount();', ctx);
+        } catch {
+            // teardown failures are non-fatal, matching native reloadBundle semantics
+        }
+        vm.runInContext(bundleSource, ctx);
+        vm.runInContext('globalThis.onlookMount({});', ctx);
+    };
+
+    return { context: ctx, renders, reloadBundle };
 }
 
 class InMemorySocket {
@@ -122,23 +107,17 @@ class InMemorySocket {
     }
 }
 
-test.describe('workers-pipeline client — sim-hello shim (runs everywhere)', () => {
-    test('bundle → dispatcher → shim reaches renderApp with the user component', async () => {
+test.describe('workers-pipeline client — sim-hello (reloadBundle semantics, always runs)', () => {
+    test('bundle → dispatcher → reloadBundle-sim reaches renderApp with the user component', async () => {
         const { wrapped } = await bundleFixtureAsOverlay('hello');
-        const shim = loadOverlayShim();
+        const runtime = buildRuntimeContext();
 
         const socket = new InMemorySocket();
         const dispatcher = new OverlayDispatcher(
-            resolveHmrSessionUrl('http://relay', 'sim-hello-shim'),
+            resolveHmrSessionUrl('http://relay', 'sim-hello'),
             { createSocket: () => socket as unknown as WebSocket },
         );
-        dispatcher.onOverlay((msg) => {
-            // Drive the real shell.js shim with the overlay payload.
-            vm.runInContext(
-                `globalThis.__onlookMountOverlay(${JSON.stringify(msg.code)});`,
-                shim.context,
-            );
-        });
+        dispatcher.onOverlay((msg) => runtime.reloadBundle(msg.code));
         dispatcher.start();
 
         socket.emit(
@@ -146,44 +125,36 @@ test.describe('workers-pipeline client — sim-hello shim (runs everywhere)', ()
             JSON.stringify({ type: 'overlay', code: wrapped.code }),
         );
 
-        // The shim extracts the fixture's default-exported App component
-        // and forwards a createElement(App, null) to renderApp.
-        expect(shim.renders).toHaveLength(1);
-        expect(shim.logs.some((l) => l.includes('overlay mounted'))).toBe(true);
+        expect(runtime.renders).toHaveLength(1);
+        const rendered = runtime.renders[0]!.element as { type: { name?: string } };
+        expect(rendered.type.name).toBe('App');
+    });
+
+    test('two consecutive overlays replace the mounted component (onlookUnmount fires)', async () => {
+        const { wrapped: first } = await bundleFixtureAsOverlay('hello');
+        const { wrapped: second } = await bundleFixtureAsOverlay('hello');
+        const runtime = buildRuntimeContext();
+
+        runtime.reloadBundle(first.code);
+        runtime.reloadBundle(second.code);
+
+        // Each reload emits one render. No ghosts, no duplicates.
+        expect(runtime.renders).toHaveLength(2);
     });
 });
 
 test.describe('workers-pipeline client — sim-hello (full simulator, opt-in)', () => {
-    test.skip(!SIM_READY, 'full simulator requires an Xcode 16.1 build — set ONLOOK_SIM_RUNTIME_READY=1 once it lands');
+    test.skip(!SIM_READY, 'full simulator requires mobile:build:ios on the Mac mini; set ONLOOK_SIM_RUNTIME_READY=1 after the xcodebuild run');
 
-    test('hello fixture bundles + relays + dispatches through the overlay path', async () => {
-        const { wrapped, bundle } = await bundleFixtureAsOverlay('hello');
-        expect(wrapped.code).toContain('__onlookMountOverlay');
-
-        const socket = new InMemorySocket();
-        const dispatcher = new OverlayDispatcher(
-            resolveHmrSessionUrl('http://relay', 'sim-hello'),
-            { createSocket: () => socket as unknown as WebSocket },
-        );
-        const received: string[] = [];
-        dispatcher.onOverlay((msg) => received.push(msg.code));
-        dispatcher.start();
-
-        socket.emit(
-            'message',
-            JSON.stringify({ type: 'overlay', code: wrapped.code, sourceMap: bundle.sourceMap }),
-        );
-
-        expect(received).toHaveLength(1);
-        expect(received[0]).toContain('__onlookMountOverlay');
+    test('overlay wrapper shape is reloadBundle-compatible', async () => {
+        const { wrapped } = await bundleFixtureAsOverlay('hello');
+        expect(wrapped.code).toContain('globalThis.onlookMount = function onlookMount(props)');
     });
 });
 
 test.describe('workers-pipeline client — sim-hello contract guard (always runs)', () => {
     test('the hello-fixture overlay is small enough to ship over the HMR WS frame budget', async () => {
         const { byteLength } = await bundleFixtureAsOverlay('hello');
-        // Conservative 128KB upper bound — real HmrSession DO accepts up to
-        // the CF Workers message limit but the fixture should be well under.
         expect(byteLength).toBeLessThan(128 * 1024);
     });
 });

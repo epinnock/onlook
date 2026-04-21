@@ -1,206 +1,212 @@
 /**
- * Tests for the `__onlookMountOverlay` shim installed by shell.js.
+ * Overlay-mount contract tests.
  *
- * Loads the ES5-era shell.js source into a fresh vm context populated with
- * a minimal Hermes-like globalThis (React stub, renderApp stub, _log
- * capture), then drives the overlay-mount function end-to-end.
- *
- * Goals:
- *   - prove the CJS-string → component → renderApp path works in Node
- *     (same semantics Hermes will run at iOS runtime).
- *   - exercise the error paths (empty string, missing React, bad export).
- *   - confirm the error-dispatch routes through OnlookRuntime.dispatchEvent.
+ * The previous implementation installed a `globalThis.__onlookMountOverlay`
+ * shim in `shell.js`. That was reverted 2026-04-20 — the two-tier overlay
+ * now ships as a self-mounting bundle (see
+ * `packages/browser-bundler/src/wrap-overlay.ts`) that `OnlookRuntime.reloadBundle`
+ * evaluates directly. This spec validates the self-mounting contract in a
+ * Hermes-like vm context with the exact globals the base runtime exposes.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import vm from 'node:vm';
 import { describe, expect, test } from 'bun:test';
+import vm from 'node:vm';
 
-const helperDir = dirname(fileURLToPath(import.meta.url));
-const shellPath = join(helperDir, '..', 'shell.js');
-const shellSource = readFileSync(shellPath, 'utf8');
-
-interface RenderCall {
-    readonly element: unknown;
-}
+import { wrapOverlayCode } from '../../../browser-bundler/src/wrap-overlay';
 
 interface HarnessContext {
-    readonly globals: Record<string, unknown>;
-    readonly logs: string[];
-    readonly renders: RenderCall[];
-    readonly dispatchedEvents: Array<{ name: string; payload: unknown }>;
-    runOverlay: (cjsCode: string) => void;
+    readonly context: vm.Context;
+    readonly renders: Array<{ element: unknown }>;
+    /** Mirrors the native `OnlookRuntime.reloadBundle(bundleSource)` contract. */
+    reloadBundle: (bundleSource: string) => void;
+    /** Test escape hatch — install arbitrary globals (e.g. missing React). */
+    set: (key: string, value: unknown) => void;
+    /** Returns the currently-registered `globalThis.onlookMount`. */
+    getInstalledMount: () => unknown;
 }
 
-function buildHarness(
-    overrides: { withReact?: boolean; withRenderApp?: boolean; withRuntime?: boolean } = {},
+function buildRuntime(
+    overrides: {
+        withReact?: boolean;
+        withRenderApp?: boolean;
+        withRequire?: boolean;
+    } = {},
 ): HarnessContext {
     const withReact = overrides.withReact ?? true;
     const withRenderApp = overrides.withRenderApp ?? true;
-    const withRuntime = overrides.withRuntime ?? true;
+    const withRequire = overrides.withRequire ?? true;
 
-    const logs: string[] = [];
-    const renders: RenderCall[] = [];
-    const dispatchedEvents: Array<{ name: string; payload: unknown }> = [];
-
-    // Minimal React stub — shell.js only uses createElement + isValidElement.
-    const React = withReact
+    const renders: Array<{ element: unknown }> = [];
+    const react = withReact
         ? {
               createElement(type: unknown, props: unknown, ...children: unknown[]) {
                   return { $$typeof: 'react-element', type, props, children };
               },
-              isValidElement(value: unknown): boolean {
+              isValidElement(v: unknown) {
                   return (
-                      !!value &&
-                      typeof value === 'object' &&
-                      (value as { $$typeof?: unknown }).$$typeof === 'react-element'
+                      !!v &&
+                      typeof v === 'object' &&
+                      (v as { $$typeof?: unknown }).$$typeof === 'react-element'
                   );
               },
           }
         : undefined;
 
-    const ctx = vm.createContext({
-        console: {
-            log(...args: unknown[]) {
-                // shell.js uses nativeLoggingHook via a local _log shim; we
-                // intercept through _log by installing one into the context.
-                logs.push(args.map(String).join(' '));
-            },
+    const baseModules: Record<string, unknown> = {
+        react,
+        'react-native': {
+            View: 'View',
+            Text: 'Text',
+            StyleSheet: { create: (s: unknown) => s, flatten: (s: unknown) => s },
+            AppRegistry: { registerComponent: () => {} },
         },
-        // shell.js calls _log(...) at module-scope; install a capture.
-        _log: (message: unknown) => logs.push(String(message)),
-        globalThis: undefined as unknown,
-        React,
+    };
+
+    const ctx = vm.createContext({
+        React: react,
         renderApp: withRenderApp
-            ? (element: unknown) => {
-                  renders.push({ element });
-              }
+            ? (element: unknown) => renders.push({ element })
             : undefined,
-        OnlookRuntime: withRuntime
-            ? {
-                  dispatchEvent(name: string, payload: unknown) {
-                      dispatchedEvents.push({ name, payload });
-                  },
+        __require: withRequire
+            ? (specifier: string) => {
+                  if (specifier in baseModules) return baseModules[specifier];
+                  throw new Error(`overlay require: unresolved "${specifier}"`);
               }
             : undefined,
     });
-    // shell.js references `globalThis` directly; wire the sandbox root as its own globalThis.
     vm.runInContext('globalThis = this;', ctx);
 
-    // Only evaluate the overlay-mount block (the full shell.js requires
-    // RN $AppRegistry / fab / reconciler scaffolding we don't need here).
-    // Find the marker comment and eval from there to end of file.
-    const marker = '// ─── Two-tier overlay mount';
-    const startIdx = shellSource.indexOf(marker);
-    if (startIdx === -1) {
-        throw new Error('marker not found in shell.js — test out of date?');
-    }
-    const overlayBlock = shellSource.slice(startIdx);
-    vm.runInContext(overlayBlock, ctx);
-
-    const runOverlay = (cjsCode: string): void => {
-        vm.runInContext(
-            `globalThis.__onlookMountOverlay(${JSON.stringify(cjsCode)});`,
-            ctx,
-        );
+    const reloadBundle = (bundleSource: string): void => {
+        try {
+            vm.runInContext(
+                'if (typeof globalThis.onlookUnmount === "function") globalThis.onlookUnmount();',
+                ctx,
+            );
+        } catch {
+            /* non-fatal per native reloadBundle contract */
+        }
+        vm.runInContext(bundleSource, ctx);
+        vm.runInContext('globalThis.onlookMount({});', ctx);
     };
 
     return {
-        globals: ctx as unknown as Record<string, unknown>,
-        logs,
+        context: ctx,
         renders,
-        dispatchedEvents,
-        runOverlay,
+        reloadBundle,
+        set(key, value) {
+            vm.runInContext(`globalThis[${JSON.stringify(key)}] = arguments[0];`, ctx, {
+                // no-op; value injection below via runInContext with bind
+            } as vm.RunningScriptOptions);
+            vm.runInContext(
+                `globalThis[${JSON.stringify(key)}] = __$inject_value;`,
+                Object.assign(ctx, { __$inject_value: value }),
+            );
+        },
+        getInstalledMount() {
+            return vm.runInContext('globalThis.onlookMount', ctx);
+        },
     };
 }
 
-describe('__onlookMountOverlay (shell.js shim)', () => {
-    test('evaluates CJS + renders the default-exported component via renderApp', () => {
-        const harness = buildHarness();
-        const cjs = `
-            module.exports.default = function TestApp() {
-                return { $$typeof: 'react-element', type: 'View', props: {}, children: [] };
-            };
-        `;
-        harness.runOverlay(cjs);
-        expect(harness.renders).toHaveLength(1);
-        const rendered = harness.renders[0]!.element as { type: unknown };
-        expect((rendered as { type: { name?: string } }).type.name).toBe('TestApp');
-        expect(harness.logs.some((l) => l.includes('overlay mounted'))).toBe(true);
-    });
-
-    test('falls back to module.exports when there is no default export', () => {
-        const harness = buildHarness();
-        const cjs = `
-            module.exports = function App() {
-                return { $$typeof: 'react-element', type: 'View', props: {}, children: [] };
-            };
-        `;
-        harness.runOverlay(cjs);
-        expect(harness.renders).toHaveLength(1);
-    });
-
-    test('logs + short-circuits on empty cjsCode without calling renderApp', () => {
-        const harness = buildHarness();
-        harness.runOverlay('');
-        expect(harness.renders).toHaveLength(0);
-        expect(harness.logs.some((l) => l.includes('empty cjsCode'))).toBe(true);
-    });
-
-    test('logs + short-circuits when renderApp is missing', () => {
-        const harness = buildHarness({ withRenderApp: false });
-        const cjs = `module.exports.default = function() { return {}; };`;
-        harness.runOverlay(cjs);
-        expect(harness.logs.some((l) => l.includes('renderApp missing'))).toBe(true);
-    });
-
-    test('logs + short-circuits when React is missing', () => {
-        const harness = buildHarness({ withReact: false });
-        const cjs = `module.exports.default = function() { return {}; };`;
-        harness.runOverlay(cjs);
-        expect(harness.renders).toHaveLength(0);
-        expect(harness.logs.some((l) => l.includes('React missing'))).toBe(true);
-    });
-
-    test('dispatches onlook:error via OnlookRuntime when the overlay throws', () => {
-        const harness = buildHarness();
-        const cjs = `throw new Error('overlay boom');`;
-        harness.runOverlay(cjs);
-        expect(harness.renders).toHaveLength(0);
-        expect(harness.dispatchedEvents).toHaveLength(1);
-        expect(harness.dispatchedEvents[0]!.name).toBe('onlook:error');
-        const payload = harness.dispatchedEvents[0]!.payload as { kind: string; message: string };
-        expect(payload.kind).toBe('overlay-mount');
-        expect(payload.message).toContain('overlay boom');
-    });
-
-    test('survives a throwing dispatchEvent (error path must never re-throw)', () => {
-        const harness = buildHarness();
-        // Replace dispatchEvent with one that throws.
-        vm.runInContext(
-            `globalThis.OnlookRuntime.dispatchEvent = function(){ throw new Error('dispatch exploded'); };`,
-            harness.globals as unknown as vm.Context,
+describe('wrapOverlayCode (self-mounting contract)', () => {
+    test('installs globalThis.onlookMount that renders the default-exported component', () => {
+        const { code } = wrapOverlayCode(
+            `
+                module.exports.default = function TestApp() {
+                    return { $$typeof: 'react-element', type: 'View', props: {}, children: [] };
+                };
+            `,
         );
-        const cjs = `throw new Error('original failure');`;
-        expect(() => harness.runOverlay(cjs)).not.toThrow();
+        const runtime = buildRuntime();
+        runtime.reloadBundle(code);
+        expect(runtime.renders).toHaveLength(1);
+        const rendered = runtime.renders[0]!.element as { type: { name?: string } };
+        expect(rendered.type.name).toBe('TestApp');
     });
 
-    test('exposes the require shim for base-external lookups', () => {
-        const harness = buildHarness();
-        vm.runInContext(
-            `globalThis['react-native'] = { View: 'RNView' };`,
-            harness.globals as unknown as vm.Context,
+    test('tags the mount with __isOverlayMount=true so diagnostics can distinguish it', () => {
+        const { code } = wrapOverlayCode(
+            'module.exports.default = function() { return null; };',
         );
-        const cjs = `
-            const RN = require('react-native');
-            module.exports.default = function App() {
-                return { $$typeof: 'react-element', type: RN.View, props: {}, children: [] };
-            };
-        `;
-        harness.runOverlay(cjs);
-        expect(harness.renders).toHaveLength(1);
-        const rendered = harness.renders[0]!.element as { type: { name?: string } };
-        expect(rendered.type.name).toBe('App');
+        const runtime = buildRuntime();
+        vm.runInContext(code, runtime.context);
+        const installed = runtime.getInstalledMount() as {
+            __isOverlayMount?: unknown;
+        };
+        expect(installed.__isOverlayMount).toBe(true);
+    });
+
+    test('falls back to module.exports when there is no .default', () => {
+        const { code } = wrapOverlayCode(
+            `module.exports = function App() {
+                return { $$typeof: 'react-element', type: 'View', props: {}, children: [] };
+            };`,
+        );
+        const runtime = buildRuntime();
+        runtime.reloadBundle(code);
+        expect(runtime.renders).toHaveLength(1);
+    });
+
+    test('throws through reloadBundle when React is missing in the runtime', () => {
+        const { code } = wrapOverlayCode('module.exports.default = function() { return null; };');
+        const runtime = buildRuntime({ withReact: false });
+        expect(() => runtime.reloadBundle(code)).toThrow(/globalThis\.React missing/);
+    });
+
+    test('throws when renderApp is missing (base runtime not booted)', () => {
+        const { code } = wrapOverlayCode('module.exports.default = function() { return null; };');
+        const runtime = buildRuntime({ withRenderApp: false });
+        expect(() => runtime.reloadBundle(code)).toThrow(/globalThis\.renderApp missing/);
+    });
+
+    test('throws when the default export is not a component or element', () => {
+        const { code } = wrapOverlayCode('module.exports = { not: "a component" };');
+        const runtime = buildRuntime();
+        expect(() => runtime.reloadBundle(code)).toThrow(/default export is not a component/);
+    });
+
+    test('overlay require routes bare specifiers through __require (base-external contract)', () => {
+        // The test shape: overlay factory imports a base-external and
+        // uses its shape. If the require hook isn't routed, `factory(...)`
+        // throws during CJS eval — so reaching renders[0] at all proves
+        // the require() worked.
+        const { code } = wrapOverlayCode(
+            `
+                var RN = require('react-native');
+                if (!RN || typeof RN.StyleSheet.create !== 'function') {
+                    throw new Error('overlay: require("react-native") returned wrong shape');
+                }
+                module.exports.default = function App() {
+                    return { $$typeof: 'react-element', type: 'RNView', props: {}, children: [] };
+                };
+            `,
+        );
+        const runtime = buildRuntime();
+        runtime.reloadBundle(code);
+        expect(runtime.renders).toHaveLength(1);
+        // Factory type is the App function itself (React.createElement
+        // captures it; instantiation happens in the reconciler later).
+        expect(typeof (runtime.renders[0]!.element as { type: unknown }).type).toBe('function');
+    });
+
+    test('overlay eval fails loudly when require() cannot resolve a specifier', () => {
+        const { code } = wrapOverlayCode(
+            `
+                require('not-a-base-external');
+                module.exports.default = function() { return null; };
+            `,
+        );
+        const runtime = buildRuntime();
+        expect(() => runtime.reloadBundle(code)).toThrow(/unresolved "not-a-base-external"/);
+    });
+
+    test('wrapOverlayCode throws on empty input', () => {
+        expect(() => wrapOverlayCode('')).toThrow(/non-empty/);
+        expect(() => wrapOverlayCode('   ')).toThrow(/non-empty/);
+    });
+
+    test('emits legacy IIFE shape when emitSelfMounting=false', () => {
+        const { code } = wrapOverlayCode('module.exports = {};', { emitSelfMounting: false });
+        expect(code).toContain('__onlookMountOverlay');
+        expect(code).toMatch(/^\s*\(function\(\)\s*\{/);
     });
 });
