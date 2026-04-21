@@ -453,6 +453,92 @@ and ADR sign-off, not an overlay change.
 - SourceMap availability: if R2 upload fails, editor displays raw frames without mapping.
   Acceptable for v1.
 
+## Integration recipe — wiring a new editor caller
+
+The canonical composition for an editor-side two-tier-v1 consumer. Every new
+integration should follow this shape; deviations are likely bugs.
+
+```ts
+import {
+    createOverlayPipeline,
+    subscribeRelayEvents,
+    createReconnectReplayer,
+    startEditorAbiHandshake,
+    formatPreflightSummary,
+    evaluatePushTelemetry,
+} from '@/services/expo-relay';
+import { preflightAbiV1Imports } from '@onlook/browser-bundler';
+import { buildRuntimeCapabilities } from '@onlook/base-bundle-builder';
+
+// 1. Build the composition once per editor session.
+const relayUrl = env.NEXT_PUBLIC_CF_EXPO_RELAY_URL!;
+const sessionId = generateSessionId();
+const latest = { code: null as string | null, buildDurationMs: 0 };
+
+const pipeline = createOverlayPipeline({
+    relayBaseUrl: relayUrl,
+    sessionId,
+});
+
+const ws = new WebSocket(`${relayUrl.replace('http', 'ws')}/hmr/${sessionId}`);
+
+const replayer = createReconnectReplayer({
+    relayBaseUrl: relayUrl,
+    sessionId,
+    latest, // read by reference — the pipeline mutates it
+});
+
+const handshake = startEditorAbiHandshake({
+    ws,
+    sessionId,
+    capabilities: buildRuntimeCapabilities({
+        baseHash: currentBase.baseHash,
+        rnVersion: currentBase.rnVersion,
+        expoSdk: currentBase.expoSdk,
+        platform: 'ios',
+    }),
+    onPhoneHello: (phone) => replayer.onAbiHello(phone),
+});
+
+subscribeRelayEvents({
+    ws,
+    handlers: {
+        onConsole: (m) => editorConsole.append(m),
+        onError: (m) => editorErrorPanel.push(m),
+        onTap: (m) => inspector.jumpToSource(m),
+    },
+});
+
+// 2. On every file-save event in the editor, produce an overlay.
+async function onFileSave(files: VirtualFsFileMap) {
+    const preflight = preflightAbiV1Imports({
+        files,
+        baseAliases: currentBase.aliases,
+        disallowed: ['react-native-reanimated', '@shopify/react-native-skia'],
+    });
+    if (preflight.length > 0) {
+        editorStatus.show(formatPreflightSummary(preflight));
+        return;
+    }
+
+    const { code, sourceMap, buildDurationMs } = await buildOverlay(files);
+    latest.code = code;
+    latest.buildDurationMs = buildDurationMs;
+
+    pipeline.schedule({ overlay: { code, sourceMap, buildDurationMs } });
+}
+
+// 3. When the phone acknowledges the mount (via onlook:error absence or an
+//    explicit ack message — integration's choice), flip the pipeline state.
+function onPhoneAck(overlayHash: string) {
+    pipeline.markMounted(overlayHash);
+}
+```
+
+`pipeline.status` subscribes MobX-friendly — bind it to the editor's
+status-bar UI. `evaluatePushTelemetry` is wired into `pushOverlayV1`'s
+`onTelemetry` sink inside the pipeline composer.
+
 ## References
 
 - `plans/two-tier-overlay-v2-task-queue.md` — the 100-task queue anchored on this ABI.

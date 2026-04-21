@@ -7,7 +7,7 @@
  * returning the relay launch URLs.
  */
 
-export type MobilePreviewPipelineKind = 'shim' | 'two-tier';
+export type MobilePreviewPipelineKind = 'shim' | 'two-tier' | 'overlay-v1';
 
 export type MobilePreviewFileEntryType = 'file' | 'directory';
 
