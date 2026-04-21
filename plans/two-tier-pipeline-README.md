@@ -111,6 +111,119 @@ Both describes flip from 2 skipped → 2 passing.
 - The native JSI mount (`OnlookRuntime.__onlookMountOverlay`) is owned by the mobile-client iOS runtime author.
 - The relay worker + HmrSession DO are ops-owned; config lives in `apps/cf-expo-relay/wrangler.jsonc` and the ALLOWED_PUSH_ORIGINS secret.
 
+## Validation recipes
+
+Three tiers of validation exist. Each is cheap to rerun and lives in source so
+every contributor can reproduce the green bar.
+
+### Tier 1 — unit + Node E2E (runs anywhere, ~1s)
+
+```bash
+bun test packages/base-bundle-builder/__tests__/*.test.ts
+bun test packages/browser-bundler/__tests__/*.test.ts
+bun test packages/mobile-client-protocol/__tests__/overlay.test.ts
+bun test packages/mobile-preview/runtime/__tests__/overlay-mount.test.ts
+bun test apps/mobile-client/src/relay/__tests__/overlayDispatcher.test.ts
+bun test apps/mobile-client/src/flow/__tests__/*.test.ts
+bun test apps/web/client/src/services/expo-relay/__tests__/push-overlay.test.ts
+bun test apps/web/client/src/services/mobile-preview/pipelines/__tests__/two-tier.test.ts
+bun --filter @onlook/base-bundle-builder typecheck
+bun --filter @onlook/browser-bundler typecheck
+(cd apps/cf-expo-relay && bun test 'src/__tests__/*.test.ts' 'src/__tests__/routes/*.test.ts' && bun run typecheck)
+
+bunx playwright test apps/web/client/e2e/workers-pipeline/
+```
+
+Expected baseline (2026-04-20): 286 unit tests + 49 Playwright specs (2 of them
+opt-in-skipped until `ONLOOK_SIM_RUNTIME_READY=1`), typecheck green across
+base-bundle-builder + browser-bundler + cf-expo-relay.
+
+### Tier 2 — Chromium (Playwright MCP / `chrome-devtools` MCP)
+
+Drives the editor's preview UI inside a real Chromium page. Useful to verify
+the feature-flag gate actually flips the hot path at runtime.
+
+```bash
+# From repo root (starts Next.js dev on WEB_PORT)
+export PREVIEW_SLOT=0
+export WEB_PORT=$((3100 + PREVIEW_SLOT))
+export NEXT_PUBLIC_MOBILE_PREVIEW_PIPELINE=two-tier
+export NEXT_PUBLIC_CF_EXPO_RELAY_URL=http://127.0.0.1:8787
+bun run dev:client
+```
+
+Then, from a Claude Code / Playwright MCP-capable client, drive:
+
+1. `navigate_page` → `http://127.0.0.1:3100/project/<id>`
+2. Open the QR preview modal.
+3. `list_console_messages` — look for `[onlook.push-overlay]` telemetry events
+   (structured `console.info` from `pushOverlay`) confirming the hot path
+   went through `TwoTierMobilePreviewPipeline`.
+4. `list_network_requests` — confirm POST to
+   `http://127.0.0.1:8787/push/<sessionId>` fires on file-save events.
+
+The Chromium harness Playwright spec (`apps/web/client/e2e/workers-pipeline/browser-bundler/chromium-harness.spec.ts`)
+automates the analogous checks headlessly via esbuild-wasm inside the page.
+
+### Tier 3 — iOS simulator (Mac mini, Xcode 16.4)
+
+End-to-end proof that the runtime's `OnlookRuntime.reloadBundle` accepts the
+self-mounting overlay format. Requires the Mac mini (`scry-farmer@192.168.0.17`)
+or any host with Xcode ≥ 16.1.
+
+```bash
+# On the Mac mini
+cd ~/build/onlook
+git fetch origin feat/two-tier-bundle
+git reset --hard origin/feat/two-tier-bundle
+bun install
+(cd packages/mobile-preview && bun run build:runtime)
+(cd apps/mobile-client && bun run mobile:build:ios)
+
+SIM=4D5CF9DA-F272-401C-BC5B-3C932CC5987B   # iPhone 16
+APP=$(find ~/Library/Developer/Xcode/DerivedData -name OnlookMobileClient.app \
+  -path '*/Debug-iphonesimulator/*' -type d | head -1)
+xcrun simctl install "$SIM" "$APP"
+xcrun simctl launch "$SIM" com.onlook.mobile
+sleep 5
+xcrun simctl spawn "$SIM" log show --last 1m --predicate \
+  'processImagePath CONTAINS "OnlookMobileClient"' | \
+  grep -E 'onlook-runtime|reloadBundle'
+```
+
+Expected lines: `[onlook-runtime] hermes ready`, `composed combined bundle (~1.6MB)`,
+`Fabric tap bridge attached`. The baked runtime file SHA matches
+`packages/mobile-preview/runtime/bundle.js`. Grep `__onlookMountOverlay` against
+the combined bundle must return 0 (shim removed).
+
+For the full editor → overlay → simulator round-trip, run Tier 2 (editor) +
+Tier 3 (sim) in parallel with a real relay in between:
+
+```bash
+# Terminal A (local): relay
+cd apps/cf-expo-relay && bunx wrangler dev --port 8787 --local
+
+# Terminal B (local): editor dev with two-tier flag
+export NEXT_PUBLIC_MOBILE_PREVIEW_PIPELINE=two-tier
+export NEXT_PUBLIC_CF_EXPO_RELAY_URL=http://<LAN-IP>:8787
+bun run dev:client
+
+# Terminal C (Mac mini SSH): booted simulator pointed at the LAN relay
+# via an onlook:// deeplink:
+ssh -i ~/.ssh/spectra-macmini scry-farmer@192.168.0.17 \
+  "xcrun simctl openurl 4D5CF9DA-F272-401C-BC5B-3C932CC5987B \
+   'onlook://launch?session=manual&relay=http%3A%2F%2F<LAN-IP>%3A8787%2Fmanifest%2Fmanual'"
+```
+
+Edit `App.tsx` in the editor → `pushOverlay` POSTs to `/push/manual` → HmrSession
+broadcasts → the device's `OverlayDispatcher` receives the overlay →
+`OnlookRuntime.reloadBundle` eval's the self-mounting bundle → renderApp picks
+up the new component.
+
+When this flow stays green after an arbitrary edit, set
+`ONLOOK_SIM_RUNTIME_READY=1` and the opt-in Playwright describes in
+`workers-pipeline/client/` will run — they're currently auto-skipped.
+
 ## Further reading
 
 - `plans/adr/two-tier-validation-strategy.md` — why we chose the three-tier validation approach.

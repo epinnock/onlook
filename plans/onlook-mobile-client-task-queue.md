@@ -205,7 +205,16 @@ Phase F is explicitly serial. Every task in here either creates a hotspot file o
   - Files: ENTIRE `apps/mobile-client/ios/**` (generated), optional touch-ups to `ios/OnlookMobileClient/Info.plist` if Expo's output misses anything
   - Deps: MCF8a, Xcode ≥ 16.1, CocoaPods ≥ 1.16
   - Validate: `cd apps/mobile-client && bun x expo prebuild --platform ios --no-install --clean && cd ios && pod install && xcodebuild -workspace OnlookMobileClient.xcworkspace -scheme OnlookMobileClient -configuration Debug -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 15' build | tail -20` exits 0
-  - Status: **⛔ Blocked on tooling** (2026-04-11) — RN 0.81.6 pod check requires `Xcode >= 16.1`; machine has 15.4 on macOS 14.3.1. `expo prebuild --no-install` itself succeeds locally on Xcode 15.4 and generates `Info.plist` with all the right keys (camera permission, `onlook://` URL scheme, `NSAllowsLocalNetworking`, `RCTNewArchEnabled`) automatically from `app.config.ts`. The block is specifically at `pod install`. A new machine with Xcode 16.1+ finishes this task in ~10 min of `pod install` + `xcodebuild`. See `plans/onlook-mobile-client-handoff.md`.
+  - Status: **✅ Unblocked 2026-04-20 on Mac mini (Xcode 16.4).** The Xcode ≥ 16.1 blocker from 2026-04-11 is lifted. Reproduction on the Mac mini (`scry-farmer@192.168.0.17`, macOS 24.5.0 ARM64):
+    ```bash
+    cd ~/build/onlook
+    bun install                                         # 2429 packages, ~12s
+    cd packages/mobile-preview && bun run build:runtime # runtime/bundle.js (~257KB)
+    cd ~/build/onlook/apps/mobile-client
+    bun run mobile:build:ios                            # ** BUILD SUCCEEDED **
+    ```
+    Verified 2026-04-20 against `feat/two-tier-bundle` @ commit `8883ef19`: `OnlookMobileClient.app` signed for iPhone-16 simulator, installs + launches, unified log emits `[onlook-runtime] hermes ready`, combined bundle (~1.6MB) evaluated by Hermes. Launcher screen renders (see `tmp-screenshots/wave-d-mini-launcher.png`).
+    Historical detail (2026-04-11): RN 0.81.6 pod check requires `Xcode >= 16.1`; the original dev machine had 15.4. `expo prebuild --no-install` succeeds on 15.4 and generates `Info.plist` correctly from `app.config.ts`; only `pod install` was gated.
   - Note: **Scope narrowed 2026-04-11** — no longer pre-registers downstream stub files in `project.pbxproj` or `build.gradle`. Rationale: reliable pbxproj surgery requires the `xcodeproj` Ruby gem and is too fragile to do by hand across ~40 wave tasks. Instead each wave that needs new native files adds one serialized "xcode scribe" sub-task (e.g., `MC1.X`, `MC2.X`) that batches all pbxproj additions for that wave via the gem. Scribe runs between the wave's content tasks and its build validation. Info.plist and AndroidManifest.xml are pre-populated via `app.config.ts` because Expo expands them during prebuild.
 
 - **MCF8c** *(deferred)* — Android prebuild + Gradle assembleDebug
