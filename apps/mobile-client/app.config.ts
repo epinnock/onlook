@@ -44,6 +44,17 @@ const config: ExpoConfig = {
             NSAppTransportSecurity: {
                 NSAllowsLocalNetworking: true,
             },
+            // iOS 14+ Local Network Privacy: without this key, apps
+            // silently fail to reach LAN/loopback even with
+            // NSAllowsLocalNetworking=true (the ATS exception). The
+            // two-tier preview flow needs to fetch manifest + bundle
+            // from cf-expo-relay over plain HTTP on the dev LAN
+            // (e.g. http://192.168.x.y:8787) and open a WebSocket to
+            // /hmr/:sessionId, both of which count as "local network"
+            // access. This description is shown in the iOS permission
+            // prompt the first time the app tries to reach the LAN.
+            NSLocalNetworkUsageDescription:
+                'Onlook Mobile Client connects to the Onlook editor running on your local network to fetch preview bundles and receive live overlays.',
         },
         // MCF8 pre-populates the URL scheme via expo's `scheme` field above;
         // that expands into CFBundleURLTypes during prebuild.
