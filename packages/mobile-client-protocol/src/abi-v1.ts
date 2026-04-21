@@ -189,6 +189,24 @@ export const AbiRuntimeErrorMessageSchema = z.object({
 export type AbiRuntimeErrorMessage = z.infer<typeof AbiRuntimeErrorMessageSchema>;
 
 /**
+ * phone → relay → editor: explicit mount-acknowledgement.
+ *
+ * Sent by the mobile client's OnlookRuntime after `mountOverlay` resolves
+ * (or the catch block that would fire on failure). Lets the editor's
+ * `OverlayPipeline.markMounted(overlayHash)` fire from an explicit signal
+ * instead of an absence-of-onlook:error heuristic.
+ */
+export const OverlayAckMessageSchema = z.object({
+    type: z.literal('onlook:overlayAck'),
+    sessionId: z.string().min(1),
+    overlayHash: z.string().min(1),
+    status: z.enum(['mounted', 'failed']),
+    error: OnlookRuntimeErrorSchema.optional(),
+    timestamp: z.number().int().nonnegative(),
+});
+export type OverlayAckMessage = z.infer<typeof OverlayAckMessageSchema>;
+
+/**
  * The subset of WS messages added by ABI v1. The existing ws-messages.ts union continues
  * to own `onlook:select` / `onlook:tap` / `onlook:console` / `onlook:network` which are
  * unchanged. Once legacy `bundleUpdate` is retired (Phase 11 task #89), the two modules
@@ -198,6 +216,7 @@ export const AbiV1WsMessageSchema = z.discriminatedUnion('type', [
     OverlayUpdateMessageSchema,
     AbiHelloMessageSchema,
     AbiRuntimeErrorMessageSchema,
+    OverlayAckMessageSchema,
 ]);
 export type AbiV1WsMessage = z.infer<typeof AbiV1WsMessageSchema>;
 
