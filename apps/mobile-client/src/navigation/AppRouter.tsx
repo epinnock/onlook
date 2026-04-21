@@ -32,6 +32,10 @@ import { qrToMount } from '../flow/qrToMount';
 import { parseOnlookDeepLink } from '../deepLink/parse';
 import { fetchManifest } from '../relay/manifestFetcher';
 import { fetchBundle } from '../relay/bundleFetcher';
+import {
+    startTwoTierBootstrap,
+    type TwoTierBootstrapHandle,
+} from '../flow/twoTierBootstrap';
 
 type RuntimeWithRun = { runApplication?: (src: string, props: { sessionId: string }) => void };
 
@@ -51,6 +55,17 @@ import {
 
 const AUTO_RUN_URL =
     'exp://192.168.0.14:8787/manifest/dc8ead785627ac182bd9f331f2eee7a73afbd48d72fc585d8d1fccfa9c439bf6';
+
+/**
+ * Singleton-ish holder for the most recent TwoTierBootstrap handle so a
+ * new Manifest-URL mount tears down the previous overlay channel rather
+ * than leaking sockets. App.tsx's deep-link handler has its own ref for
+ * the same reason — sharing a global here keeps both paths idempotent
+ * against the same session id.
+ */
+const _pipelineGlobal = globalThis as unknown as {
+    twoTierHandle?: TwoTierBootstrapHandle;
+};
 
 function _pipelineLog(msg: string): void {
     // Mirror of manifestFetcher's nlog — pipes through __onlookDirectLog
@@ -246,6 +261,26 @@ function buildUrlPipelineRunner(actions: NavActions) {
             }
             log.push(`mount ok relayHost=${relayHost} rootTag=11`);
             _pipelineLog(`mount ok relayHost=${relayHost} rootTag=11`);
+
+            // After mount succeeds, start the two-tier overlay bootstrap so
+            // editor-side pushes (POST /push/<session>) reach the device via
+            // the OverlayDispatcher's /hmr/<session> WS. Without this call
+            // the push endpoint is up on the relay (202 accepted) but
+            // `delivered: 0` because no WS client is connected from this path.
+            // Deep-link path (App.tsx useEffect) does this automatically;
+            // Manifest URL button path didn't until now.
+            try {
+                const handle = startTwoTierBootstrap({
+                    sessionId: parsed.sessionId,
+                    relayUrl: parsed.relay,
+                });
+                _pipelineLog(`twoTier handle active=${handle.active}`);
+                _pipelineGlobal.twoTierHandle?.stop();
+                _pipelineGlobal.twoTierHandle = handle;
+            } catch (err: unknown) {
+                const msg = err instanceof Error ? err.message : String(err);
+                _pipelineLog(`twoTier bootstrap threw: ${msg}`);
+            }
 
             // Open the live-update WebSocket using RN's built-in WebSocket
             // class — bypasses the CallableJSModule plumbing that shell.js
