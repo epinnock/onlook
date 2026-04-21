@@ -64,20 +64,27 @@ function buildUrlPipelineRunner(actions: NavActions) {
             log.push(`url=${data.slice(0, 140)}`);
             show('Opening…');
 
-            // Stage 0a: external fetch
+            // Stage 0a: external fetch — soft diagnostic only. Two-tier
+            // flows routinely run against LAN-only relays; external
+            // internet is not a prerequisite for reaching the relay.
+            // Uses `captive.apple.com/generate_204` (Apple's own probe
+            // URL) rather than `https://1.1.1.1/` because iOS ATS under
+            // Hermes/URLSession rejects HTTPS to raw IPs even when the
+            // cert SAN includes them (simctl sim drops the request with
+            // no error surface). Failures are logged and the flow
+            // continues to Preflight B.
             try {
-                log.push('preflight GET https://1.1.1.1/');
+                log.push('preflight GET https://captive.apple.com/generate_204');
                 show('Preflight A (external)…');
                 const r = await timeout(
-                    fetch('https://1.1.1.1/', { method: 'GET' }),
-                    8000,
+                    fetch('https://captive.apple.com/generate_204', { method: 'GET' }),
+                    3000,
                     'preflight external',
                 );
                 log.push(`preflight A ${r.status}`);
             } catch (e: unknown) {
                 const msg = e instanceof Error ? e.message : String(e);
-                show('Preflight A failed (external)', msg);
-                return;
+                log.push(`preflight A skipped: ${msg}`);
             }
             // Stage 0b: LAN fetch to /status
             try {
