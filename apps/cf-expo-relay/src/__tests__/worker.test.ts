@@ -146,12 +146,14 @@ function makeExpoSessionStub(): DoStubResult {
 function makeEnv(overrides: {
     esmCache?: ServiceBinding;
     expoSession?: Env['EXPO_SESSION'];
+    baseBundles?: R2Bucket;
 } = {}): Env {
     return {
         BUNDLES: {} as KVNamespace,
         EXPO_SESSION: overrides.expoSession ?? makeExpoSessionStub().namespace,
         ESM_CACHE: overrides.esmCache,
         ESM_CACHE_URL: CACHE_URL,
+        BASE_BUNDLES: overrides.baseBundles,
     };
 }
 
@@ -307,5 +309,85 @@ describe('worker fetch route table (TQ1.4)', () => {
 
         expect(response.status).toBe(404);
         expect(calls).toHaveLength(0);
+    });
+});
+
+describe('worker /base-bundle dispatch', () => {
+    test('returns 501 stub when BASE_BUNDLES R2 binding is absent', async () => {
+        const env = makeEnv();
+        const response = await dispatch(
+            new Request(`https://expo-relay.dev.workers.dev/base-bundle/${VALID_HASH}`),
+            env,
+        );
+        expect(response.status).toBe(501);
+    });
+
+    test('delegates GET /base-bundle/<64hex> to handleBaseBundle with BASE_BUNDLES present', async () => {
+        const getCalls: string[] = [];
+        const bucket = {
+            async get(key: string) {
+                getCalls.push(key);
+                return {
+                    body: new ReadableStream({
+                        start(controller) {
+                            controller.enqueue(new TextEncoder().encode('// base bundle js'));
+                            controller.close();
+                        },
+                    }),
+                };
+            },
+        } as unknown as R2Bucket;
+
+        const env = makeEnv({ baseBundles: bucket });
+        const response = await dispatch(
+            new Request(`https://expo-relay.dev.workers.dev/base-bundle/${VALID_HASH}`),
+            env,
+        );
+        expect(response.status).toBe(200);
+        expect(response.headers.get('Content-Type')).toBe('application/javascript');
+        expect(response.headers.get('Cache-Control')).toContain('immutable');
+        expect(getCalls).toEqual([VALID_HASH]);
+    });
+
+    test('delegates GET /base-bundle/assets/<key> to handleBaseBundleAssetsRoute', async () => {
+        const getCalls: string[] = [];
+        const bucket = {
+            async get(key: string) {
+                getCalls.push(key);
+                return {
+                    body: new ReadableStream({
+                        start(controller) {
+                            controller.enqueue(new TextEncoder().encode('fake-png'));
+                            controller.close();
+                        },
+                    }),
+                    writeHttpMetadata(headers: Headers) {
+                        headers.set('Content-Type', 'image/png');
+                    },
+                };
+            },
+        } as unknown as R2Bucket;
+
+        const env = makeEnv({ baseBundles: bucket });
+        const response = await dispatch(
+            new Request(`https://expo-relay.dev.workers.dev/base-bundle/assets/icon.png`),
+            env,
+        );
+        expect(response.status).toBe(200);
+        expect(response.headers.get('Content-Type')).toBe('image/png');
+        expect(response.headers.get('Cache-Control')).toContain('immutable');
+        expect(getCalls).toEqual(['assets/icon.png']);
+    });
+
+    test('/base-bundle/<bad-hash> returns 400 when BASE_BUNDLES is present', async () => {
+        const bucket = {
+            get: async () => null,
+        } as unknown as R2Bucket;
+        const env = makeEnv({ baseBundles: bucket });
+        const response = await dispatch(
+            new Request('https://expo-relay.dev.workers.dev/base-bundle/not-a-hash'),
+            env,
+        );
+        expect(response.status).toBe(400);
     });
 });

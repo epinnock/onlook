@@ -20,6 +20,11 @@
  * `EXPO_SESSION.idFromName(sessionId)` or `HMR_SESSION.idFromName(sessionId)`.
  */
 import { handleManifest } from './routes/manifest';
+import { handleBaseBundle } from './routes/base-bundle';
+import {
+    handleBaseBundleAssetsRoute,
+    parseBaseBundleAssetsRoute,
+} from './routes/assets';
 import type { Env } from './env';
 import { ExpoSession } from './session';
 export { HmrSession } from './do/hmr-session';
@@ -88,6 +93,27 @@ function handleBaseBundleRouteStub(): Response {
     });
 }
 
+async function handleBaseBundleFamily(
+    request: Request,
+    env: Env,
+): Promise<Response> {
+    // Both routes require the BASE_BUNDLES R2 binding. In environments
+    // where it's absent (e.g. local dev without wrangler r2 setup), keep
+    // the 501 stub so misconfiguration is surfaced, not swallowed.
+    if (!env.BASE_BUNDLES) {
+        return handleBaseBundleRouteStub();
+    }
+
+    // Assets live at `/base-bundle/assets/<key>` — always 3+ path segments,
+    // so we check that family first. The bundle handler parses
+    // `/base-bundle/<64hex>` (exactly 2 segments), so there's no overlap.
+    if (parseBaseBundleAssetsRoute(request)) {
+        return handleBaseBundleAssetsRoute(request, env);
+    }
+
+    return handleBaseBundle(request, env as Env & { BASE_BUNDLES: R2Bucket });
+}
+
 /**
  * Cross-origin hosts the editor can POST overlays from. The production
  * editor runs on a different origin to the relay, so /push must include
@@ -152,7 +178,7 @@ export default {
         }
 
         if (isBaseBundleRoute(url.pathname)) {
-            return handleBaseBundleRouteStub();
+            return handleBaseBundleFamily(request, env);
         }
 
         // Two-tier overlay channel. These routes require the HMR_SESSION DO
