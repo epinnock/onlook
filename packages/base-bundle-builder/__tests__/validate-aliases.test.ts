@@ -19,6 +19,7 @@ describe('validate-aliases', () => {
             isComplete: true,
             missingSpecifiers: [],
             extraSpecifiers: [],
+            missingRequiredAliases: [],
         });
         expect(() => assertAliasMapCompleteness(aliasMap)).not.toThrow();
     });
@@ -34,9 +35,12 @@ describe('validate-aliases', () => {
             isComplete: false,
             missingSpecifiers: ['react/jsx-runtime', 'expo-status-bar'],
             extraSpecifiers: [],
+            missingRequiredAliases: ['react/jsx-runtime'],
         });
+        // react/jsx-runtime is BOTH curated AND required, so the required-alias
+        // path triggers first (task #11 enforcement is stricter).
         expect(() => assertAliasMapCompleteness(aliasMap)).toThrow(
-            'Alias map is missing curated base-bundle specifiers: "react/jsx-runtime", "expo-status-bar". Known aliases: react, react-native, react-native-safe-area-context',
+            /REQUIRED_ALIASES.*"react\/jsx-runtime"/,
         );
     });
 
@@ -54,7 +58,22 @@ describe('validate-aliases', () => {
             isComplete: true,
             missingSpecifiers: [],
             extraSpecifiers: ['lodash'],
+            missingRequiredAliases: [],
         });
         expect(() => assertAliasMapCompleteness(aliasMap)).not.toThrow();
+    });
+
+    // ── task #11: REQUIRED_ALIASES enforcement ─────────────────────────────
+
+    test('flags missing REQUIRED_ALIASES distinctly from missing curated specifiers', () => {
+        const aliasMap = createAliasMap({ react: 1, 'react/jsx-runtime': 2 });
+        const result = validateAliasMapCompleteness(aliasMap);
+        expect(result.missingRequiredAliases).toContain('react-native');
+        expect(result.missingRequiredAliases).toContain('react-native-safe-area-context');
+    });
+
+    test('assertAliasMapCompleteness throws REQUIRED_ALIASES error before curated error', () => {
+        const aliasMap = createAliasMap({ react: 1 });
+        expect(() => assertAliasMapCompleteness(aliasMap)).toThrow(/REQUIRED_ALIASES.*ABI v1/);
     });
 });

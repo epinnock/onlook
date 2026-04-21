@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 
-import { pushOverlay } from '../push-overlay';
+import {
+    OverlayUpdateMessageSchema,
+    type OverlayAssetManifest,
+} from '@onlook/mobile-client-protocol';
+
+import { pushOverlay, pushOverlayV1 } from '../push-overlay';
 
 interface FakeFetchCall {
     url: string;
@@ -248,5 +253,168 @@ describe('pushOverlay', () => {
         expect(result.attempts).toBe(3);
         expect(calls).toHaveLength(3);
         expect(result.error).toContain('ECONNREFUSED');
+    });
+});
+
+// ─── pushOverlayV1 (ABI v1 — two-tier-overlay-v2 task #78) ───────────────────
+
+describe('pushOverlayV1', () => {
+    test('POSTs an OverlayUpdateMessage and returns delivered count', async () => {
+        const { fetch, calls } = makeFakeFetch([okResponse(2)]);
+        const result = await pushOverlayV1({
+            relayBaseUrl: 'https://relay.example.com',
+            sessionId: 'sess-v1',
+            overlay: { code: 'module.exports = { default: 1 };', buildDurationMs: 37 },
+            fetchImpl: fetch,
+            onTelemetry: null,
+        });
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        expect(result.delivered).toBe(2);
+        expect(calls).toHaveLength(1);
+        expect(calls[0]?.url).toBe('https://relay.example.com/push/sess-v1');
+        const body = JSON.parse(calls[0]?.init.body as string) as Record<string, unknown>;
+        expect(body.type).toBe('overlayUpdate');
+        expect(body.abi).toBe('v1');
+        expect(body.sessionId).toBe('sess-v1');
+        expect(body.source).toBe('module.exports = { default: 1 };');
+        expect(body.assets).toEqual({ abi: 'v1', assets: {} });
+        const meta = body.meta as Record<string, unknown>;
+        expect(meta.entryModule).toBe(0);
+        expect(meta.buildDurationMs).toBe(37);
+        expect(typeof meta.overlayHash).toBe('string');
+        expect((meta.overlayHash as string).length).toBe(64); // sha256 hex
+    });
+
+    test('overlayHash is stable for the same source bytes', async () => {
+        const { fetch } = makeFakeFetch([okResponse(0), okResponse(0)]);
+        const body = 'module.exports = { default: "A" };';
+        const overlay = { code: body, buildDurationMs: 10 };
+        const { fetch: f1, calls: c1 } = makeFakeFetch([okResponse(0)]);
+        const { fetch: f2, calls: c2 } = makeFakeFetch([okResponse(0)]);
+        await pushOverlayV1({
+            relayBaseUrl: 'https://r',
+            sessionId: 's',
+            overlay,
+            fetchImpl: f1,
+            onTelemetry: null,
+        });
+        await pushOverlayV1({
+            relayBaseUrl: 'https://r',
+            sessionId: 's',
+            overlay,
+            fetchImpl: f2,
+            onTelemetry: null,
+        });
+        const h1 = (JSON.parse(c1[0]!.init.body as string).meta as Record<string, unknown>)
+            .overlayHash as string;
+        const h2 = (JSON.parse(c2[0]!.init.body as string).meta as Record<string, unknown>)
+            .overlayHash as string;
+        expect(h1).toBe(h2);
+        // Silence unused-var lint on the outer `fetch`.
+        void fetch;
+    });
+
+    test('includes a non-empty asset manifest when provided', async () => {
+        const { fetch, calls } = makeFakeFetch([okResponse(1)]);
+        const assets: OverlayAssetManifest = {
+            abi: 'v1',
+            assets: {
+                ab12: {
+                    kind: 'image',
+                    hash: 'ab12',
+                    mime: 'image/png',
+                    uri: 'https://r2/overlays/ab12.png',
+                    width: 64,
+                    height: 64,
+                },
+            },
+        };
+        await pushOverlayV1({
+            relayBaseUrl: 'https://r',
+            sessionId: 's',
+            overlay: { code: 'x', buildDurationMs: 0 },
+            assets,
+            fetchImpl: fetch,
+            onTelemetry: null,
+        });
+        const body = JSON.parse(calls[0]!.init.body as string) as Record<string, unknown>;
+        expect(body.assets).toEqual(assets);
+    });
+
+    test('produces a message that validates against OverlayUpdateMessageSchema', async () => {
+        const { fetch, calls } = makeFakeFetch([okResponse(0)]);
+        await pushOverlayV1({
+            relayBaseUrl: 'https://r',
+            sessionId: 's',
+            overlay: { code: 'module.exports = {};', buildDurationMs: 5 },
+            fetchImpl: fetch,
+            onTelemetry: null,
+        });
+        const body = JSON.parse(calls[0]!.init.body as string);
+        expect(() => OverlayUpdateMessageSchema.parse(body)).not.toThrow();
+    });
+
+    test('rejects invalid sessionId without hitting the network', async () => {
+        const { fetch, calls } = makeFakeFetch([]);
+        const result = await pushOverlayV1({
+            relayBaseUrl: 'https://r',
+            sessionId: 'bad session!',
+            overlay: { code: 'x', buildDurationMs: 0 },
+            fetchImpl: fetch,
+            onTelemetry: null,
+        });
+        expect(result.ok).toBe(false);
+        expect(calls).toHaveLength(0);
+    });
+
+    test('rejects empty overlay code without hitting the network', async () => {
+        const { fetch, calls } = makeFakeFetch([]);
+        const result = await pushOverlayV1({
+            relayBaseUrl: 'https://r',
+            sessionId: 'sess',
+            overlay: { code: '', buildDurationMs: 0 },
+            fetchImpl: fetch,
+            onTelemetry: null,
+        });
+        expect(result.ok).toBe(false);
+        expect(calls).toHaveLength(0);
+    });
+
+    test('retries on 5xx and succeeds on second attempt', async () => {
+        const { fetch, calls } = makeFakeFetch([
+            new Response(null, { status: 503 }),
+            okResponse(1),
+        ]);
+        const result = await pushOverlayV1({
+            relayBaseUrl: 'https://r',
+            sessionId: 'sess',
+            overlay: { code: 'x', buildDurationMs: 0 },
+            fetchImpl: fetch,
+            retryBaseMs: 0,
+            onTelemetry: null,
+        });
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        expect(result.attempts).toBe(2);
+        expect(calls).toHaveLength(2);
+    });
+
+    test('does not retry on 4xx', async () => {
+        const { fetch, calls } = makeFakeFetch([
+            new Response('bad request', { status: 400 }),
+        ]);
+        const result = await pushOverlayV1({
+            relayBaseUrl: 'https://r',
+            sessionId: 'sess',
+            overlay: { code: 'x', buildDurationMs: 0 },
+            fetchImpl: fetch,
+            retryBaseMs: 0,
+            onTelemetry: null,
+        });
+        expect(result.ok).toBe(false);
+        if (result.ok) return;
+        expect(result.status).toBe(400);
+        expect(calls).toHaveLength(1);
     });
 });

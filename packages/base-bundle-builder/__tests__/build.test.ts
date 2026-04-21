@@ -42,4 +42,49 @@ describe('buildBaseBundle', () => {
             }),
         ).rejects.toThrow('empty code');
     });
+
+    test('emits aliasEmitterOutput when modules expose specifier+id pairs — task #9', async () => {
+        const result = await buildBaseBundle({
+            cwd: '/repo',
+            projectRoot: 'fixtures/hello',
+            outputDir: 'dist/base',
+            runMetroBuild() {
+                return {
+                    code: 'console.log("base");',
+                    modules: [
+                        { id: 10, specifier: 'react' },
+                        { id: 11, specifier: 'react-native' },
+                        { id: 12, specifier: 'expo-status-bar' },
+                    ],
+                };
+            },
+        });
+        expect(result.aliasEmitterOutput).toBeDefined();
+        expect(result.aliasEmitterOutput?.sidecar.aliases).toEqual({
+            'expo-status-bar': 12,
+            react: 10,
+            'react-native': 11,
+        });
+        // sidecarJson round-trips.
+        expect(JSON.parse(result.aliasEmitterOutput!.sidecarJson)).toEqual({
+            aliases: {
+                'expo-status-bar': 12,
+                react: 10,
+                'react-native': 11,
+            },
+            specifiers: ['expo-status-bar', 'react', 'react-native'],
+        });
+    });
+
+    test('aliasEmitterOutput is undefined when the runner reports no modules — task #9', async () => {
+        const result = await buildBaseBundle({
+            cwd: '/repo',
+            projectRoot: 'fixtures/hello',
+            outputDir: 'dist/base',
+            runMetroBuild() {
+                return { code: 'console.log("x");' };
+            },
+        });
+        expect(result.aliasEmitterOutput).toBeUndefined();
+    });
 });

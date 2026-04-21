@@ -1,5 +1,9 @@
 import { DurableObject } from 'cloudflare:workers';
 import { isOverlayMessage } from '../../../../packages/mobile-client-protocol/src/overlay.ts';
+import {
+    OverlayUpdateMessageSchema,
+    type OverlayUpdateMessage,
+} from '../../../../packages/mobile-client-protocol/src/abi-v1.ts';
 
 /**
  * Upper bound on the POST /push body size. 2 MiB is well above any overlay
@@ -17,6 +21,8 @@ export class HmrSession extends DurableObject<Env> {
     private readonly sockets = new Set<WebSocket>();
     private readonly storage: HmrSessionStorage | null;
     private lastOverlayPayload: string | null = null;
+    /** Most recently pushed ABI v1 overlayUpdate payload — replayed to late-joining v1 clients. */
+    private lastOverlayV1Payload: string | null = null;
 
     constructor(state: DurableObjectState, env: Env) {
         super(state, env);
@@ -77,6 +83,39 @@ export class HmrSession extends DurableObject<Env> {
             return new Response('hmr-relay: invalid JSON body', { status: 400 });
         }
 
+        // ABI v1: overlayUpdate messages take precedence. Fall through to legacy
+        // `overlay` shape when v1 doesn't match, so the single /push endpoint
+        // accepts both dialects during migration.
+        const v1Parse = OverlayUpdateMessageSchema.safeParse(parsed);
+        if (v1Parse.success) {
+            const payload = JSON.stringify(v1Parse.data satisfies OverlayUpdateMessage);
+            this.lastOverlayV1Payload = payload;
+            if (this.storage !== null) {
+                void this.storage.put('last-overlay-v1', payload).catch((err) => {
+                    console.error('hmr-relay v1 storage write error', err);
+                });
+            }
+            let delivered = 0;
+            for (const socket of this.sockets) {
+                if (socket.readyState !== WebSocket.OPEN) continue;
+                socket.send(payload);
+                delivered += 1;
+            }
+            console.info(
+                JSON.stringify({
+                    event: 'hmr.push.v1',
+                    delivered,
+                    bytes: payload.length,
+                    sockets: this.sockets.size,
+                    overlayHash: v1Parse.data.meta.overlayHash,
+                }),
+            );
+            return new Response(JSON.stringify({ delivered }), {
+                status: 202,
+                headers: { 'Content-Type': 'application/json' },
+            });
+        }
+
         if (!isOverlayMessage(parsed)) {
             return new Response('hmr-relay: invalid overlay payload', { status: 400 });
         }
@@ -132,11 +171,34 @@ export class HmrSession extends DurableObject<Env> {
     }
 
     private async replayLastOverlay(socket: WebSocket): Promise<void> {
+        // v1 replay first: if a v1 overlay was pushed in this session (or persisted
+        // in DO storage from a prior one), send that. Legacy `overlay` replay only
+        // fires if there's no v1 overlay — a v1 client will ignore the legacy shape
+        // and vice versa, so sending both is safe, but single-send keeps traffic tight.
+        const v1Payload = await this.loadLastOverlayV1Payload();
+        if (v1Payload !== null && socket.readyState === WebSocket.OPEN) {
+            socket.send(v1Payload);
+            return;
+        }
         const payload = await this.loadLastOverlayPayload();
         if (payload === null || socket.readyState !== WebSocket.OPEN) {
             return;
         }
         socket.send(payload);
+    }
+
+    private async loadLastOverlayV1Payload(): Promise<string | null> {
+        if (this.lastOverlayV1Payload !== null) {
+            return this.lastOverlayV1Payload;
+        }
+        if (this.storage === null) {
+            return null;
+        }
+        const stored = (await this.storage.get('last-overlay-v1')) as string | null;
+        if (typeof stored === 'string') {
+            this.lastOverlayV1Payload = stored;
+        }
+        return this.lastOverlayV1Payload;
     }
 
     private async loadLastOverlayPayload(): Promise<string | null> {
@@ -176,6 +238,25 @@ export class HmrSession extends DurableObject<Env> {
         try {
             parsed = JSON.parse(raw);
         } catch {
+            return;
+        }
+
+        // ABI v1: fan-out overlayUpdate messages independently of legacy replay state.
+        const v1Parse = OverlayUpdateMessageSchema.safeParse(parsed);
+        if (v1Parse.success) {
+            const payload = JSON.stringify(v1Parse.data satisfies OverlayUpdateMessage);
+            this.lastOverlayV1Payload = payload;
+            if (this.storage !== null) {
+                void this.storage.put('last-overlay-v1', payload).catch((err) => {
+                    console.error('hmr-relay v1 storage write error', err);
+                });
+            }
+            for (const socket of this.sockets) {
+                if (socket === sender || socket.readyState !== WebSocket.OPEN) {
+                    continue;
+                }
+                socket.send(payload);
+            }
             return;
         }
 

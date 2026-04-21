@@ -93,7 +93,9 @@ export const env = createEnv({
         // flow. Local dev: http://<lan-ip>:8787. Production: the deployed
         // CF Worker that serves the static runtime manifest.
         NEXT_PUBLIC_MOBILE_PREVIEW_URL: z.string().optional(),
-        NEXT_PUBLIC_MOBILE_PREVIEW_PIPELINE: z.enum(['shim', 'two-tier']).default('shim'),
+        NEXT_PUBLIC_MOBILE_PREVIEW_PIPELINE: z
+            .enum(['shim', 'two-tier', 'overlay-v1'])
+            .default('shim'),
     },
 
     /**

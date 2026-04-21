@@ -1,4 +1,9 @@
 import {
+    createAliasEmitterOutput,
+    type AliasEmitterOutput,
+    type AliasEmitterModuleRecord,
+} from './alias-emitter';
+import {
     normalizeBaseBundleBuildOptions,
     type NormalizeBaseBundleBuildOptionsInput,
 } from './build-options';
@@ -33,6 +38,15 @@ export interface BuildBaseBundleResult extends BaseBundleMetroBuildResult {
     readonly options: BaseBundleBuildOptions;
     readonly metroConfig: BaseBundleMetroConfig;
     readonly entrySource: string;
+    /**
+     * Alias-map sidecar derived from the Metro runner's `modules[]` output.
+     * `undefined` when the runner did not report modules. When present, the
+     * editor-side preflight and the mobile client's OnlookRuntime both
+     * consume `sidecarJson` (via the base manifest's `aliasHash`).
+     *
+     * Wired for two-tier-overlay-v2 task #9.
+     */
+    readonly aliasEmitterOutput?: AliasEmitterOutput;
 }
 
 export async function buildBaseBundle(
@@ -51,10 +65,18 @@ export async function buildBaseBundle(
         throw new Error('Base bundle Metro runner returned empty code');
     }
 
+    const aliasEmitterOutput =
+        result.modules !== undefined
+            ? createAliasEmitterOutput({
+                  modules: result.modules as readonly AliasEmitterModuleRecord[],
+              })
+            : undefined;
+
     return {
         ...result,
         options,
         metroConfig,
         entrySource,
+        ...(aliasEmitterOutput !== undefined ? { aliasEmitterOutput } : {}),
     };
 }

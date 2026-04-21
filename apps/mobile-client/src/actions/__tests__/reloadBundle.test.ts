@@ -76,10 +76,69 @@ describe('reloadBundle', () => {
         }
     });
 
-    test('reloadApp logs a reload message', () => {
+    test('reloadApp logs a reload message (cold-path)', () => {
         reloadApp();
         expect(logSpy).toHaveBeenCalled();
         const loggedMessage = logSpy.mock.calls[0]?.[0] as string;
-        expect(loggedMessage).toContain('[onlook-runtime] reload triggered');
+        expect(loggedMessage).toContain('[onlook-runtime] reload');
+        expect(loggedMessage).toContain('DevSettings.reload()');
+    });
+
+    // ── ABI v1 fast-path tests — task #27 ──
+
+    test('reloadApp uses mountOverlay fast-path when OnlookRuntime.lastMount is present', () => {
+        const mountSpy = mock((_s: string, _p?: unknown, _a?: unknown) => {});
+        const prior = (globalThis as Record<string, unknown>).OnlookRuntime;
+        (globalThis as Record<string, unknown>).OnlookRuntime = {
+            abi: 'v1',
+            lastMount: { source: 'cached-source', props: { sessionId: 'x' } },
+            mountOverlay: mountSpy,
+        };
+        try {
+            reloadApp();
+            expect(mountSpy).toHaveBeenCalledTimes(1);
+            const call = mountSpy.mock.calls[0] ?? [];
+            expect(call[0]).toBe('cached-source');
+            expect(call[1]).toEqual({ sessionId: 'x' });
+            expect(mockReload).toHaveBeenCalledTimes(0);
+        } finally {
+            (globalThis as Record<string, unknown>).OnlookRuntime = prior;
+        }
+    });
+
+    test('reloadApp falls back to DevSettings.reload if mountOverlay throws', () => {
+        const mountSpy = mock(() => {
+            throw new Error('mount boom');
+        });
+        const prior = (globalThis as Record<string, unknown>).OnlookRuntime;
+        (globalThis as Record<string, unknown>).OnlookRuntime = {
+            abi: 'v1',
+            lastMount: { source: 'src', props: {} },
+            mountOverlay: mountSpy,
+        };
+        try {
+            reloadApp();
+            expect(mountSpy).toHaveBeenCalledTimes(1);
+            expect(mockReload).toHaveBeenCalledTimes(1);
+        } finally {
+            (globalThis as Record<string, unknown>).OnlookRuntime = prior;
+        }
+    });
+
+    test('reloadApp falls back to DevSettings.reload when OnlookRuntime.abi is not v1', () => {
+        const mountSpy = mock(() => {});
+        const prior = (globalThis as Record<string, unknown>).OnlookRuntime;
+        (globalThis as Record<string, unknown>).OnlookRuntime = {
+            abi: 'v0',
+            lastMount: { source: 's', props: {} },
+            mountOverlay: mountSpy,
+        };
+        try {
+            reloadApp();
+            expect(mountSpy).toHaveBeenCalledTimes(0);
+            expect(mockReload).toHaveBeenCalledTimes(1);
+        } finally {
+            (globalThis as Record<string, unknown>).OnlookRuntime = prior;
+        }
     });
 });

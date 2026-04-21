@@ -28,6 +28,11 @@ export interface WrappedOverlay {
 }
 
 /**
+ * @deprecated — legacy wire shape. Use {@link wrapOverlayV1} for ABI v1 per
+ * `plans/adr/overlay-abi-v1.md`. Scheduled for removal with two-tier-overlay-v2
+ * task #89. The kill switch feature flag (`overlay-v1`) disables this path in
+ * new builds; existing callers keep working until the cleanup wave.
+ *
  * Wraps the editor-produced CJS overlay in a self-mounting shell that
  * `OnlookRuntime.reloadBundle(bundleSource)` can evaluate directly. The
  * emitted bundle:
@@ -38,15 +43,19 @@ export interface WrappedOverlay {
  *   2. Leaves `globalThis.onlookUnmount` alone — `reloadBundle` always
  *      calls `onlookUnmount()` before eval'ing the new bundle, so the
  *      fresh mount replaces whatever the previous bundle registered.
- *
- * This mirrors how first-mount `runApplication` bundles work (source plan
- * Phase 2): the bundle owns registering `onlookMount`; the native runtime
- * owns calling it. No JS-side shim in `shell.js` is required.
  */
+let warnedAboutWrapOverlayCode = false;
 export function wrapOverlayCode(
     cjsCode: string,
     options: WrapOverlayOptions = {},
 ): WrappedOverlay {
+    if (!warnedAboutWrapOverlayCode && process.env.ONLOOK_SUPPRESS_LEGACY_WARN !== '1') {
+        warnedAboutWrapOverlayCode = true;
+        // eslint-disable-next-line no-console
+        console.warn(
+            '[onlook] wrapOverlayCode is deprecated — migrate to wrapOverlayV1 per plans/adr/overlay-abi-v1.md. Silence: ONLOOK_SUPPRESS_LEGACY_WARN=1.',
+        );
+    }
     if (cjsCode.trim().length === 0) {
         throw new Error('Overlay code must be a non-empty string');
     }

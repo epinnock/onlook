@@ -2,6 +2,15 @@
 
 **Status:** Shipping on `feat/two-tier-bundle` as of 2026-04-20. Feature-flagged off by default; the legacy `shim` path is untouched.
 
+> **2026-04-21 update — Overlay ABI v1 in progress.** The sections below describe the
+> pre-ABI design (Spike B shim path). ABI v1 redefines the wire contract and runtime
+> globals to eliminate dialect drift across editor/relay/runtime/native layers. See
+> [`plans/adr/overlay-abi-v1.md`](adr/overlay-abi-v1.md) for the new contract and
+> [`plans/two-tier-overlay-v2-task-queue.md`](two-tier-overlay-v2-task-queue.md) for
+> the 100-task migration queue + live status log. Migration is incremental — the
+> sections below remain accurate for the currently-shipping legacy product path until
+> the cleanup wave (tasks #89–#94) retires it.
+
 ## What this is
 
 The two-tier pipeline replaces the "rebuild + push full Metro bundle on every edit" preview flow with a split:

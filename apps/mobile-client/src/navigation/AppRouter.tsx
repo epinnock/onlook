@@ -22,7 +22,6 @@ import {
     CrashScreen,
     ErrorScreen,
     LauncherScreen,
-    ProgressScreen,
     ScanScreen,
     ScreensGalleryScreen,
     SettingsScreen,
@@ -32,12 +31,116 @@ import { qrToMount } from '../flow/qrToMount';
 import { parseOnlookDeepLink } from '../deepLink/parse';
 import { fetchManifest } from '../relay/manifestFetcher';
 import { fetchBundle } from '../relay/bundleFetcher';
-import {
-    startTwoTierBootstrap,
-    type TwoTierBootstrapHandle,
-} from '../flow/twoTierBootstrap';
 
 type RuntimeWithRun = { runApplication?: (src: string, props: { sessionId: string }) => void };
+
+/**
+ * Local minimal shape of the Overlay ABI v1 `OnlookRuntime` host object. We
+ * do not import the canonical type from `@onlook/mobile-client-protocol`
+ * here because the ABI v1 schema module lives on a parallel integration
+ * branch; see `plans/adr/overlay-abi-v1.md` (ADR-0001) §"Runtime globals"
+ * for the full interface. When that package lands on this branch, replace
+ * this local type with `import type { OnlookRuntimeApi } from
+ * '@onlook/mobile-client-protocol'`.
+ */
+type OnlookRuntimeApiLike = {
+    readonly abi: 'v1';
+    mountOverlay: (
+        source: string,
+        props?: Record<string, unknown>,
+        assets?: unknown,
+    ) => void;
+};
+
+/**
+ * Result of {@link mountOverlayBundle}. `kind: 'overlay-abi-v1'` means the
+ * Overlay ABI v1 path ran; `kind: 'legacy'` means the Spike B eval +
+ * `globalThis.onlookMount` fallback ran. `kind: 'failed'` carries a
+ * user-visible error title/message pair for the ErrorScreen.
+ *
+ * Exported for the `AppRouter-mount-overlay.test.ts` unit test. Not part
+ * of the module's public surface.
+ */
+export type MountOverlayResult =
+    | { kind: 'overlay-abi-v1' }
+    | { kind: 'legacy' }
+    | { kind: 'failed'; title: string; message: string };
+
+/**
+ * Mount a freshly-fetched overlay bundle. Prefers the Overlay ABI v1
+ * contract (`globalThis.OnlookRuntime.mountOverlay(source, props)`) and
+ * falls back to the Spike B `eval(source)` + `globalThis.onlookMount(props)`
+ * path when the runtime is unavailable. Both code paths are reachable from
+ * the `AppRouter-mount-overlay.test.ts` unit test.
+ *
+ * Root tag is intentionally omitted from the v1 `props` per ADR-0001
+ * §"Runtime globals" — bridgeless Fabric assigns root tags natively and
+ * overlays cannot legally pick one.
+ *
+ * Exported solely for unit-test access; the production code path remains
+ * `buildUrlPipelineRunner`.
+ */
+export function mountOverlayBundle(
+    bundleSource: string,
+    params: {
+        sessionId: string;
+        relayHost: string;
+        relayPort: number;
+    },
+): MountOverlayResult {
+    const rt = (globalThis as unknown as { OnlookRuntime?: OnlookRuntimeApiLike })
+        .OnlookRuntime;
+    if (rt && rt.abi === 'v1' && typeof rt.mountOverlay === 'function') {
+        rt.mountOverlay(bundleSource, {
+            sessionId: params.sessionId,
+            relayHost: params.relayHost,
+            relayPort: params.relayPort,
+        });
+        return { kind: 'overlay-abi-v1' };
+    }
+
+    // Legacy path — retained for Spike B demo until #89 lands (see ADR-0001).
+    try {
+        // eslint-disable-next-line no-eval
+        (0, eval)(bundleSource);
+    } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        const stack = e instanceof Error && e.stack ? e.stack.slice(0, 400) : '';
+        return {
+            kind: 'failed',
+            title: 'Bundle eval threw',
+            message: `${msg}\n${stack}`,
+        };
+    }
+    const mountFn = (globalThis as unknown as {
+        onlookMount?: (p: Record<string, unknown>) => void;
+    }).onlookMount;
+    if (typeof mountFn !== 'function') {
+        return {
+            kind: 'failed',
+            title: 'Mount failed',
+            message:
+                'Neither OnlookRuntime.mountOverlay nor legacy onlookMount available',
+        };
+    }
+    try {
+        mountFn({
+            sessionId: params.sessionId,
+            rootTag: 11,
+            relayHost: params.relayHost,
+            relayPort: params.relayPort,
+        });
+    } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        const stack = e instanceof Error && e.stack ? e.stack.slice(0, 400) : '';
+        return {
+            kind: 'failed',
+            title: 'onlookMount threw',
+            message: `${msg}\n${stack}`,
+        };
+    }
+    return { kind: 'legacy' };
+}
 
 function timeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
     return Promise.race<T>([
@@ -56,87 +159,34 @@ import {
 const AUTO_RUN_URL =
     'exp://192.168.0.14:8787/manifest/dc8ead785627ac182bd9f331f2eee7a73afbd48d72fc585d8d1fccfa9c439bf6';
 
-/**
- * Singleton-ish holder for the most recent TwoTierBootstrap handle so a
- * new Manifest-URL mount tears down the previous overlay channel rather
- * than leaking sockets. App.tsx's deep-link handler has its own ref for
- * the same reason — sharing a global here keeps both paths idempotent
- * against the same session id.
- */
-const _pipelineGlobal = globalThis as unknown as {
-    twoTierHandle?: TwoTierBootstrapHandle;
-};
-
-function _pipelineLog(msg: string): void {
-    // Mirror of manifestFetcher's nlog — pipes through __onlookDirectLog
-    // (installed by cpp/OnlookRuntimeInstaller, survives RN's bridge
-    // overwrite of nativeLoggingHook). Used by buildUrlPipelineRunner so
-    // every stage emits a sim-visible breadcrumb in addition to the
-    // on-screen log panel.
-    try {
-        const gt = globalThis as unknown as {
-            __onlookDirectLog?: (m: string, level: number) => void;
-            nativeLoggingHook?: (m: string, level: number) => void;
-        };
-        const channel = gt.__onlookDirectLog ?? gt.nativeLoggingHook;
-        channel?.(`[OM-pipeline] ${msg}`, 1);
-    } catch { /* diagnostic path must never throw */ }
-}
-
 function buildUrlPipelineRunner(actions: NavActions) {
     return (data: string) => {
         const log: string[] = [];
-        // In-flight steps render on ProgressScreen (neutral blue, spinner,
-        // no "Go back") so happy-path stages don't look like failures. Real
-        // errors still go through `showError` below, which routes to the
-        // ErrorScreen with the red error icon + Retry/Go back actions.
-        const showProgress = (title: string, extra = '') => {
-            actions.resetTo('progress', {
-                progressTitle: title,
-                progressLog: log.join('\n') + (extra ? '\n' + extra : ''),
-            });
-        };
-        const showError = (title: string, extra = '') => {
+        const show = (title: string, extra = '') => {
             actions.resetTo('error', {
                 errorTitle: title,
                 errorMessage: log.join('\n') + (extra ? '\n' + extra : ''),
             });
         };
-        // Backwards-compat alias so the stage code below (which says
-        // `show('Fetching manifest…')` for intermediate steps AND
-        // `show('Bundle failed', err)` for terminal failures) keeps
-        // working without a big diff. Callers that pass a string ending
-        // in "failed" / "threw" / "aborted" get the error styling; all
-        // other titles are treated as in-flight progress.
-        const show = (title: string, extra = '') => {
-            const lower = title.toLowerCase();
-            const isTerminal =
-                lower.includes('failed') ||
-                lower.includes('threw') ||
-                lower.includes('error') ||
-                lower.includes('aborted');
-            if (isTerminal) {
-                showError(title, extra);
-            } else {
-                showProgress(title, extra);
-            }
-        };
         (async () => {
             log.push(`url=${data.slice(0, 140)}`);
             show('Opening…');
 
-            // Stage 0a: external reachability — intentionally skipped.
-            //
-            // A previous iteration fetched https://captive.apple.com/generate_204
-            // as a soft diagnostic, but the call hung indefinitely in the iOS 18.6
-            // sim under Hermes/URLSession: the request neither resolved nor
-            // rejected, and Promise.race(setTimeout reject) at 3s also never
-            // fired (possibly due to URLSession blocking the JS thread during
-            // TLS handshake, or iOS ATS ConnectivityDaemon interaction with the
-            // sim). The LAN preflight below plus the real manifest/bundle
-            // fetches already prove the only reachability we actually need, so
-            // the external probe is omitted. See task #64 for root-cause work.
-            log.push('preflight A (external) — skipped by design');
+            // Stage 0a: external fetch
+            try {
+                log.push('preflight GET https://1.1.1.1/');
+                show('Preflight A (external)…');
+                const r = await timeout(
+                    fetch('https://1.1.1.1/', { method: 'GET' }),
+                    8000,
+                    'preflight external',
+                );
+                log.push(`preflight A ${r.status}`);
+            } catch (e: unknown) {
+                const msg = e instanceof Error ? e.message : String(e);
+                show('Preflight A failed (external)', msg);
+                return;
+            }
             // Stage 0b: LAN fetch to /status
             try {
                 const hostMatch = data.match(/^(?:exp|https?):\/\/([^\/]+)/i);
@@ -202,84 +252,48 @@ function buildUrlPipelineRunner(actions: NavActions) {
                 return;
             }
             log.push(`bundle ok bytes=${bundleSource.length}`);
-            _pipelineLog(`bundle ok bytes=${bundleSource.length}`);
             show('Mounting…');
-            _pipelineLog('entering Mounting stage');
             // Give React a full commit cycle so the 'Mounting…' paint lands
             // BEFORE we invoke onlookMount. Otherwise the scheduled commit
             // for this setState runs AFTER our reconciler's renderApp and
             // overwrites the remote UI on Fabric rootTag=11.
             await new Promise((r) => setTimeout(r, 600));
-            _pipelineLog('600ms paint window elapsed');
 
             // Stage 4: mount.
             //
-            // The OnlookRuntime.runApplication JSI binding isn't installed in
-            // this build (the cpp files exist but nothing calls the
-            // installer). Fall back to evaluating the bundle directly in the
-            // host Hermes context — the bundle's shell.js defines
-            // `globalThis.onlookMount` which we then invoke.
+            // Primary path: Overlay ABI v1 contract —
+            // `globalThis.OnlookRuntime.mountOverlay(source, props)`. Per
+            // `plans/adr/overlay-abi-v1.md` (ADR-0001) §"Installation order",
+            // the runtime is installed by the native TurboModule before any
+            // JS runs in production, and by a JS fallback in tests/harness
+            // builds. Root tag is NOT passed — it is runtime-internal.
             //
-            // Note: evaluating the bundle reinstalls `RCTDeviceEventEmitter`
-            // via RN$registerCallableModule, which breaks further RN fetch
-            // calls. By this point the only fetches are done, so it's OK.
-            try {
-                _pipelineLog('about to eval bundleSource');
-                // eslint-disable-next-line no-eval
-                (0, eval)(bundleSource);
-                log.push('bundle eval OK');
-                _pipelineLog('bundle eval OK');
-            } catch (e: unknown) {
-                const msg = e instanceof Error ? e.message : String(e);
-                const stack = e instanceof Error && e.stack ? e.stack.slice(0, 400) : '';
-                _pipelineLog(`bundle eval threw: ${msg}`);
-                show('Bundle eval threw', `${msg}\n${stack}`);
-                return;
-            }
-            const mountFn = (globalThis as unknown as { onlookMount?: (p: Record<string, unknown>) => void }).onlookMount;
-            if (typeof mountFn !== 'function') {
-                show('Mount failed', 'globalThis.onlookMount not defined after bundle eval');
-                return;
-            }
+            // Fallback: Spike B `eval(source)` + `globalThis.onlookMount`
+            // shim. Retained until task #89 in the two-tier queue removes the
+            // legacy dialect. Note: evaluating the bundle reinstalls
+            // `RCTDeviceEventEmitter` via `RN$registerCallableModule`, which
+            // breaks further RN fetch calls — by this point the only fetches
+            // are done, so that's OK.
             const hostMatch2 = data.match(/^(?:exp|https?):\/\/([^:\/]+)/i);
             const relayHost = hostMatch2?.[1] || '192.168.0.17';
-            try {
-                _pipelineLog(`calling onlookMount sessionId=${parsed.sessionId.slice(0, 12)}…`);
-                mountFn({
-                    sessionId: parsed.sessionId,
-                    rootTag: 11,
-                    relayHost,
-                    relayPort: 8788,
-                });
-                _pipelineLog('onlookMount returned');
-            } catch (e: unknown) {
-                const msg = e instanceof Error ? e.message : String(e);
-                const stack = e instanceof Error && e.stack ? e.stack.slice(0, 400) : '';
-                _pipelineLog(`onlookMount threw: ${msg}`);
-                show('onlookMount threw', `${msg}\n${stack}`);
+            const mountResult = mountOverlayBundle(bundleSource, {
+                sessionId: parsed.sessionId,
+                relayHost,
+                relayPort: 8788,
+            });
+            if (mountResult.kind === 'failed') {
+                show(mountResult.title, mountResult.message);
                 return;
             }
-            log.push(`mount ok relayHost=${relayHost} rootTag=11`);
-            _pipelineLog(`mount ok relayHost=${relayHost} rootTag=11`);
-
-            // After mount succeeds, start the two-tier overlay bootstrap so
-            // editor-side pushes (POST /push/<session>) reach the device via
-            // the OverlayDispatcher's /hmr/<session> WS. Without this call
-            // the push endpoint is up on the relay (202 accepted) but
-            // `delivered: 0` because no WS client is connected from this path.
-            // Deep-link path (App.tsx useEffect) does this automatically;
-            // Manifest URL button path didn't until now.
-            try {
-                const handle = startTwoTierBootstrap({
-                    sessionId: parsed.sessionId,
-                    relayUrl: parsed.relay,
-                });
-                _pipelineLog(`twoTier handle active=${handle.active}`);
-                _pipelineGlobal.twoTierHandle?.stop();
-                _pipelineGlobal.twoTierHandle = handle;
-            } catch (err: unknown) {
-                const msg = err instanceof Error ? err.message : String(err);
-                _pipelineLog(`twoTier bootstrap threw: ${msg}`);
+            if (mountResult.kind === 'overlay-abi-v1') {
+                log.push('mounted via OnlookRuntime.mountOverlay');
+                log.push(`mount ok relayHost=${relayHost} (abi=v1)`);
+            } else {
+                log.push(
+                    'OnlookRuntime.mountOverlay unavailable — falling back to eval+onlookMount',
+                );
+                log.push('bundle eval OK');
+                log.push(`mount ok relayHost=${relayHost} rootTag=11`);
             }
 
             // Open the live-update WebSocket using RN's built-in WebSocket
@@ -433,16 +447,6 @@ function renderScreen(
 
         case 'settings':
             return <SettingsScreen onGoBack={() => actions.goBack()} />;
-
-        case 'progress':
-            return (
-                <ProgressScreen
-                    title={params?.progressTitle ?? 'Working…'}
-                    log={params?.progressLog}
-                    showSpinner={params?.progressShowSpinner ?? true}
-                    onCancel={params?.onCancel}
-                />
-            );
 
         case 'error':
             return (

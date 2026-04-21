@@ -107,8 +107,14 @@ const OK_BUNDLE: BundleResult = {
 
 type GlobalWithRuntime = typeof globalThis & {
     OnlookRuntime?: {
+        abi?: string;
         runApplication?: (source: string, props: { sessionId: string }) => void;
         reloadBundle?: () => void;
+        mountOverlay?: (
+            source: string,
+            props?: Readonly<Record<string, unknown>>,
+            assets?: unknown,
+        ) => void;
     };
 };
 
@@ -361,5 +367,64 @@ describe('qrToMount', () => {
         }
         expect(runApplication).toHaveBeenCalledTimes(1);
         expect(reloadBundle).toHaveBeenCalledTimes(1);
+    });
+
+    // ─── ABI v1 mountOverlay fast path — task #14 ──────────────────────────
+
+    test('ABI v1: routes through OnlookRuntime.mountOverlay when abi === "v1"', async () => {
+        const mountOverlay = mock(() => {});
+        (globalThis as GlobalWithRuntime).OnlookRuntime = {
+            abi: 'v1',
+            mountOverlay,
+        };
+
+        const result = await qrToMount(VALID_BARCODE);
+        expect(result.ok).toBe(true);
+        expect(mountOverlay).toHaveBeenCalledTimes(1);
+        const call = mountOverlay.mock.calls[0] ?? [];
+        expect(call[0]).toBe(OK_BUNDLE.source);
+        expect(call[1]).toEqual({ sessionId: OK_PARSE.sessionId, relayHost: OK_PARSE.relay });
+    });
+
+    test('ABI v1: subsequent scans also route through mountOverlay — no runApplication/reloadBundle dance', async () => {
+        const mountOverlay = mock(() => {});
+        (globalThis as GlobalWithRuntime).OnlookRuntime = {
+            abi: 'v1',
+            mountOverlay,
+        };
+
+        await qrToMount(VALID_BARCODE);
+        await qrToMount(VALID_BARCODE);
+        expect(mountOverlay).toHaveBeenCalledTimes(2);
+    });
+
+    test('ABI v1: mountOverlay throwing surfaces a mount stage error', async () => {
+        (globalThis as GlobalWithRuntime).OnlookRuntime = {
+            abi: 'v1',
+            mountOverlay: () => {
+                throw new Error('overlay boom');
+            },
+        };
+
+        const result = await qrToMount(VALID_BARCODE);
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+            expect(result.stage).toBe('mount');
+            expect(result.error).toContain('mountOverlay threw');
+        }
+    });
+
+    test('ABI v1: falls back to runApplication when abi is not "v1"', async () => {
+        const mountOverlay = mock(() => {});
+        const runApplication = mock(() => {});
+        (globalThis as GlobalWithRuntime).OnlookRuntime = {
+            abi: 'v0',
+            mountOverlay,
+            runApplication,
+        };
+
+        await qrToMount(VALID_BARCODE);
+        expect(mountOverlay).toHaveBeenCalledTimes(0);
+        expect(runApplication).toHaveBeenCalledTimes(1);
     });
 });

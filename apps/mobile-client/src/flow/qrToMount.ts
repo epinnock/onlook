@@ -43,6 +43,16 @@ type OnlookRuntimeWithRunApplication = {
         props: { sessionId: string },
     ) => void;
     reloadBundle?: (bundleSource: string) => void;
+    /**
+     * ABI v1 overlay mount — preferred over runApplication/reloadBundle when
+     * `abi === 'v1'`. See `plans/adr/overlay-abi-v1.md` §"Runtime globals".
+     */
+    abi?: string;
+    mountOverlay?: (
+        source: string,
+        props?: Readonly<Record<string, unknown>>,
+        assets?: unknown,
+    ) => void;
 };
 
 /** Stage names used to tag failures in {@link QrMountResult}. */
@@ -149,6 +159,44 @@ export async function qrToMount(barcodeData: string): Promise<QrMountResult> {
     // silently produces a broken UI — see MCF-BUG-QR-SUBSEQUENT.
     const runtime = (globalThis as { OnlookRuntime?: OnlookRuntimeWithRunApplication })
         .OnlookRuntime;
+
+    // ── ABI v1 fast path — preferred over runApplication/reloadBundle when available.
+    //
+    // When the runtime advertises `abi: 'v1'` and exposes `mountOverlay`, route EVERY
+    // scan through it (first and subsequent) — `mountOverlay` handles teardown + remount
+    // internally via React's root-scoped Fabric commit. We don't need the split
+    // runApplication/reloadBundle dance at all in v1.
+    if (runtime?.abi === 'v1' && typeof runtime.mountOverlay === 'function') {
+        try {
+            console.log(
+                `${LOG_PREFIX} stage=mount OnlookRuntime.mountOverlay() bytes=${bundleResult.source.length}`,
+            );
+            runtime.mountOverlay(bundleResult.source, { sessionId, relayHost: relay });
+            console.log(`${LOG_PREFIX} stage=mount mountOverlay() returned`);
+            hasMountedApplication = true;
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
+            const stack = err instanceof Error && err.stack ? err.stack : '';
+            console.log(`${LOG_PREFIX} stage=mount mountOverlay THREW ${message}`);
+            if (stack) console.log(`${LOG_PREFIX} stack=${stack.slice(0, 800)}`);
+            return {
+                ok: false,
+                stage: 'mount',
+                error: `mountOverlay threw: ${message}`,
+            };
+        }
+        try {
+            await addRecentSession({
+                sessionId,
+                relayHost: relay,
+                lastConnected: new Date().toISOString(),
+            });
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
+            console.warn(`${LOG_PREFIX} failed to persist recent session: ${message}`);
+        }
+        return { ok: true, sessionId, relay };
+    }
 
     if (!hasMountedApplication) {
         const runApplication = runtime?.runApplication;
