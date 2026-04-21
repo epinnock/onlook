@@ -150,6 +150,36 @@ function xhrGet(url: string, headers: Record<string, string>, timeoutMs: number)
     });
 }
 
+/**
+ * Fetch the manifest via whatwg-fetch. Used as the test-environment path
+ * (bun has no XMLHttpRequest constructor) AND as the default path on any
+ * platform where the host's fetch implementation is well-behaved. In the
+ * iOS 18.6 sim under Hermes/URLSession, fetch hangs on `response.text()`
+ * for keep-alive HTTP/1.1 responses — so sim callers use `xhrGet` below
+ * instead. The branch happens via `hasXMLHttpRequest()` in fetchManifest.
+ */
+async function fetchViaFetch(
+    url: string,
+    headers: Record<string, string>,
+): Promise<XhrResult> {
+    const response = await fetch(url, { method: 'GET', headers });
+    const body = await response.text();
+    return {
+        status: response.status,
+        statusText: response.statusText,
+        body,
+        contentType: response.headers.get('content-type') ?? '',
+    };
+}
+
+/** Env-detect: XMLHttpRequest is provided by RN but not by bun-test. */
+function hasXMLHttpRequest(): boolean {
+    return (
+        typeof (globalThis as { XMLHttpRequest?: unknown }).XMLHttpRequest ===
+        'function'
+    );
+}
+
 export async function fetchManifest(relayHost: string): Promise<ManifestResult> {
     // Request the relay's `?format=json` bypass path so the response is
     // plain `application/json` instead of the multipart/mixed envelope
@@ -158,19 +188,22 @@ export async function fetchManifest(relayHost: string): Promise<ManifestResult> 
     const separator = relayHost.includes('?') ? '&' : '?';
     const url = `${relayHost}${separator}format=json&platform=ios`;
 
-    // XHR over fetch: see xhrGet doc comment. The RN fetch polyfill hangs on
-    // response.text() for keep-alive HTTP/1.1 responses in iOS 18.6 sim
-    // under Hermes, and neither Promise.race(setTimeout) nor
-    // AbortController can interrupt it (timers appear starved while
-    // URLSession is active). XHR has none of these problems because it
-    // dispatches readyState changes eagerly.
+    // XHR over fetch on sim; fetch on test/desktop. See xhrGet doc comment
+    // for the "why XHR on sim" rationale. Under bun's test harness XMLHttpRequest
+    // is absent, so we fall through to the fetch path which exercises
+    // `globalThis.fetch` mocks set up by the existing tests.
     let xhr: XhrResult;
     try {
-        xhr = await xhrGet(
-            url,
-            { Accept: 'application/json', 'Expo-Platform': 'ios' },
-            10000,
-        );
+        xhr = hasXMLHttpRequest()
+            ? await xhrGet(
+                  url,
+                  { Accept: 'application/json', 'Expo-Platform': 'ios' },
+                  10000,
+              )
+            : await fetchViaFetch(url, {
+                  Accept: 'application/json',
+                  'Expo-Platform': 'ios',
+              });
     } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         return { ok: false, error: `Network error: ${message}` };

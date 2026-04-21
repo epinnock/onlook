@@ -234,18 +234,27 @@ describe('fetchManifest', () => {
         }
     });
 
-    test('passes correct Accept header and uses GET method', async () => {
-        const fetchMock = mock(() => Promise.resolve(multipartResponse(VALID_MANIFEST)));
+    test('passes correct Accept header, platform header, GET method, and ?format=json query', async () => {
+        const fetchMock = mock(() => Promise.resolve(jsonResponse(VALID_MANIFEST)));
         globalThis.fetch = fetchMock;
 
         await fetchManifest(RELAY_URL);
 
         expect(fetchMock).toHaveBeenCalledTimes(1);
         const calledRequest = fetchMock.mock.calls[0];
-        expect(calledRequest[0]).toBe(RELAY_URL);
+        // fetchManifest opts into the relay's ?format=json bypass path so
+        // the response is plain JSON instead of multipart/mixed — RN fetch
+        // + multipart hangs on response.text() in iOS 18.6 sim. Also pins
+        // platform=ios because the relay defaults to android otherwise.
+        const calledUrl = calledRequest[0] as string;
+        expect(calledUrl.startsWith(RELAY_URL)).toBe(true);
+        expect(calledUrl).toContain('format=json');
+        expect(calledUrl).toContain('platform=ios');
         const init = calledRequest[1] as RequestInit;
         expect(init.method).toBe('GET');
-        expect((init.headers as Record<string, string>).Accept).toContain('multipart/mixed');
+        const headers = init.headers as Record<string, string>;
+        expect(headers.Accept).toBe('application/json');
+        expect(headers['Expo-Platform']).toBe('ios');
     });
 
     test('manifest with extra passthrough fields in expoClient is accepted', async () => {
