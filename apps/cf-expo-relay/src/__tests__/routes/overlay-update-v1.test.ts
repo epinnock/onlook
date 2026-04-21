@@ -150,4 +150,45 @@ describe('HmrSession — abi-v1 overlayUpdate routing (task #5)', () => {
         const resp = await postPush(session, legacy);
         expect(resp.status).toBe(202);
     });
+
+    // ── task #76 additional coverage ────────────────────────────────────
+
+    test('POST /push persists identical payload across two pushes, second overwrites first', async () => {
+        const { session, storage } = makeSession();
+        const a = makeOverlayMessage({ overlayHash: 'a'.repeat(64) });
+        const b = makeOverlayMessage({ overlayHash: 'b'.repeat(64) });
+        await postPush(session, a);
+        await new Promise((r) => setTimeout(r, 5));
+        const afterA = storage.snapshot()['last-overlay-v1'] as string;
+        await postPush(session, b);
+        await new Promise((r) => setTimeout(r, 5));
+        const afterB = storage.snapshot()['last-overlay-v1'] as string;
+        expect(afterA).not.toBe(afterB);
+        expect(JSON.parse(afterB).meta.overlayHash).toBe('b'.repeat(64));
+    });
+
+    test('delivered counter equals 0 when no phone sockets are connected', async () => {
+        const { session } = makeSession();
+        const resp = await postPush(session, makeOverlayMessage());
+        expect(resp.status).toBe(202);
+        const body = (await resp.json()) as { delivered: number };
+        expect(body.delivered).toBe(0);
+    });
+
+    test('POST /push with oversized body is rejected with 413', async () => {
+        const { session } = makeSession();
+        const oversized = { ...makeOverlayMessage(), source: 'x'.repeat(3 * 1024 * 1024) };
+        const resp = await postPush(session, oversized);
+        expect(resp.status).toBe(413);
+    });
+
+    test('POST /push accepts Content-Type with charset suffix', async () => {
+        const { session } = makeSession();
+        const resp = await postPush(
+            session,
+            makeOverlayMessage(),
+            'application/json; charset=utf-8',
+        );
+        expect(resp.status).toBe(202);
+    });
 });

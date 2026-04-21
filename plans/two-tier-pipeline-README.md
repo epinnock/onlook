@@ -52,21 +52,48 @@ Consume in code via `isTwoTierPipelineEnabled()` from `@/utils/feature-flags/two
 
 ## Key files
 
+**ABI v1 (primary path — `NEXT_PUBLIC_MOBILE_PREVIEW_PIPELINE=overlay-v1`):**
+
 | Concern | Path |
 |---|---|
-| Base bundle builder | `packages/base-bundle-builder/` |
-| Browser overlay bundler | `packages/browser-bundler/` |
-| Overlay wire schema | `packages/mobile-client-protocol/src/overlay.ts` |
-| Relay `/push` + `/hmr` routes | `apps/cf-expo-relay/src/worker.ts` |
-| Relay fan-out DO | `apps/cf-expo-relay/src/do/hmr-session.ts` |
-| Wrangler config (HMR_SESSION binding, migration v2) | `apps/cf-expo-relay/wrangler.jsonc` |
-| Editor push client | `apps/web/client/src/services/expo-relay/push-overlay.ts` |
-| Editor feature flag | `apps/web/client/src/utils/feature-flags/two-tier.ts` |
+| ABI contract | `plans/adr/overlay-abi-v1.md` |
+| 100-task queue | `plans/two-tier-overlay-v2-task-queue.md` |
+| Wire schemas + version guards | `packages/mobile-client-protocol/src/abi-v1.ts` |
+| Runtime-capability classifier | `packages/base-bundle-builder/src/runtime-capabilities.ts` |
+| Base manifest emitter | `packages/base-bundle-builder/src/base-manifest.ts` |
+| Alias-map sidecar wiring | `packages/base-bundle-builder/src/build.ts` |
+| REQUIRED_ALIASES enforcement | `packages/base-bundle-builder/src/validate-aliases.ts` |
+| Hermes-safe overlay wrapper | `packages/browser-bundler/src/wrap-overlay-v1.ts` |
+| Editor preflight (ABI v1) | `packages/browser-bundler/src/preflight.ts` (`preflightAbiV1Imports`) |
+| JS-fallback OnlookRuntime | `packages/mobile-preview/runtime/src/onlook-runtime-js.ts` |
+| Relay overlayUpdate routing | `apps/cf-expo-relay/src/do/hmr-session.ts` |
+| Editor push client (v1) | `apps/web/client/src/services/expo-relay/push-overlay.ts` (`pushOverlayV1`) |
+| ABI-hello handshake | `apps/web/client/src/services/expo-relay/abi-hello.ts` |
+| Reconnect replayer | `apps/web/client/src/services/expo-relay/reconnect-replayer.ts` |
+| Editor status machine | `apps/web/client/src/services/expo-relay/overlay-status.ts` |
+| Editor debouncer | `apps/web/client/src/services/expo-relay/overlay-debounce.ts` |
+| Overlay source-map tooling | `apps/web/client/src/services/expo-relay/overlay-sourcemap.ts` |
+| Editor feature flag | `apps/web/client/src/utils/feature-flags/two-tier.ts` (`isOverlayV1Enabled`) |
+| Mobile feature flag | `apps/mobile-client/src/flow/featureFlags.ts` (`isOverlayV1Enabled`) |
+| Mobile mount entrypoint | `apps/mobile-client/src/navigation/AppRouter.tsx` (prefers `OnlookRuntime.mountOverlay`) |
+| Mobile QR flow | `apps/mobile-client/src/flow/qrToMount.ts` (prefers `OnlookRuntime.mountOverlay`) |
+| Dev-menu reload | `apps/mobile-client/src/actions/reloadBundle.ts` (uses cached `lastMount`) |
+| E2E harness | `packages/browser-bundler/__tests__/two-tier-e2e.spec.ts` |
+
+**Legacy path (retiring — `NEXT_PUBLIC_MOBILE_PREVIEW_PIPELINE=two-tier`):**
+
+| Concern | Path |
+|---|---|
+| Overlay wire schema (legacy) | `packages/mobile-client-protocol/src/overlay.ts` |
+| Legacy wrap-overlay | `packages/browser-bundler/src/wrap-overlay.ts` (`@deprecated`) |
+| Legacy push-overlay | `apps/web/client/src/services/expo-relay/push-overlay.ts` (`pushOverlay`, `@deprecated`) |
 | Mobile OverlayDispatcher | `apps/mobile-client/src/relay/overlayDispatcher.ts` |
 | Mobile bootstrap | `apps/mobile-client/src/flow/twoTierBootstrap.ts` |
-| Mobile feature flag | `apps/mobile-client/src/flow/featureFlags.ts` |
+| Legacy ExpoSession DO | `apps/cf-expo-relay/src/session.ts` (scheduled removal) |
 | Validation ADR | `plans/adr/two-tier-validation-strategy.md` |
-| Task queue | `plans/metro-bundle-pipeline-task-queue.md` |
+| Legacy task queue | `plans/metro-bundle-pipeline-task-queue.md` |
+
+Legacy removal is tracked as Phase 11 tasks #89–#94 in the v2 queue; the `overlay-v1` feature-flag kill switch gates traffic between the two paths during migration.
 
 ## Relay routes (new)
 

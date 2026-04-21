@@ -4,6 +4,22 @@ import {
     OverlayUpdateMessageSchema,
     type OverlayUpdateMessage,
 } from '../../../../packages/mobile-client-protocol/src/abi-v1.ts';
+import { WsMessageSchema } from '../../../../packages/mobile-client-protocol/src/ws-messages.ts';
+
+/** Any phone→editor onlook:* message type that the relay just fans out. */
+const ONLOOK_OBSERVABILITY_TYPES: ReadonlySet<string> = new Set([
+    'onlook:select',
+    'onlook:tap',
+    'onlook:console',
+    'onlook:network',
+    'onlook:error',
+]);
+
+function isOnlookObservabilityType(value: unknown): boolean {
+    if (typeof value !== 'object' || value === null) return false;
+    const t = (value as { type?: unknown }).type;
+    return typeof t === 'string' && ONLOOK_OBSERVABILITY_TYPES.has(t);
+}
 
 /**
  * Upper bound on the POST /push body size. 2 MiB is well above any overlay
@@ -238,6 +254,31 @@ export class HmrSession extends DurableObject<Env> {
         try {
             parsed = JSON.parse(raw);
         } catch {
+            return;
+        }
+
+        // Phone→editor observability messages (onlook:console/network/error/select/tap) —
+        // validated via WsMessageSchema then fanned out to every OTHER socket.
+        // Task #72 of two-tier-overlay-v2. Kept above the overlayUpdate check because
+        // both are structured-JSON with a `type` field and the observability validation
+        // is cheaper (discriminated union).
+        if (isOnlookObservabilityType(parsed)) {
+            const obsParse = WsMessageSchema.safeParse(parsed);
+            if (obsParse.success) {
+                const payload = JSON.stringify(obsParse.data);
+                for (const socket of this.sockets) {
+                    if (socket === sender || socket.readyState !== WebSocket.OPEN) {
+                        continue;
+                    }
+                    socket.send(payload);
+                }
+                return;
+            }
+            // Malformed onlook:* — drop silently rather than forwarding garbage.
+            console.warn(
+                'hmr-relay: dropped malformed onlook observability message',
+                obsParse.error.message,
+            );
             return;
         }
 

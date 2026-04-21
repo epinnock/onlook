@@ -5,3 +5,5 @@ export * from './push-overlay';
 export * from './abi-hello';
 export * from './overlay-status';
 export * from './overlay-debounce';
+export * from './reconnect-replayer';
+export * from './overlay-sourcemap';
