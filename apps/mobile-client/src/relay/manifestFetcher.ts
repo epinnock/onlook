@@ -66,64 +66,125 @@ function extractManifestJson(contentType: string, body: string): string {
  *   `{ ok: false, error }` on network error, non-200 status, JSON parse
  *   failure, or Zod validation failure. Never throws.
  */
+/**
+ * XHR-based request — bypasses the RN fetch implementation that hangs on
+ * `response.text()` in the iOS 18.6 sim even when the upstream response is
+ * complete with Content-Length known. RN's XMLHttpRequest goes through
+ * RCTNetworking directly and resolves when the full body has arrived, so
+ * timers keep firing normally and the Promise settles.
+ */
+interface XhrResult {
+    status: number;
+    statusText: string;
+    body: string;
+    contentType: string;
+}
+
+declare const XMLHttpRequest: {
+    new (): {
+        open(method: string, url: string, async?: boolean): void;
+        setRequestHeader(name: string, value: string): void;
+        getResponseHeader(name: string): string | null;
+        send(body?: string | null): void;
+        abort(): void;
+        readyState: number;
+        status: number;
+        statusText: string;
+        responseText: string;
+        onreadystatechange: (() => void) | null;
+        ontimeout: (() => void) | null;
+        onerror: ((ev: unknown) => void) | null;
+        onabort: (() => void) | null;
+        timeout: number;
+    };
+};
+
+function nlog(msg: string): void {
+    // Diagnostic fallback that works without bridgeless RN logging. The
+    // native onlook-runtime installs nativeLoggingHook into the global
+    // scope and pipes the output through os_log, which `log stream` picks
+    // up verbatim. Using it directly avoids the console.* polyfill entirely.
+    try {
+        const gt = globalThis as unknown as { nativeLoggingHook?: (m: string, level: number) => void };
+        gt.nativeLoggingHook?.(`[OM-manifest] ${msg}`, 1);
+    } catch { /* intentionally swallowed: diagnostic path must never throw */ }
+}
+
+function xhrGet(url: string, headers: Record<string, string>, timeoutMs: number): Promise<XhrResult> {
+    return new Promise((resolve, reject) => {
+        nlog(`xhrGet enter url=${url.slice(0, 120)}`);
+        const xhrCtor = (globalThis as unknown as { XMLHttpRequest?: unknown }).XMLHttpRequest;
+        nlog(`typeof XMLHttpRequest=${typeof xhrCtor}`);
+        const xhr = new XMLHttpRequest();
+        nlog('xhr constructed');
+        let settled = false;
+        const settle = (fn: () => void) => {
+            if (settled) return;
+            settled = true;
+            fn();
+        };
+        xhr.open('GET', url, true);
+        for (const [k, v] of Object.entries(headers)) {
+            xhr.setRequestHeader(k, v);
+        }
+        xhr.timeout = timeoutMs;
+        xhr.onreadystatechange = () => {
+            nlog(`readyState=${xhr.readyState} status=${xhr.status}`);
+            if (xhr.readyState === 4) {
+                settle(() =>
+                    resolve({
+                        status: xhr.status,
+                        statusText: xhr.statusText,
+                        body: xhr.responseText,
+                        contentType: xhr.getResponseHeader('content-type') ?? '',
+                    }),
+                );
+            }
+        };
+        xhr.ontimeout = () => { nlog('ontimeout'); settle(() => reject(new Error(`XHR timed out after ${timeoutMs}ms`))); };
+        xhr.onerror = () => { nlog('onerror'); settle(() => reject(new Error('XHR error'))); };
+        xhr.onabort = () => { nlog('onabort'); settle(() => reject(new Error('XHR aborted'))); };
+        nlog('xhr.send()');
+        xhr.send();
+        nlog('xhr.send() returned');
+    });
+}
+
 export async function fetchManifest(relayHost: string): Promise<ManifestResult> {
-    // The Onlook mobile client requests the relay's `?format=json` bypass
-    // path so the response is plain `application/json` instead of the
-    // multipart/mixed envelope Expo Go expects. Rationale: RN fetch +
-    // multipart/mixed hangs on `response.text()` in the iOS 18.6 sim even
-    // when the upstream response is complete with Content-Length set. The
-    // Onlook client has no need for Expo Go's signature-bypass envelope,
-    // so the plain JSON path is strictly preferable.
-    //
-    // Also pins `platform=ios` explicitly because the relay defaults to
-    // android when the Expo-Platform header is missing (which it is here
-    // since we're not pretending to be Expo Go).
+    // Request the relay's `?format=json` bypass path so the response is
+    // plain `application/json` instead of the multipart/mixed envelope
+    // Expo Go expects. Pins `platform=ios` explicitly since the relay
+    // defaults to android without an Expo-Platform header.
     const separator = relayHost.includes('?') ? '&' : '?';
     const url = `${relayHost}${separator}format=json&platform=ios`;
 
-    // AbortController fallback: if RN fetch + the relay's keep-alive TCP
-    // socket leave response.text() stuck waiting for connection close even
-    // after Content-Length bytes arrived, this aborts the request so the
-    // caller gets a concrete error instead of an indefinite "Fetching
-    // manifest…" hang.
-    const controller = new AbortController();
-    const abortTimer = setTimeout(() => controller.abort(), 5000);
-
-    let response: Response;
-    let body: string;
+    // XHR over fetch: see xhrGet doc comment. The RN fetch polyfill hangs on
+    // response.text() for keep-alive HTTP/1.1 responses in iOS 18.6 sim
+    // under Hermes, and neither Promise.race(setTimeout) nor
+    // AbortController can interrupt it (timers appear starved while
+    // URLSession is active). XHR has none of these problems because it
+    // dispatches readyState changes eagerly.
+    let xhr: XhrResult;
     try {
-        try {
-            response = await fetch(url, {
-                method: 'GET',
-                headers: {
-                    Accept: 'application/json',
-                    'Expo-Platform': 'ios',
-                },
-                signal: controller.signal,
-            });
-        } catch (err: unknown) {
-            const message = err instanceof Error ? err.message : String(err);
-            return { ok: false, error: `Network error: ${message}` };
-        }
-
-        if (!response.ok) {
-            return {
-                ok: false,
-                error: `HTTP ${response.status}: ${response.statusText}`,
-            };
-        }
-
-        try {
-            body = await response.text();
-        } catch (err: unknown) {
-            const message = err instanceof Error ? err.message : String(err);
-            return { ok: false, error: `Failed to read response body: ${message}` };
-        }
-    } finally {
-        clearTimeout(abortTimer);
+        xhr = await xhrGet(
+            url,
+            { Accept: 'application/json', 'Expo-Platform': 'ios' },
+            10000,
+        );
+    } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        return { ok: false, error: `Network error: ${message}` };
     }
 
-    const contentType = response.headers.get('content-type') ?? '';
+    if (xhr.status < 200 || xhr.status >= 300) {
+        return {
+            ok: false,
+            error: `HTTP ${xhr.status}: ${xhr.statusText}`,
+        };
+    }
+
+    const body = xhr.body;
+    const contentType = xhr.contentType;
 
     let jsonString: string;
     try {
