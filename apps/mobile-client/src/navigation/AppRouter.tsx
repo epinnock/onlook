@@ -64,28 +64,18 @@ function buildUrlPipelineRunner(actions: NavActions) {
             log.push(`url=${data.slice(0, 140)}`);
             show('Opening…');
 
-            // Stage 0a: external fetch — soft diagnostic only. Two-tier
-            // flows routinely run against LAN-only relays; external
-            // internet is not a prerequisite for reaching the relay.
-            // Uses `captive.apple.com/generate_204` (Apple's own probe
-            // URL) rather than `https://1.1.1.1/` because iOS ATS under
-            // Hermes/URLSession rejects HTTPS to raw IPs even when the
-            // cert SAN includes them (simctl sim drops the request with
-            // no error surface). Failures are logged and the flow
-            // continues to Preflight B.
-            try {
-                log.push('preflight GET https://captive.apple.com/generate_204');
-                show('Preflight A (external)…');
-                const r = await timeout(
-                    fetch('https://captive.apple.com/generate_204', { method: 'GET' }),
-                    3000,
-                    'preflight external',
-                );
-                log.push(`preflight A ${r.status}`);
-            } catch (e: unknown) {
-                const msg = e instanceof Error ? e.message : String(e);
-                log.push(`preflight A skipped: ${msg}`);
-            }
+            // Stage 0a: external reachability — intentionally skipped.
+            //
+            // A previous iteration fetched https://captive.apple.com/generate_204
+            // as a soft diagnostic, but the call hung indefinitely in the iOS 18.6
+            // sim under Hermes/URLSession: the request neither resolved nor
+            // rejected, and Promise.race(setTimeout reject) at 3s also never
+            // fired (possibly due to URLSession blocking the JS thread during
+            // TLS handshake, or iOS ATS ConnectivityDaemon interaction with the
+            // sim). The LAN preflight below plus the real manifest/bundle
+            // fetches already prove the only reachability we actually need, so
+            // the external probe is omitted. See task #64 for root-cause work.
+            log.push('preflight A (external) — skipped by design');
             // Stage 0b: LAN fetch to /status
             try {
                 const hostMatch = data.match(/^(?:exp|https?):\/\/([^\/]+)/i);
