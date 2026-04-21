@@ -37,6 +37,10 @@ import { ABI_VERSION, type AbiVersion } from '@onlook/mobile-client-protocol';
 export const OVERLAY_SIZE_SOFT_CAP = 512 * 1024;
 export const OVERLAY_SIZE_HARD_CAP = 2 * 1024 * 1024;
 
+/** Performance budget targets from ADR-0001 §"Performance envelope". */
+export const OVERLAY_BUILD_SLOW_MS = 1000;
+export const OVERLAY_EVAL_TARGET_MS = 100;
+
 export interface WrapOverlayV1Options {
     /** Source map for the pre-wrap CJS. Passed through unchanged to the envelope output. */
     readonly sourceMap?: string;

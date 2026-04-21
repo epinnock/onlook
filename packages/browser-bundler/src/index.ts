@@ -40,9 +40,21 @@ export {
     OverlayWrapError,
     OVERLAY_SIZE_HARD_CAP,
     OVERLAY_SIZE_SOFT_CAP,
+    OVERLAY_BUILD_SLOW_MS,
+    OVERLAY_EVAL_TARGET_MS,
     type WrapOverlayV1Options,
     type WrappedOverlayV1,
 } from './wrap-overlay-v1';
+
+// Task #47 — pure-JS package artifact format.
+export {
+    createInMemoryPureJsCache,
+    mergePureJsArtifactIntoOverlay,
+    resolvePureJsModule,
+    type OverlayModuleRegistry,
+    type PureJsArtifactCache,
+    type PureJsPackageArtifact,
+} from './pure-js-package';
 
 export {
     preflightUnsupportedImports,
