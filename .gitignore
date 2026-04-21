@@ -51,3 +51,4 @@ apps/sandbox-worker/.wrangler/
 
 # Local worktrees for parallel agent work
 .trees/
+apps/cf-expo-relay/.wrangler/
