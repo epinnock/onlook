@@ -68,6 +68,9 @@ jsi::Value OnlookRuntime::get(jsi::Runtime& rt, const jsi::PropNameID& name) {
   if (n == "dispatchEvent") {
     return makeHostMethod(rt, "dispatchEvent", this, &OnlookRuntime::dispatchEvent);
   }
+  if (n == "httpGet") {
+    return makeHostMethod(rt, "httpGet", this, &OnlookRuntime::httpGet);
+  }
   if (n == "version") {
     return jsi::Value(rt, version(rt));
   }
@@ -85,10 +88,11 @@ void OnlookRuntime::set(
 
 std::vector<jsi::PropNameID> OnlookRuntime::getPropertyNames(jsi::Runtime& rt) {
   std::vector<jsi::PropNameID> names;
-  names.reserve(4);
+  names.reserve(5);
   names.emplace_back(jsi::PropNameID::forUtf8(rt, "runApplication"));
   names.emplace_back(jsi::PropNameID::forUtf8(rt, "reloadBundle"));
   names.emplace_back(jsi::PropNameID::forUtf8(rt, "dispatchEvent"));
+  names.emplace_back(jsi::PropNameID::forUtf8(rt, "httpGet"));
   names.emplace_back(jsi::PropNameID::forUtf8(rt, "version"));
   return names;
 }
@@ -114,6 +118,13 @@ jsi::Value OnlookRuntime::dispatchEvent(
     const jsi::Value* args,
     size_t count) {
   return dispatchEventImpl(rt, args, count);
+}
+
+jsi::Value OnlookRuntime::httpGet(
+    jsi::Runtime& rt,
+    const jsi::Value* args,
+    size_t count) {
+  return httpGetImpl(rt, args, count);
 }
 
 jsi::String OnlookRuntime::version(jsi::Runtime& rt) {

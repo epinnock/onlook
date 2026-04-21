@@ -185,6 +185,55 @@ function hasXMLHttpRequest(): boolean {
     );
 }
 
+/**
+ * Env-detect: `OnlookRuntime.httpGet` is installed by cpp/OnlookRuntime.cpp
+ * when the native side is linked in. Bypasses RCTNetworking entirely by
+ * going straight to NSURLSession, which sidesteps the event-dispatch bug
+ * documented in task #81.
+ */
+function hasOnlookHttpGet(): boolean {
+    const gt = globalThis as {
+        OnlookRuntime?: { httpGet?: unknown };
+    };
+    return typeof gt.OnlookRuntime?.httpGet === 'function';
+}
+
+/**
+ * Sync JSI GET via the native OnlookRuntime.httpGet. Blocks the JS thread
+ * for the request duration — acceptable for small (<100KB) manifest fetches
+ * that take <200ms. Shape-matches `XhrResult` so downstream code doesn't
+ * need to care which path was used.
+ */
+function fetchViaJsiHttpGet(
+    url: string,
+    headers: Record<string, string>,
+): XhrResult {
+    const gt = globalThis as {
+        OnlookRuntime?: {
+            httpGet?: (
+                url: string,
+                headers?: Record<string, string>,
+            ) => {
+                ok: boolean;
+                status: number;
+                body: string;
+                contentType: string;
+                error?: string;
+            };
+        };
+    };
+    const r = gt.OnlookRuntime!.httpGet!(url, headers);
+    if (r.error) {
+        throw new Error(r.error);
+    }
+    return {
+        status: r.status,
+        statusText: r.ok ? 'OK' : 'Error',
+        body: r.body,
+        contentType: r.contentType,
+    };
+}
+
 export async function fetchManifest(relayHost: string): Promise<ManifestResult> {
     // Request the relay's `?format=json` bypass path so the response is
     // plain `application/json` instead of the multipart/mixed envelope
@@ -193,22 +242,27 @@ export async function fetchManifest(relayHost: string): Promise<ManifestResult> 
     const separator = relayHost.includes('?') ? '&' : '?';
     const url = `${relayHost}${separator}format=json&platform=ios`;
 
-    // XHR over fetch on sim; fetch on test/desktop. See xhrGet doc comment
-    // for the "why XHR on sim" rationale. Under bun's test harness XMLHttpRequest
-    // is absent, so we fall through to the fetch path which exercises
-    // `globalThis.fetch` mocks set up by the existing tests.
+    // Transport priority:
+    //   1. OnlookRuntime.httpGet — sync JSI call into NSURLSession, bypasses
+    //      RN's broken RCTNetworking event dispatch (task #81). ONLY works
+    //      when the native binary is built with commit introducing httpGet.
+    //   2. XMLHttpRequest — RN's bridged XHR. Broken on bridgeless iOS 18.6
+    //      (send() returns but readyState events never fire — verified in
+    //      fire-16 with [onlook-js] breadcrumbs), but fine as a fallback on
+    //      other RN targets.
+    //   3. fetch — used by the bun-test environment (no XMLHttpRequest
+    //      constructor) and as last-resort on unknown platforms.
+    const reqHeaders = { Accept: 'application/json', 'Expo-Platform': 'ios' };
     let xhr: XhrResult;
     try {
-        xhr = hasXMLHttpRequest()
-            ? await xhrGet(
-                  url,
-                  { Accept: 'application/json', 'Expo-Platform': 'ios' },
-                  10000,
-              )
-            : await fetchViaFetch(url, {
-                  Accept: 'application/json',
-                  'Expo-Platform': 'ios',
-              });
+        nlog(`transport pick hasOnlook=${hasOnlookHttpGet()} hasXHR=${hasXMLHttpRequest()}`);
+        if (hasOnlookHttpGet()) {
+            xhr = fetchViaJsiHttpGet(url, reqHeaders);
+        } else if (hasXMLHttpRequest()) {
+            xhr = await xhrGet(url, reqHeaders, 10000);
+        } else {
+            xhr = await fetchViaFetch(url, reqHeaders);
+        }
     } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         return { ok: false, error: `Network error: ${message}` };
