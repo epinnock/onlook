@@ -76,40 +76,54 @@ void platformLog(const char* msg, int /*logLevel*/) {
 #endif
 }
 
-// Back-fill `globalThis.nativeLoggingHook` when absent. Safe to call on
-// every install — a pre-existing hook (RN's own) is left untouched so we
-// don't clobber the standard console route when the bridge wires one up.
+// Install BOTH `globalThis.nativeLoggingHook` (as a fallback if RN
+// hasn't yet installed its own) AND `globalThis.__onlookDirectLog`
+// (our own private channel that RN's bridge won't touch).
+//
+// Rationale: RN's bridgeless init path appears to install its own
+// nativeLoggingHook AFTER our installer runs (fire-16 diagnosis:
+// installHostObject fires at t+530ms, sim-final runs confirm the
+// hook is present at install time, but subsequent JS calls to
+// nativeLoggingHook() from our code produce zero os_log output —
+// RN must have overwritten it). `__onlookDirectLog` is a custom
+// name nothing else touches, so downstream JS can rely on it
+// surviving.
 void installNativeLoggingHookIfAbsent(facebook::jsi::Runtime& rt) {
-  auto existing = rt.global().getProperty(rt, "nativeLoggingHook");
-  if (existing.isObject()) {
-    auto existingObj = existing.asObject(rt);
-    if (existingObj.isFunction(rt)) {
-      // Already installed (by RN or a previous call). Do nothing.
-      return;
-    }
-  }
-
   namespace jsi = facebook::jsi;
-  auto hook = jsi::Function::createFromHostFunction(
-      rt,
-      jsi::PropNameID::forAscii(rt, "nativeLoggingHook"),
-      /*paramCount*/ 2,
-      [](jsi::Runtime& rt,
-         const jsi::Value& /*thisVal*/,
-         const jsi::Value* args,
-         size_t count) -> jsi::Value {
-        if (count < 1 || !args[0].isString()) {
+  auto makeHook = [&rt](const char* propName) {
+    return jsi::Function::createFromHostFunction(
+        rt,
+        jsi::PropNameID::forAscii(rt, propName),
+        /*paramCount*/ 2,
+        [](jsi::Runtime& rt,
+           const jsi::Value& /*thisVal*/,
+           const jsi::Value* args,
+           size_t count) -> jsi::Value {
+          if (count < 1 || !args[0].isString()) {
+            return jsi::Value::undefined();
+          }
+          std::string message = args[0].asString(rt).utf8(rt);
+          int logLevel = 1;
+          if (count >= 2 && args[1].isNumber()) {
+            logLevel = static_cast<int>(args[1].asNumber());
+          }
+          platformLog(message.c_str(), logLevel);
           return jsi::Value::undefined();
-        }
-        std::string message = args[0].asString(rt).utf8(rt);
-        int logLevel = 1;
-        if (count >= 2 && args[1].isNumber()) {
-          logLevel = static_cast<int>(args[1].asNumber());
-        }
-        platformLog(message.c_str(), logLevel);
-        return jsi::Value::undefined();
-      });
-  rt.global().setProperty(rt, "nativeLoggingHook", std::move(hook));
+        });
+  };
+
+  // Private channel — always install (safe to overwrite; we own the name).
+  rt.global().setProperty(
+      rt, "__onlookDirectLog", makeHook("__onlookDirectLog"));
+
+  // Standard hook — only install if RN hasn't already done so, and
+  // even then RN may replace it later. JS callers should prefer
+  // __onlookDirectLog for reliability.
+  auto existing = rt.global().getProperty(rt, "nativeLoggingHook");
+  if (existing.isObject() && existing.asObject(rt).isFunction(rt)) {
+    return;
+  }
+  rt.global().setProperty(rt, "nativeLoggingHook", makeHook("nativeLoggingHook"));
 }
 
 }  // namespace
@@ -133,11 +147,25 @@ jsi::Value OnlookRuntimeInstaller::installHostObject(
     react::TurboModule& /*self*/,
     const jsi::Value* /*args*/,
     size_t /*count*/) {
+  // Diagnostic breadcrumb via direct os_log — the ONLY log sink we know
+  // works from cpp without the JSI hook. If this line appears in
+  // `log stream`, we've confirmed installHostObject IS being called and
+  // the "silence" downstream must be in logThroughHermes or after. If it
+  // DOESN'T appear, the TurboModule is never instantiated by the
+  // bridgeless factory (task #80 is the correct diagnosis).
+#if __APPLE__
+  os_log(OS_LOG_DEFAULT,
+         "[onlook-runtime-direct] installHostObject entered");
+#endif
   // Task #73: back-fill nativeLoggingHook before anything else so the
   // install log line below AND every downstream JS `slog()` / `console.*`
   // call actually routes to os_log / logcat. See namespace-level comment
   // for why this can't wait for RN's bridge to install the standard hook.
   installNativeLoggingHookIfAbsent(rt);
+#if __APPLE__
+  os_log(OS_LOG_DEFAULT,
+         "[onlook-runtime-direct] nativeLoggingHook installer completed");
+#endif
   auto hostObject = std::make_shared<OnlookRuntime>();
   auto jsObject = jsi::Object::createFromHostObject(rt, std::move(hostObject));
   rt.global().setProperty(rt, "OnlookRuntime", std::move(jsObject));

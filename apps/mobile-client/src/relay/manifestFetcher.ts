@@ -100,13 +100,18 @@ declare const XMLHttpRequest: {
 };
 
 function nlog(msg: string): void {
-    // Diagnostic fallback that works without bridgeless RN logging. The
-    // native onlook-runtime installs nativeLoggingHook into the global
-    // scope and pipes the output through os_log, which `log stream` picks
-    // up verbatim. Using it directly avoids the console.* polyfill entirely.
+    // Prefer __onlookDirectLog (installed by cpp/OnlookRuntimeInstaller, a
+    // private channel RN's bridge doesn't touch) over nativeLoggingHook
+    // (which RN bridgeless appears to overwrite sometime after our native
+    // installer runs). Falls through to nativeLoggingHook if the direct
+    // channel isn't there yet, then to nothing at all.
     try {
-        const gt = globalThis as unknown as { nativeLoggingHook?: (m: string, level: number) => void };
-        gt.nativeLoggingHook?.(`[OM-manifest] ${msg}`, 1);
+        const gt = globalThis as unknown as {
+            __onlookDirectLog?: (m: string, level: number) => void;
+            nativeLoggingHook?: (m: string, level: number) => void;
+        };
+        const channel = gt.__onlookDirectLog ?? gt.nativeLoggingHook;
+        channel?.(`[OM-manifest] ${msg}`, 1);
     } catch { /* intentionally swallowed: diagnostic path must never throw */ }
 }
 
