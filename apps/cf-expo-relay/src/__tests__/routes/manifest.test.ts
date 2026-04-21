@@ -488,6 +488,104 @@ describe('handleManifest (TQ1.2)', () => {
     });
 });
 
+describe('handleManifest ?format=json bypass (Onlook mobile client path)', () => {
+    function makeJsonRequest(
+        bundleHash: string,
+        opts?: { platform?: 'ios' | 'android'; baseUrl?: string },
+    ): Request {
+        const headers: Record<string, string> = {};
+        if (opts?.platform) headers['expo-platform'] = opts.platform;
+        const base = opts?.baseUrl ?? 'https://expo-relay.dev.workers.dev';
+        const qs = `?format=json${opts?.platform ? `&platform=${opts.platform}` : ''}`;
+        return new Request(`${base}/manifest/${bundleHash}${qs}`, { headers });
+    }
+
+    test('returns plain application/json (not multipart) on ?format=json', async () => {
+        const fields = baseFields();
+        const { binding } = makeStubBinding({
+            fields: jsonResponse(fields),
+            meta: jsonResponse({ builtAt: FIXED_BUILT_AT }),
+        });
+
+        const response = await handleManifest(
+            makeJsonRequest(VALID_HASH, { platform: 'ios' }),
+            envFor(binding),
+            VALID_HASH,
+        );
+
+        expect(response.status).toBe(200);
+        expect(response.headers.get('Content-Type')).toBe('application/json; charset=utf-8');
+        // Required Expo headers are still present for client-side version
+        // gating, even on the JSON bypass.
+        expect(response.headers.get('expo-protocol-version')).toBe('0');
+        expect(response.headers.get('expo-sfv-version')).toBe('0');
+        expect(response.headers.get('Cache-Control')).toBe('private, max-age=0');
+    });
+
+    test('JSON body parses directly to ExpoManifest (no multipart envelope)', async () => {
+        const { binding } = makeStubBinding({
+            fields: jsonResponse(baseFields()),
+            meta: jsonResponse({ builtAt: FIXED_BUILT_AT }),
+        });
+
+        const response = await handleManifest(
+            makeJsonRequest(VALID_HASH, { platform: 'ios' }),
+            envFor(binding),
+            VALID_HASH,
+        );
+
+        const text = await response.text();
+        expect(text.startsWith('{')).toBe(true);
+        expect(text).not.toContain('--formdata-');
+        const manifest = JSON.parse(text) as ExpoManifest;
+        expect(manifest.id).toBe(bundleHashToUuidV4(VALID_HASH));
+        expect(manifest.launchAsset.url).toContain(`${VALID_HASH}.ios.bundle`);
+        expect(manifest.launchAsset.url).toContain('platform=ios');
+    });
+
+    test('protocol in launchAsset.url follows request.url protocol (http for LAN dev)', async () => {
+        const { binding } = makeStubBinding({
+            fields: jsonResponse(baseFields()),
+            meta: jsonResponse({ builtAt: FIXED_BUILT_AT }),
+        });
+
+        const response = await handleManifest(
+            makeJsonRequest(VALID_HASH, {
+                platform: 'ios',
+                baseUrl: 'http://192.168.0.17:18787',
+            }),
+            envFor(binding),
+            VALID_HASH,
+        );
+
+        const manifest = JSON.parse(await response.text()) as ExpoManifest;
+        expect(manifest.launchAsset.url.startsWith('http://')).toBe(true);
+        expect(manifest.launchAsset.url.startsWith('https://')).toBe(false);
+        expect(manifest.launchAsset.url).toContain('192.168.0.17:18787');
+    });
+
+    test('without ?format=json, multipart/mixed response is returned (back-compat)', async () => {
+        const { binding } = makeStubBinding({
+            fields: jsonResponse(baseFields()),
+            meta: jsonResponse({ builtAt: FIXED_BUILT_AT }),
+        });
+
+        // Deliberately NO format=json in the URL — Expo Go's path.
+        const response = await handleManifest(
+            makeRequest(VALID_HASH, { platform: 'ios' }),
+            envFor(binding),
+            VALID_HASH,
+        );
+
+        expect(response.status).toBe(200);
+        expect(response.headers.get('Content-Type')).toContain('multipart/mixed');
+        expect(response.headers.get('Content-Type')).not.toContain('application/json');
+        const body = await response.text();
+        expect(body).toContain('--formdata-');
+        expect(body).toContain('Content-Disposition: form-data; name="manifest"');
+    });
+});
+
 describe('resolvePlatform (TQ1.2 iOS support)', () => {
     function reqWith(headers: HeadersInit, urlSuffix = ''): Request {
         return new Request(
