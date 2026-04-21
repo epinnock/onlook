@@ -9,9 +9,11 @@
  */
 import {
     WsMessageSchema,
+    OverlayAckMessageSchema,
     type ConsoleMessage,
     type ErrorMessage,
     type NetworkMessage,
+    type OverlayAckMessage,
     type SelectMessage,
     type TapMessage,
 } from '@onlook/mobile-client-protocol';
@@ -22,9 +24,17 @@ export interface RelayEventHandlers {
     readonly onError?: (msg: ErrorMessage) => void;
     readonly onSelect?: (msg: SelectMessage) => void;
     readonly onTap?: (msg: TapMessage) => void;
+    /** Explicit phone→editor mount acknowledgement (abi-v1). */
+    readonly onOverlayAck?: (msg: OverlayAckMessage) => void;
     /** Fires for every parsed onlook:* message, regardless of kind-specific callbacks. */
     readonly onAny?: (
-        msg: ConsoleMessage | NetworkMessage | ErrorMessage | SelectMessage | TapMessage,
+        msg:
+            | ConsoleMessage
+            | NetworkMessage
+            | ErrorMessage
+            | SelectMessage
+            | TapMessage
+            | OverlayAckMessage,
     ) => void;
     /** Fires when a message parsed as something we don't route here. Non-fatal; for telemetry only. */
     readonly onUnhandled?: (raw: unknown) => void;
@@ -63,7 +73,18 @@ export function subscribeRelayEvents(
         if (cancelled) return;
         if (typeof event.data !== 'string') return;
 
-        const parseResult = WsMessageSchema.safeParse(safeJsonParse(event.data));
+        const raw = safeJsonParse(event.data);
+
+        // onlook:overlayAck lives in abi-v1.ts (not in the legacy WS union),
+        // so try it first. Fall through to WsMessageSchema for the rest.
+        const ackParse = OverlayAckMessageSchema.safeParse(raw);
+        if (ackParse.success) {
+            options.handlers.onAny?.(ackParse.data);
+            options.handlers.onOverlayAck?.(ackParse.data);
+            return;
+        }
+
+        const parseResult = WsMessageSchema.safeParse(raw);
         if (!parseResult.success) {
             // Could be an overlayUpdate (not our concern here) or malformed.
             if (/\b(onlook:)/.test(event.data)) {

@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import {
     listPlatformResolverCandidates,
+    resolveDirectoryIndex,
     resolvePlatformExt,
 } from '../src/platform-resolver';
 
@@ -92,6 +93,51 @@ describe('resolvePlatformExt', () => {
                 fileExists: existsIn(fs),
             }),
         ).toBe('/src/Button.mjs');
+    });
+});
+
+describe('resolveDirectoryIndex — task #39', () => {
+    test('resolves index.ios.tsx when present', () => {
+        const fs = new Set(['/src/utils/index.ios.tsx', '/src/utils/index.tsx']);
+        expect(
+            resolveDirectoryIndex({
+                dir: '/src/utils',
+                platform: 'ios',
+                fileExists: existsIn(fs),
+            }),
+        ).toBe('/src/utils/index.ios.tsx');
+    });
+
+    test('falls through to index.native.tsx then index.tsx', () => {
+        const fs = new Set(['/src/utils/index.native.tsx']);
+        expect(
+            resolveDirectoryIndex({
+                dir: '/src/utils',
+                platform: 'ios',
+                fileExists: existsIn(fs),
+            }),
+        ).toBe('/src/utils/index.native.tsx');
+    });
+
+    test('strips trailing slashes from dir', () => {
+        const fs = new Set(['/src/utils/index.tsx']);
+        expect(
+            resolveDirectoryIndex({
+                dir: '/src/utils/',
+                platform: 'ios',
+                fileExists: existsIn(fs),
+            }),
+        ).toBe('/src/utils/index.tsx');
+    });
+
+    test('returns null when no index file exists', () => {
+        expect(
+            resolveDirectoryIndex({
+                dir: '/src/nothing',
+                platform: 'ios',
+                fileExists: () => false,
+            }),
+        ).toBeNull();
     });
 });
 

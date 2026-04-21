@@ -5,6 +5,7 @@ import {
     type OverlayUpdateMessage,
 } from '../../../../packages/mobile-client-protocol/src/abi-v1.ts';
 import { WsMessageSchema } from '../../../../packages/mobile-client-protocol/src/ws-messages.ts';
+import { OverlayAckMessageSchema } from '../../../../packages/mobile-client-protocol/src/abi-v1.ts';
 
 /** Any phone→editor onlook:* message type that the relay just fans out. */
 const ONLOOK_OBSERVABILITY_TYPES: ReadonlySet<string> = new Set([
@@ -13,6 +14,7 @@ const ONLOOK_OBSERVABILITY_TYPES: ReadonlySet<string> = new Set([
     'onlook:console',
     'onlook:network',
     'onlook:error',
+    'onlook:overlayAck',
 ]);
 
 function isOnlookObservabilityType(value: unknown): boolean {
@@ -257,12 +259,21 @@ export class HmrSession extends DurableObject<Env> {
             return;
         }
 
-        // Phone→editor observability messages (onlook:console/network/error/select/tap) —
-        // validated via WsMessageSchema then fanned out to every OTHER socket.
-        // Task #72 of two-tier-overlay-v2. Kept above the overlayUpdate check because
-        // both are structured-JSON with a `type` field and the observability validation
-        // is cheaper (discriminated union).
+        // Phone→editor observability messages (onlook:console/network/error/select/tap/overlayAck) —
+        // validated via WsMessageSchema or OverlayAckMessageSchema then fanned out to
+        // every OTHER socket. Task #72 + #60 of two-tier-overlay-v2.
         if (isOnlookObservabilityType(parsed)) {
+            // onlook:overlayAck lives in abi-v1.ts (not in the legacy ws-messages union),
+            // so validate separately. Fall through to WsMessageSchema for the legacy set.
+            const ackParse = OverlayAckMessageSchema.safeParse(parsed);
+            if (ackParse.success) {
+                const payload = JSON.stringify(ackParse.data);
+                for (const socket of this.sockets) {
+                    if (socket === sender || socket.readyState !== WebSocket.OPEN) continue;
+                    socket.send(payload);
+                }
+                return;
+            }
             const obsParse = WsMessageSchema.safeParse(parsed);
             if (obsParse.success) {
                 const payload = JSON.stringify(obsParse.data);

@@ -74,3 +74,30 @@ export function listPlatformResolverCandidates(
     }
     return candidates;
 }
+
+/**
+ * Directory-index resolution — task #39.
+ *
+ * When `require("./utils")` points at a directory, Metro tries
+ * `./utils/index.<platform>.<ext>` → `./utils/index.native.<ext>` →
+ * `./utils/index.<ext>` in the same priority order as {@link
+ * resolvePlatformExt}. This helper composes the two.
+ */
+export interface ResolveDirectoryIndexOptions {
+    readonly dir: string;
+    readonly platform: Platform;
+    readonly extensions?: readonly string[];
+    readonly fileExists: (path: string) => boolean;
+}
+
+export function resolveDirectoryIndex(
+    options: ResolveDirectoryIndexOptions,
+): string | null {
+    const trimmed = options.dir.replace(/\/+$/, '');
+    return resolvePlatformExt({
+        stem: `${trimmed}/index`,
+        platform: options.platform,
+        extensions: options.extensions,
+        fileExists: options.fileExists,
+    });
+}

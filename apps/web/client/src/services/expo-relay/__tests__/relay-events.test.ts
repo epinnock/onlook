@@ -116,6 +116,29 @@ describe('relay-events / subscribeRelayEvents', () => {
         expect(malformed).toHaveLength(1);
     });
 
+    test('routes onlook:overlayAck to onOverlayAck and fires onAny — task #61', () => {
+        const ws = new FakeWs();
+        const acks: unknown[] = [];
+        const anys: unknown[] = [];
+        subscribeRelayEvents({
+            ws,
+            handlers: {
+                onOverlayAck: (m) => acks.push(m),
+                onAny: (m) => anys.push(m),
+            },
+        });
+        const ack = {
+            type: 'onlook:overlayAck',
+            sessionId: 's',
+            overlayHash: 'h'.repeat(64),
+            status: 'mounted',
+            timestamp: 1,
+        };
+        ws.emit(ack);
+        expect(acks).toEqual([ack]);
+        expect(anys).toEqual([ack]);
+    });
+
     test('multiple subscribers stack without interfering', () => {
         const ws = new FakeWs();
         const a: unknown[] = [];
