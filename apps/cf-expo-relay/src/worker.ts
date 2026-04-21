@@ -25,6 +25,11 @@ import {
     handleBaseBundleAssetsRoute,
     parseBaseBundleAssetsRoute,
 } from './routes/assets';
+import {
+    handleUserBundle,
+    parseUserBundleRoute,
+    USER_BUNDLE_ROUTE as USER_BUNDLE_ROUTE_RE,
+} from './routes/user-bundle';
 import type { Env } from './env';
 import { ExpoSession } from './session';
 export { HmrSession } from './do/hmr-session';
@@ -54,7 +59,10 @@ const MANIFEST_HASH_ROUTE = /^\/manifest\/([0-9a-f]{64})$/;
  * path on cf-esm-cache. Hermes bytecode is immutable per hash, so the
  * response headers are immutable-cacheable.
  */
-const USER_BUNDLE_ROUTE = /^\/([0-9a-f]{64})\.(ios|android)\.bundle$/;
+// Re-exported from ./routes/user-bundle for the rare external caller
+// (e.g. sibling workers) that wants the route shape. The handler itself
+// lives in that module.
+const USER_BUNDLE_ROUTE = USER_BUNDLE_ROUTE_RE;
 const BASE_BUNDLE_ROUTE_PREFIXES = ['/base-bundle', '/base-bundles'] as const;
 const BASE_BUNDLE_STUB_BODY =
     'expo-relay: base-bundle routes are not implemented yet';
@@ -195,32 +203,11 @@ export default {
         }
 
         // Sim fetches the user bundle via the launchAsset.url the
-        // manifest builds. Proxy to cf-esm-cache via ESM_CACHE service
-        // binding when available; fall back to direct fetch for local
-        // dev where the binding is absent.
-        if (request.method === 'GET') {
-            const bundleMatch = url.pathname.match(USER_BUNDLE_ROUTE);
-            if (bundleMatch) {
-                const [, hash, platform] = bundleMatch;
-                const upstream = `${stripTrailingSlashWorker(env.ESM_CACHE_URL)}/bundle/${hash}/index.${platform}.bundle`;
-                const req = new Request(upstream, { method: 'GET' });
-                const resp = env.ESM_CACHE
-                    ? await env.ESM_CACHE.fetch(req)
-                    : await fetch(req);
-                if (!resp.ok) {
-                    return new Response(`expo-relay: bundle ${resp.status}`, {
-                        status: resp.status,
-                    });
-                }
-                return new Response(resp.body, {
-                    status: 200,
-                    headers: {
-                        'Content-Type': 'application/javascript',
-                        'Cache-Control': 'public, max-age=31536000, immutable',
-                        ETag: `"${hash}"`,
-                    },
-                });
-            }
+        // manifest builds. The handler in ./routes/user-bundle proxies
+        // to cf-esm-cache via the ESM_CACHE service binding when present
+        // and falls back to a direct fetch for local wrangler dev.
+        if (request.method === 'GET' && parseUserBundleRoute(url.pathname)) {
+            return handleUserBundle(request, env);
         }
 
         // Two-tier overlay channel. These routes require the HMR_SESSION DO
