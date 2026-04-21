@@ -46,6 +46,15 @@ interface ParsedSessionRoute {
  * ever added) from colliding with the new route.
  */
 const MANIFEST_HASH_ROUTE = /^\/manifest\/([0-9a-f]{64})$/;
+
+/**
+ * Sim/device bundle fetch route. The manifest's `launchAsset.url`
+ * points back at the relay's origin at `/<hash>.<platform>.bundle`,
+ * so we proxy that to the matching `/bundle/<hash>/index.<platform>.bundle`
+ * path on cf-esm-cache. Hermes bytecode is immutable per hash, so the
+ * response headers are immutable-cacheable.
+ */
+const USER_BUNDLE_ROUTE = /^\/([0-9a-f]{64})\.(ios|android)\.bundle$/;
 const BASE_BUNDLE_ROUTE_PREFIXES = ['/base-bundle', '/base-bundles'] as const;
 const BASE_BUNDLE_STUB_BODY =
     'expo-relay: base-bundle routes are not implemented yet';
@@ -82,6 +91,10 @@ function isBaseBundleRoute(pathname: string): boolean {
     return BASE_BUNDLE_ROUTE_PREFIXES.some(
         (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
     );
+}
+
+function stripTrailingSlashWorker(url: string): string {
+    return url.replace(/\/+$/, '');
 }
 
 function handleBaseBundleRouteStub(): Response {
@@ -179,6 +192,35 @@ export default {
 
         if (isBaseBundleRoute(url.pathname)) {
             return handleBaseBundleFamily(request, env);
+        }
+
+        // Sim fetches the user bundle via the launchAsset.url the
+        // manifest builds. Proxy to cf-esm-cache via ESM_CACHE service
+        // binding when available; fall back to direct fetch for local
+        // dev where the binding is absent.
+        if (request.method === 'GET') {
+            const bundleMatch = url.pathname.match(USER_BUNDLE_ROUTE);
+            if (bundleMatch) {
+                const [, hash, platform] = bundleMatch;
+                const upstream = `${stripTrailingSlashWorker(env.ESM_CACHE_URL)}/bundle/${hash}/index.${platform}.bundle`;
+                const req = new Request(upstream, { method: 'GET' });
+                const resp = env.ESM_CACHE
+                    ? await env.ESM_CACHE.fetch(req)
+                    : await fetch(req);
+                if (!resp.ok) {
+                    return new Response(`expo-relay: bundle ${resp.status}`, {
+                        status: resp.status,
+                    });
+                }
+                return new Response(resp.body, {
+                    status: 200,
+                    headers: {
+                        'Content-Type': 'application/javascript',
+                        'Cache-Control': 'public, max-age=31536000, immutable',
+                        ETag: `"${hash}"`,
+                    },
+                });
+            }
         }
 
         // Two-tier overlay channel. These routes require the HMR_SESSION DO
