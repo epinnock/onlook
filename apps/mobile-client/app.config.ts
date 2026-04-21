@@ -84,7 +84,15 @@ const config: ExpoConfig = {
     runtimeVersion: ONLOOK_RUNTIME_VERSION,
     extra: {
         eas: {
-            // Project ID lands in MC6.5 when TestFlight config is wired up.
+            // Intentionally empty until a maintainer runs `eas init` on a
+            // logged-in Mac. MC6.5 wired up the `eas.json` + TestFlight
+            // profiles, but the projectId can only be allocated by the
+            // interactive `eas init` step (Expo doesn't let CI create
+            // projects without human approval). First real `eas build`
+            // invocation will prompt for it; the resulting projectId
+            // should then be committed here. See
+            // `apps/mobile-client/docs/MC6.5-testflight.md` §§40-41, 94-95,
+            // 150-152 for the full handoff contract.
             projectId: '',
         },
     },
