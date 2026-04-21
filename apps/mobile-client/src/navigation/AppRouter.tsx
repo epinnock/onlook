@@ -52,6 +52,22 @@ import {
 const AUTO_RUN_URL =
     'exp://192.168.0.14:8787/manifest/dc8ead785627ac182bd9f331f2eee7a73afbd48d72fc585d8d1fccfa9c439bf6';
 
+function _pipelineLog(msg: string): void {
+    // Mirror of manifestFetcher's nlog — pipes through __onlookDirectLog
+    // (installed by cpp/OnlookRuntimeInstaller, survives RN's bridge
+    // overwrite of nativeLoggingHook). Used by buildUrlPipelineRunner so
+    // every stage emits a sim-visible breadcrumb in addition to the
+    // on-screen log panel.
+    try {
+        const gt = globalThis as unknown as {
+            __onlookDirectLog?: (m: string, level: number) => void;
+            nativeLoggingHook?: (m: string, level: number) => void;
+        };
+        const channel = gt.__onlookDirectLog ?? gt.nativeLoggingHook;
+        channel?.(`[OM-pipeline] ${msg}`, 1);
+    } catch { /* diagnostic path must never throw */ }
+}
+
 function buildUrlPipelineRunner(actions: NavActions) {
     return (data: string) => {
         const log: string[] = [];
@@ -171,12 +187,15 @@ function buildUrlPipelineRunner(actions: NavActions) {
                 return;
             }
             log.push(`bundle ok bytes=${bundleSource.length}`);
+            _pipelineLog(`bundle ok bytes=${bundleSource.length}`);
             show('Mounting…');
+            _pipelineLog('entering Mounting stage');
             // Give React a full commit cycle so the 'Mounting…' paint lands
             // BEFORE we invoke onlookMount. Otherwise the scheduled commit
             // for this setState runs AFTER our reconciler's renderApp and
             // overwrites the remote UI on Fabric rootTag=11.
             await new Promise((r) => setTimeout(r, 600));
+            _pipelineLog('600ms paint window elapsed');
 
             // Stage 4: mount.
             //
@@ -190,12 +209,15 @@ function buildUrlPipelineRunner(actions: NavActions) {
             // via RN$registerCallableModule, which breaks further RN fetch
             // calls. By this point the only fetches are done, so it's OK.
             try {
+                _pipelineLog('about to eval bundleSource');
                 // eslint-disable-next-line no-eval
                 (0, eval)(bundleSource);
                 log.push('bundle eval OK');
+                _pipelineLog('bundle eval OK');
             } catch (e: unknown) {
                 const msg = e instanceof Error ? e.message : String(e);
                 const stack = e instanceof Error && e.stack ? e.stack.slice(0, 400) : '';
+                _pipelineLog(`bundle eval threw: ${msg}`);
                 show('Bundle eval threw', `${msg}\n${stack}`);
                 return;
             }
@@ -207,19 +229,23 @@ function buildUrlPipelineRunner(actions: NavActions) {
             const hostMatch2 = data.match(/^(?:exp|https?):\/\/([^:\/]+)/i);
             const relayHost = hostMatch2?.[1] || '192.168.0.17';
             try {
+                _pipelineLog(`calling onlookMount sessionId=${parsed.sessionId.slice(0, 12)}…`);
                 mountFn({
                     sessionId: parsed.sessionId,
                     rootTag: 11,
                     relayHost,
                     relayPort: 8788,
                 });
+                _pipelineLog('onlookMount returned');
             } catch (e: unknown) {
                 const msg = e instanceof Error ? e.message : String(e);
                 const stack = e instanceof Error && e.stack ? e.stack.slice(0, 400) : '';
+                _pipelineLog(`onlookMount threw: ${msg}`);
                 show('onlookMount threw', `${msg}\n${stack}`);
                 return;
             }
             log.push(`mount ok relayHost=${relayHost} rootTag=11`);
+            _pipelineLog(`mount ok relayHost=${relayHost} rootTag=11`);
 
             // Open the live-update WebSocket using RN's built-in WebSocket
             // class — bypasses the CallableJSModule plumbing that shell.js
