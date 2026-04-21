@@ -22,6 +22,7 @@ import {
     CrashScreen,
     ErrorScreen,
     LauncherScreen,
+    ProgressScreen,
     ScanScreen,
     ScreensGalleryScreen,
     SettingsScreen,
@@ -54,11 +55,40 @@ const AUTO_RUN_URL =
 function buildUrlPipelineRunner(actions: NavActions) {
     return (data: string) => {
         const log: string[] = [];
-        const show = (title: string, extra = '') => {
+        // In-flight steps render on ProgressScreen (neutral blue, spinner,
+        // no "Go back") so happy-path stages don't look like failures. Real
+        // errors still go through `showError` below, which routes to the
+        // ErrorScreen with the red error icon + Retry/Go back actions.
+        const showProgress = (title: string, extra = '') => {
+            actions.resetTo('progress', {
+                progressTitle: title,
+                progressLog: log.join('\n') + (extra ? '\n' + extra : ''),
+            });
+        };
+        const showError = (title: string, extra = '') => {
             actions.resetTo('error', {
                 errorTitle: title,
                 errorMessage: log.join('\n') + (extra ? '\n' + extra : ''),
             });
+        };
+        // Backwards-compat alias so the stage code below (which says
+        // `show('Fetching manifest…')` for intermediate steps AND
+        // `show('Bundle failed', err)` for terminal failures) keeps
+        // working without a big diff. Callers that pass a string ending
+        // in "failed" / "threw" / "aborted" get the error styling; all
+        // other titles are treated as in-flight progress.
+        const show = (title: string, extra = '') => {
+            const lower = title.toLowerCase();
+            const isTerminal =
+                lower.includes('failed') ||
+                lower.includes('threw') ||
+                lower.includes('error') ||
+                lower.includes('aborted');
+            if (isTerminal) {
+                showError(title, extra);
+            } else {
+                showProgress(title, extra);
+            }
         };
         (async () => {
             log.push(`url=${data.slice(0, 140)}`);
@@ -342,6 +372,16 @@ function renderScreen(
 
         case 'settings':
             return <SettingsScreen onGoBack={() => actions.goBack()} />;
+
+        case 'progress':
+            return (
+                <ProgressScreen
+                    title={params?.progressTitle ?? 'Working…'}
+                    log={params?.progressLog}
+                    showSpinner={params?.progressShowSpinner ?? true}
+                    onCancel={params?.onCancel}
+                />
+            );
 
         case 'error':
             return (
