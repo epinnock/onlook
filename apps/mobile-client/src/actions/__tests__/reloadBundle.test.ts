@@ -6,19 +6,21 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { rnMockStubs } from '../../__tests__/helpers/rnMock';
 
 // ── Mock react-native DevSettings before importing the module under test ──
+//
+// Uses the shared `rnMockStubs()` comprehensive stub so this file's mock
+// doesn't corrupt subsequent test files that import other react-native
+// symbols (Alert, FlatList, ActivityIndicator, etc.). bun's mock.module
+// is process-wide with no restore hook, so whatever this installs is
+// visible everywhere — it MUST include every symbol used anywhere in
+// apps/mobile-client/src. The local override just swaps DevSettings.reload
+// for the spy this file needs.
 const mockReload = mock(() => {});
 mock.module('react-native', () => ({
+    ...rnMockStubs(),
     DevSettings: { reload: mockReload },
-    // Stubs required by the DevMenuAction type import chain
-    Modal: {},
-    Pressable: {},
-    SafeAreaView: {},
-    ScrollView: {},
-    StyleSheet: { create: (s: Record<string, unknown>) => s },
-    Text: {},
-    View: {},
 }));
 
 // Import after mocks are installed.

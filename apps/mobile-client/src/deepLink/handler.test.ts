@@ -25,7 +25,13 @@ const mockRemove = mock(() => {
     removeCallCount++;
 });
 
+// Shared comprehensive mock prevents cross-file pollution — see
+// src/__tests__/helpers/rnMock.ts. Local override replaces Linking
+// so the test can control deep-link emission.
+import { rnMockStubs } from '../__tests__/helpers/rnMock';
+
 mock.module('react-native', () => ({
+    ...rnMockStubs(),
     Linking: {
         getInitialURL: () => Promise.resolve(mockInitialURL),
         addEventListener: (_event: string, handler: UrlListener) => {
@@ -38,18 +44,59 @@ mock.module('react-native', () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Mock react — provide a minimal useEffect that executes synchronously.
+// Mock react — provide useEffect and the minimum hooks other files need.
 // ---------------------------------------------------------------------------
+//
+// Same process-wide-mock-pollution concern as react-native above —
+// any narrow `mock.module('react', ...)` here leaks to every subsequent
+// test file in the `bun test` run. Downstream files like versionCheck
+// use `useMemo` through renderHook, so we include it (and the other
+// common hooks) here even though this test itself only needs useEffect.
 
 let cleanupFn: (() => void) | undefined;
 
-mock.module('react', () => ({
+// hookTestHelper.ts (used by versionCheck.test.ts) needs React 19's
+// client internals slot to inject a synchronous dispatcher. Expose a
+// mutable `H` holder so the helper can swap it without crashing.
+const reactInternals = { H: null as unknown };
+
+const reactStubs = {
+    __CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE:
+        reactInternals,
     useEffect: (effect: () => (() => void) | void) => {
         const result = effect();
         if (typeof result === 'function') {
             cleanupFn = result;
         }
     },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    useMemo: <T,>(factory: () => T, _deps?: any[]): T => factory(),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    useState: <T,>(init: T | (() => T)): [T, (v: T) => void] => [
+        typeof init === 'function' ? (init as () => T)() : init,
+        () => {},
+    ],
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    useCallback: <T extends (...a: any[]) => any>(fn: T, _deps?: any[]): T => fn,
+    useRef: <T,>(init: T): { current: T } => ({ current: init }),
+    useContext: <T,>(_ctx: unknown): T => undefined as unknown as T,
+    createContext: <T,>(defaultValue: T): unknown => ({
+        Provider: ({ children }: { children: unknown }) => children,
+        Consumer: ({ children }: { children: (v: T) => unknown }) =>
+            children(defaultValue),
+        _defaultValue: defaultValue,
+    }),
+    Fragment: ({ children }: { children?: unknown }) => children,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    createElement: (..._args: any[]): unknown => null,
+};
+
+// Some consumers do `import React from 'react'` which needs a default
+// export with the same shape, so expose the stub as BOTH named exports
+// and the `default` export.
+mock.module('react', () => ({
+    ...reactStubs,
+    default: reactStubs,
 }));
 
 // ---------------------------------------------------------------------------
