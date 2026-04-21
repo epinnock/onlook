@@ -21,10 +21,15 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { renderQrSvg } from '@/services/expo-relay';
 import {
     buildMobilePreviewBundle,
+    createMobilePreviewPipeline,
+    getMobilePreviewPipelineKind,
     pushMobilePreviewUpdate,
+    resolveMobilePreviewPipelineConfig,
     shouldSyncMobilePreviewPath,
+    type MobilePreviewPipeline,
     type MobilePreviewVfs,
 } from '@/services/mobile-preview';
+import { registerTwoTierEsbuildServiceFactory } from '@/services/mobile-preview/pipelines/two-tier';
 
 import type { QrModalStatus } from '@/components/ui/qr-modal';
 
@@ -56,12 +61,42 @@ interface MobilePreviewStatusResponse {
     manifestUrl: string | null;
 }
 
+// Lazy-initialized esbuild-wasm service. The browser-bundler runs its
+// bundle inside a Web Worker in production; here we initialize once per
+// editor tab and share across pipeline instances.
+let twoTierEsbuildFactoryRegistered = false;
+function ensureTwoTierEsbuildFactoryRegistered(): void {
+    if (twoTierEsbuildFactoryRegistered) return;
+    twoTierEsbuildFactoryRegistered = true;
+    registerTwoTierEsbuildServiceFactory(async () => {
+        const esbuild = (await import('esbuild-wasm')) as typeof import('esbuild-wasm');
+        await esbuild.initialize({ wasmURL: '/esbuild.wasm' });
+        return {
+            async build(options) {
+                const result = await esbuild.build(
+                    options as Parameters<typeof esbuild.build>[0],
+                );
+                return {
+                    outputFiles: result.outputFiles?.map((f) => ({
+                        path: f.path,
+                        text: f.text,
+                    })),
+                    warnings: result.warnings,
+                };
+            },
+        };
+    });
+}
+
 export function useMobilePreviewStatus(
     opts: UseMobilePreviewStatusOptions,
 ): UseMobilePreviewStatusResult {
     const [status, setStatus] = useState<QrModalStatus>({ kind: 'idle' });
     const [isOpen, setIsOpen] = useState(false);
     const didPushRef = useRef(false);
+    // Stable pipeline ref across renders — creating a new pipeline per
+    // push discards the incremental-rebuild cache inside TwoTier.
+    const pipelineRef = useRef<MobilePreviewPipeline | null>(null);
 
     const open = useCallback(async () => {
         setIsOpen(true);
@@ -154,12 +189,26 @@ export function useMobilePreviewStatus(
             pushInFlight = true;
 
             try {
-                const bundle = await buildMobilePreviewBundle(fileSystem);
-                await pushMobilePreviewUpdate({
-                    serverBaseUrl: baseUrl,
-                    code: bundle.code,
-                });
-                didPushRef.current = true;
+                // Two-tier path: drive through the pipeline abstraction so
+                // the browser-bundler worker + /push client take over. The
+                // shim path stays as-is for legacy consumers.
+                if (getMobilePreviewPipelineKind() === 'two-tier') {
+                    ensureTwoTierEsbuildFactoryRegistered();
+                    if (!pipelineRef.current) {
+                        pipelineRef.current = createMobilePreviewPipeline(
+                            resolveMobilePreviewPipelineConfig(),
+                        );
+                    }
+                    await pipelineRef.current.sync({ fileSystem });
+                    didPushRef.current = true;
+                } else {
+                    const bundle = await buildMobilePreviewBundle(fileSystem);
+                    await pushMobilePreviewUpdate({
+                        serverBaseUrl: baseUrl,
+                        code: bundle.code,
+                    });
+                    didPushRef.current = true;
+                }
             } catch (error) {
                 const message =
                     error instanceof Error ? error.message : String(error);

@@ -75,6 +75,53 @@ async function startFakeRelay(): Promise<{
 
 // The real push-overlay module calls globalThis.fetch. Node has it. Good.
 
+describe('registerTwoTierEsbuildServiceFactory', () => {
+    test('a factory registered via the module-level hook is picked up by sync()', async () => {
+        // Exercises the editor-side wiring: `use-mobile-preview-status`
+        // calls registerTwoTierEsbuildServiceFactory once at hook init so
+        // the pipeline can lazily materialize an esbuild-wasm worker.
+        const {
+            registerTwoTierEsbuildServiceFactory,
+            clearTwoTierEsbuildServiceFactory,
+        } = (await import('../two-tier')) as typeof import('../two-tier');
+
+        const { service } = makeEsbuildService();
+        let factoryCallCount = 0;
+        registerTwoTierEsbuildServiceFactory(async () => {
+            factoryCallCount += 1;
+            return service;
+        });
+
+        try {
+            const relay = await startFakeRelay();
+            try {
+                const pipeline = createTwoTierMobilePreviewPipeline(
+                    {
+                        kind: 'two-tier',
+                        builderBaseUrl: 'https://builder',
+                        relayBaseUrl: relay.baseUrl,
+                    },
+                    { createSessionId: () => 'module-registered' },
+                );
+
+                const files = {
+                    'App.tsx': "export default function App() { return null; }",
+                    'index.ts': "import App from './App'; export default App;",
+                };
+                await pipeline.sync({ fileSystem: makeVfs(files) });
+
+                expect(factoryCallCount).toBe(1);
+                expect(relay.pushes).toHaveLength(1);
+                expect(relay.pushes[0]!.sessionId).toBe('module-registered');
+            } finally {
+                await relay.close();
+            }
+        } finally {
+            clearTwoTierEsbuildServiceFactory();
+        }
+    });
+});
+
 describe('TwoTierMobilePreviewPipeline.prepare', () => {
     test('returns an Onlook deep-link launch target with a minted session id', async () => {
         const pipeline = createTwoTierMobilePreviewPipeline(
@@ -141,7 +188,7 @@ describe('TwoTierMobilePreviewPipeline.sync', () => {
             expect(relay.pushes[0]!.sessionId).toBe('sync-sess-1');
             const pushed = JSON.parse(relay.pushes[0]!.body) as { type: string; code: string };
             expect(pushed.type).toBe('overlay');
-            expect(pushed.code).toContain('__onlookMountOverlay');
+            expect(pushed.code).toContain('globalThis.onlookMount = function onlookMount(props)');
         } finally {
             await relay.close();
         }
