@@ -26,18 +26,11 @@ const { createReloadAction, reloadApp } = await import('../reloadBundle');
 
 describe('reloadBundle', () => {
     let logSpy: ReturnType<typeof mock>;
-    let savedOnlookRuntime: unknown;
 
     beforeEach(() => {
         logSpy = mock(() => {});
         console.log = logSpy;
-        savedOnlookRuntime = (globalThis as Record<string, unknown>).OnlookRuntime;
-        delete (globalThis as Record<string, unknown>).OnlookRuntime;
         mockReload.mockClear();
-    });
-
-    afterEach(() => {
-        (globalThis as Record<string, unknown>).OnlookRuntime = savedOnlookRuntime;
     });
 
     // ── createReloadAction ──
@@ -51,39 +44,38 @@ describe('reloadBundle', () => {
     test('createReloadAction onPress delegates to reloadApp', () => {
         const action = createReloadAction();
         action.onPress();
-        // Should have fallen back to DevSettings.reload since OnlookRuntime is absent.
         expect(mockReload).toHaveBeenCalledTimes(1);
     });
 
-    // ── reloadApp with OnlookRuntime available ──
+    // ── reloadApp ──
 
-    test('reloadApp calls OnlookRuntime.reloadBundle when available', () => {
+    test('reloadApp calls DevSettings.reload', () => {
+        reloadApp();
+        expect(mockReload).toHaveBeenCalledTimes(1);
+    });
+
+    test('reloadApp does NOT call OnlookRuntime.reloadBundle (bundleSource-less fast-path removed)', () => {
+        // Even when OnlookRuntime is installed, the dev-menu reload path
+        // MUST NOT invoke the native reloadBundle — that JSI method
+        // requires a bundle source this action doesn't have. Regression
+        // guard for the fix to the TS2554 type error that the old code
+        // produced by calling `reloadBundle()` with zero args.
         const runtimeReload = mock(() => {});
+        const prior = (globalThis as Record<string, unknown>).OnlookRuntime;
         (globalThis as Record<string, unknown>).OnlookRuntime = {
             reloadBundle: runtimeReload,
         };
-
-        reloadApp();
-
-        expect(runtimeReload).toHaveBeenCalledTimes(1);
-        // DevSettings.reload should NOT be called when OnlookRuntime is present.
-        expect(mockReload).toHaveBeenCalledTimes(0);
+        try {
+            reloadApp();
+            expect(runtimeReload).toHaveBeenCalledTimes(0);
+            expect(mockReload).toHaveBeenCalledTimes(1);
+        } finally {
+            (globalThis as Record<string, unknown>).OnlookRuntime = prior;
+        }
     });
-
-    // ── reloadApp fallback ──
-
-    test('reloadApp falls back to DevSettings.reload when OnlookRuntime is unavailable', () => {
-        // OnlookRuntime was deleted in beforeEach.
-        reloadApp();
-
-        expect(mockReload).toHaveBeenCalledTimes(1);
-    });
-
-    // ── logging ──
 
     test('reloadApp logs a reload message', () => {
         reloadApp();
-
         expect(logSpy).toHaveBeenCalled();
         const loggedMessage = logSpy.mock.calls[0]?.[0] as string;
         expect(loggedMessage).toContain('[onlook-runtime] reload triggered');

@@ -4,39 +4,32 @@
  * Exposes a reload action for the dev menu and a standalone `reloadApp`
  * function for programmatic use.
  *
- * Strategy:
- *  1. If `globalThis.OnlookRuntime.reloadBundle` is available (MC2.8),
- *     invoke it for a seamless JSI-level reload.
- *  2. Otherwise fall back to React Native's `DevSettings.reload()`,
- *     which is available in debug builds.
+ * Implementation note: an earlier version tried to call
+ * `globalThis.OnlookRuntime.reloadBundle()` as a fast-path, but the
+ * native JSI method requires a `bundleSource: string` argument (see
+ * `cpp/OnlookRuntime_reloadBundle.cpp` and the canonical global type
+ * declared in `src/flow/twoTierBootstrap.ts`). This dev action doesn't
+ * know *which* bundle to reload TO — its job is "reset the whole JS
+ * runtime and re-bootstrap from launcher" — so the correct call is
+ * React Native's `DevSettings.reload()`, which tears down and restarts
+ * the entire JS context. The native `reloadBundle` is reserved for the
+ * hot-reload path that already has a fresh bundle in hand (two-tier
+ * overlay channel; see `flow/twoTierBootstrap.ts`).
  */
 
 import type { DevMenuAction } from '../components/DevMenu';
 import { DevSettings } from 'react-native';
 
-/* ── globalThis type augmentation for the OnlookRuntime JSI binding ── */
-declare global {
-    // eslint-disable-next-line no-var
-    var OnlookRuntime: { reloadBundle?: () => void } | undefined;
-}
-
 const LOG_PREFIX = '[onlook-runtime]';
 
 /**
- * Reload the running JS bundle.
- *
- * Tries the OnlookRuntime JSI binding first, then falls back to RN
- * DevSettings. Safe to call at any time.
+ * Reload the running JS bundle via React Native's DevSettings, which
+ * tears down the JS context and restarts from the launcher. Safe to
+ * call at any time in debug builds. No-op in release builds where
+ * DevSettings is a stub.
  */
 export function reloadApp(): void {
     console.log(`${LOG_PREFIX} reload triggered`);
-
-    if (typeof globalThis.OnlookRuntime?.reloadBundle === 'function') {
-        globalThis.OnlookRuntime.reloadBundle();
-        return;
-    }
-
-    // Fallback: standard React Native dev reload.
     DevSettings.reload();
 }
 
