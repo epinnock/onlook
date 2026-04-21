@@ -67,40 +67,67 @@ function extractManifestJson(contentType: string, body: string): string {
  *   failure, or Zod validation failure. Never throws.
  */
 export async function fetchManifest(relayHost: string): Promise<ManifestResult> {
+    // The Onlook mobile client requests the relay's `?format=json` bypass
+    // path so the response is plain `application/json` instead of the
+    // multipart/mixed envelope Expo Go expects. Rationale: RN fetch +
+    // multipart/mixed hangs on `response.text()` in the iOS 18.6 sim even
+    // when the upstream response is complete with Content-Length set. The
+    // Onlook client has no need for Expo Go's signature-bypass envelope,
+    // so the plain JSON path is strictly preferable.
+    //
+    // Also pins `platform=ios` explicitly because the relay defaults to
+    // android when the Expo-Platform header is missing (which it is here
+    // since we're not pretending to be Expo Go).
+    const separator = relayHost.includes('?') ? '&' : '?';
+    const url = `${relayHost}${separator}format=json&platform=ios`;
+
+    // AbortController fallback: if RN fetch + the relay's keep-alive TCP
+    // socket leave response.text() stuck waiting for connection close even
+    // after Content-Length bytes arrived, this aborts the request so the
+    // caller gets a concrete error instead of an indefinite "Fetching
+    // manifest…" hang.
+    const controller = new AbortController();
+    const abortTimer = setTimeout(() => controller.abort(), 5000);
+
     let response: Response;
-    try {
-        response = await fetch(relayHost, {
-            method: 'GET',
-            headers: {
-                Accept: 'multipart/mixed,application/expo+json,application/json',
-            },
-        });
-    } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        return { ok: false, error: `Network error: ${message}` };
-    }
-
-    if (!response.ok) {
-        return {
-            ok: false,
-            error: `HTTP ${response.status}: ${response.statusText}`,
-        };
-    }
-
     let body: string;
     try {
-        body = await response.text();
-    } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        return { ok: false, error: `Failed to read response body: ${message}` };
+        try {
+            response = await fetch(url, {
+                method: 'GET',
+                headers: {
+                    Accept: 'application/json',
+                    'Expo-Platform': 'ios',
+                },
+                signal: controller.signal,
+            });
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
+            return { ok: false, error: `Network error: ${message}` };
+        }
+
+        if (!response.ok) {
+            return {
+                ok: false,
+                error: `HTTP ${response.status}: ${response.statusText}`,
+            };
+        }
+
+        try {
+            body = await response.text();
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
+            return { ok: false, error: `Failed to read response body: ${message}` };
+        }
+    } finally {
+        clearTimeout(abortTimer);
     }
+
+    const contentType = response.headers.get('content-type') ?? '';
 
     let jsonString: string;
     try {
-        jsonString = extractManifestJson(
-            response.headers.get('content-type') ?? '',
-            body,
-        );
+        jsonString = extractManifestJson(contentType, body);
     } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         return { ok: false, error: message };
