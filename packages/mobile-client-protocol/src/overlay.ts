@@ -29,5 +29,7 @@ export function isOverlayMessage(value: unknown): value is OverlayMessage {
 // Re-export the v1 types so editor code that still imports from this legacy
 // module compiles during migration without a big rename sweep. The canonical
 // home for v1 is `./abi-v1.ts`; this bridge will be removed with task #89.
-export type { OverlayUpdateMessage } from './abi-v1';
-export { OverlayUpdateMessageSchema } from './abi-v1';
+// NOTE: explicit `.ts` extension required for Node ESM + Expo's app.config.ts
+// resolver path (Node 22+ strict ESM doesn't auto-resolve extensions).
+export type { OverlayUpdateMessage } from './abi-v1.ts';
+export { OverlayUpdateMessageSchema } from './abi-v1.ts';
