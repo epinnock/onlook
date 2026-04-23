@@ -165,3 +165,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 First successful install verified on a physical iPhone 8 Plus — icon visible on home screen; app boot captured via device syslog, not screen. See [`docs/images/first-install-2026-04-16.png`](docs/images/first-install-2026-04-16.png) and release note [`plans/release-notes/2026-04-16-first-iphone-deploy.md`](../../plans/release-notes/2026-04-16-first-iphone-deploy.md).
 
 iOS side functionally complete; Android deferred behind MCF8c.
+
+## [Unreleased] - 2026-04-22/23
+
+### Phase G — Two-tier overlay pipeline end-to-end validation
+
+#### Added
+- **Overlay rendering surface**: `src/overlay/` — `OverlayHost` (sibling of AppRouter in App.tsx), `OverlayErrorBoundary`, `badComponentFilter`, `renderAppBridge`, `overlayHostSubscription`. Subscribable `globalThis.renderApp` pinned via `Object.defineProperty writable:false` against runtime.js clobber (ADR finding #3). Bad-component filter drops `RCTRawText` / `RCTText` / `RCTView` trees (ADR finding #4).
+- **Bridgeless WS-receive workaround**: poll-based relay event channel. `src/relay/overlayAckPoll.ts` wraps `@onlook/mobile-preview`'s `startRelayEventPoll`, resolves `OnlookRuntime.httpGet` lazily, and is hooked into `twoTierBootstrap`'s start/stop lifecycle. Phone sends `onlook:overlayAck` via WS.send after mount (TCP write works on bridgeless iOS 18.6 — only receive-side event dispatch is dead, ADR finding #8).
+- **Bundle split**: `packages/mobile-preview/runtime/entry-client-only.js` produces `bundle-client-only.js` (8.8 KB vs 257.6 KB `bundle.js`, 96.6% reduction). `scripts/bundle-runtime.ts` defaults to the slim bundle; Expo Go / harness keeps the full bundle.
+- **Screenshot-diff CLI**: `scripts/screenshot-diff.ts` with three-tier comparison (hash → perceptual → size fallback). Pure-TS PNG decoder at `scripts/pngDecoder.ts` — no `sharp` dep.
+- **qrToMount relayHost fix** (MCG.2): extracts hostname from full manifest URL before passing to `OnlookRuntime.mountOverlay` so shell.js's `_tryConnectWebSocket` synthesises a valid `ws://` URL.
+
+#### Changed
+- `index.js` installs a pinned subscribable renderApp + filter + `ReactNative` on globalThis + `__noOnlookRuntime = true` so runtime.js doesn't load on the mobile-client path.
+- `src/App.tsx` renders `<OverlayHost />` as a sibling of `<AppRouter />` (not via `AppRegistry.runApplication` which silently no-ops on bridgeless + new-arch, ADR finding #6).
+- `src/flow/twoTierBootstrap.ts` calls `sendAck(msg, 'mounted' | 'failed', error?)` after mount; `HmrSession`'s `ONLOOK_OBSERVABILITY_TYPES` already whitelists `onlook:overlayAck` for fan-out to the editor.
+- `src/navigation/AppRouter.tsx` routes the previously-declared-but-unhandled `'progress'` screen; added a compile-time exhaustiveness guard.
+
+#### Fixed
+- `runtime.js` gate in `packages/mobile-preview/runtime/entry.js` now keys on `!globalThis.__noOnlookRuntime` instead of `typeof window !== 'undefined'` (RN's InitializeCore sets `window = globalThis`, which broke the gate on-device — ADR finding #3).
+- `shell.js#_tryConnectWebSocket` defensively strips scheme/port/path from a full-URL `host` argument before synthesising `ws://<host>:<port>`.
+- Pre-existing `bundle-execution.test.ts` RN$AppRegistry expectation corrected (shell.js unconditionally installs the shadow; no Hermes gate exists).
+
+#### Tests
+- **447 mobile-client tests** (was 403), +42 new in `src/overlay/__tests__/` covering renderApp bridge, error boundary, filter, subscription, fake-runtime integration, pin-regression.
+- Sibling packages: cf-expo-relay **197** (+events DO + events route + cross-layer integration), mobile-preview 94 (+stripWsHost + relayEventPoll + bundle-client-only exec), mobile-client-protocol 98 (+relay-events union), browser-bundler 157 (+wrap-overlay-v1 circular-import), web-client dev-panel adds `MobileOverlayAckTab` + `OverlayPreflightPanel`.
+
+### Milestone
+
+**Photographic evidence end-to-end on Xcode 16.4 on mini's iPhone 16 sim** — rebuilt IPA from current source, deep-link `onlook://launch?session=…&relay=http://…/manifest/<hash>` cold-launches the app, qrToMount parses → fetches manifest → fetches bundle → `OnlookRuntime.mountOverlay` → renderApp → `OverlayHost` renders **"Hello, Onlook!"** (blue) at t+400ms → **"UPDATED via v2!"** (green) at t+7000ms.
+
+Screenshots:
+- `plans/adr/assets/v2-pipeline/post-g-launcher.png`
+- `plans/adr/assets/v2-pipeline/post-g-hello.png`
+- `plans/adr/assets/v2-pipeline/post-g-updated.png`
+
+ADRs shipped:
+- `plans/adr/v2-pipeline-validation-findings.md` — 8 findings from simulator validation
+- `plans/adr/overlay-host-architecture.md` — OverlayHost-in-App.tsx decision
+- `plans/adr/cf-expo-relay-events-channel.md` — /events wire contract
