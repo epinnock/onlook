@@ -20,8 +20,10 @@ import type { PerfGuardrailEvent } from '../perf-guardrails';
 import type { PushOverlayTelemetry } from '../push-overlay';
 import {
     emitOverlayPerfGuardrail,
+    emitOverlayPipelineMarker,
     emitOverlayPushTelemetry,
     OVERLAY_PERF_EVENT,
+    OVERLAY_PIPELINE_MARKER_EVENT,
     OVERLAY_PUSH_EVENT,
 } from '../overlay-telemetry-sink';
 
@@ -188,5 +190,56 @@ describe('emitOverlayPerfGuardrail', () => {
             },
         };
         expect(() => emitOverlayPerfGuardrail('overlay-v1', warnEvent)).not.toThrow();
+    });
+});
+
+describe('emitOverlayPipelineMarker', () => {
+    test('captures kind + pipeline + optional note + emittedAt', () => {
+        const capture = installMockPostHog();
+        const before = Date.now();
+        emitOverlayPipelineMarker({
+            kind: 'flag-flip',
+            pipeline: 'overlay-v1',
+            note: 'Phase 11b T0 — canary begins',
+        });
+        const after = Date.now();
+
+        const [eventName, props] = capture.mock.calls[0]!;
+        expect(eventName).toBe(OVERLAY_PIPELINE_MARKER_EVENT);
+        expect(props!.kind).toBe('flag-flip');
+        expect(props!.pipeline).toBe('overlay-v1');
+        expect(props!.note).toBe('Phase 11b T0 — canary begins');
+        const emittedAt = props!.emittedAt as number;
+        expect(typeof emittedAt).toBe('number');
+        expect(emittedAt).toBeGreaterThanOrEqual(before);
+        expect(emittedAt).toBeLessThanOrEqual(after);
+    });
+
+    test('note is optional', () => {
+        const capture = installMockPostHog();
+        emitOverlayPipelineMarker({
+            kind: 'phone-binary-rollout',
+            pipeline: 'overlay-v1',
+        });
+        expect(capture.mock.calls[0]![1]!.note).toBeUndefined();
+    });
+
+    test('logs to console.info (side channel preserved)', () => {
+        installMockPostHog();
+        emitOverlayPipelineMarker({
+            kind: 'flag-flip',
+            pipeline: 'overlay-legacy',
+        });
+        expect(console.info).toHaveBeenCalledTimes(1);
+    });
+
+    test('posthog absent → logs only, does not throw', () => {
+        uninstallPostHog();
+        expect(() =>
+            emitOverlayPipelineMarker({
+                kind: 'flag-flip',
+                pipeline: 'overlay-v1',
+            }),
+        ).not.toThrow();
     });
 });

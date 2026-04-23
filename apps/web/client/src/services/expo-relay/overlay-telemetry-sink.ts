@@ -31,6 +31,8 @@ export type OverlayPipelineTag = 'overlay-v1' | 'overlay-legacy';
 
 export const OVERLAY_PUSH_EVENT = 'onlook_overlay_push';
 export const OVERLAY_PERF_EVENT = 'onlook_overlay_perf';
+/** Operator-emitted pivot marker. See `emitOverlayPipelineMarker`. */
+export const OVERLAY_PIPELINE_MARKER_EVENT = 'onlook_overlay_pipeline_marker';
 
 interface PostHogLike {
     capture: (event: string, props?: Record<string, unknown>) => void;
@@ -121,5 +123,42 @@ export function emitOverlayPerfGuardrail(
         severity: event.severity,
         message: event.message,
         ...event.detail,
+    });
+}
+
+/**
+ * Operator-emitted pivot marker. Surfaces a `onlook_overlay_pipeline_marker`
+ * event the Phase 11b dashboard can use to draw a vertical line on the
+ * before/after charts — e.g. "flag flipped to overlay-v1 at T" or
+ * "phone binary v1.2.0 rolled out at T". Markers persist as independent
+ * events so queries can filter on `properties.kind` to find boundaries.
+ *
+ * Intended caller: an operator devtools panel or `window.dispatchEvent`
+ * equivalent — NOT wired into any automatic trigger in the pipeline
+ * itself. Call via the browser console as needed:
+ *   globalThis.emitOverlayPipelineMarker?.({
+ *     kind: 'flag-flip',
+ *     pipeline: 'overlay-v1',
+ *     note: 'Phase 11b T0 — canary begins',
+ *   });
+ */
+export interface OverlayPipelineMarker {
+    /** Free-form category; operators decide. Dashboard groups by this. */
+    readonly kind: string;
+    /** Which pipeline the marker relates to. */
+    readonly pipeline: OverlayPipelineTag;
+    /** Optional human-readable annotation that shows on the timeline. */
+    readonly note?: string;
+}
+
+export function emitOverlayPipelineMarker(
+    marker: OverlayPipelineMarker,
+): void {
+    console.info('[onlook.pipeline-marker]', marker);
+    captureSafely(OVERLAY_PIPELINE_MARKER_EVENT, {
+        kind: marker.kind,
+        pipeline: marker.pipeline,
+        note: marker.note,
+        emittedAt: Date.now(),
     });
 }

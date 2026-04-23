@@ -36,9 +36,32 @@ Fires only when a push crosses an ADR-0001 §"Performance envelope" threshold. P
 |---|---|---|
 | `pipeline` | `'overlay-v1' \| 'overlay-legacy'` | Primary segmentation dimension |
 | `category` | `'push-slow' \| 'push-retried' \| 'large-overlay' \| 'build-slow'` | Which threshold was crossed |
-| `severity` | `'warn' \| 'info'` | warn for push-slow/large-overlay/build-slow; info for push-retried |
+| `severity` | `'warn' \| 'info'` | warn for push-slow/large-overlay/build-slow hard-cap; info for push-retried and soft-cap large-overlay |
 | `message` | string | Human-readable detail |
 | `sessionId`, `durationMs`, `bytes`, `attempts`, `ok` | (various) | Flattened from the underlying push telemetry |
+
+Coverage (post-2026-04-23 wiring):
+- `push-slow` and `push-retried` — both pipelines, via `evaluatePushTelemetry` in every `onTelemetry` callback.
+- `large-overlay` — both pipelines, via `checkOverlaySize` on the wrapped output (legacy emits info/warn but does NOT fail the push; v1 emits then throws on `fail-hard`).
+- `build-slow` — both pipelines, via `evaluateBuildDuration` on the measured `buildDurationMs`.
+
+### `onlook_overlay_pipeline_marker` — operator pivot markers
+
+Emitted manually by `emitOverlayPipelineMarker({ kind, pipeline, note? })` from `apps/web/client/src/services/expo-relay/overlay-telemetry-sink.ts`. Purpose: draw vertical lines on the Phase 11b timeline charts for boundary events.
+
+| Field | Type | Notes |
+|---|---|---|
+| `kind` | string | Free-form; common values: `'flag-flip'`, `'phone-binary-rollout'`, `'operator-check-in'` |
+| `pipeline` | `'overlay-v1' \| 'overlay-legacy'` | Which pipeline the marker refers to |
+| `note` | string? | Optional annotation shown inline on the timeline |
+| `emittedAt` | number | `Date.now()` at call time |
+
+Typical use, pasted into the browser devtools when the editor is loaded:
+```js
+// Before flipping the flag:
+emitOverlayPipelineMarker({ kind: 'flag-flip', pipeline: 'overlay-v1', note: 'Phase 11b T0 — canary begins' });
+```
+Dashboard queries can filter on `properties.kind` to align before/after windows without guessing deployment timestamps.
 
 ## Canary questions + PostHog query recipes
 
