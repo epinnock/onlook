@@ -155,14 +155,20 @@ export function startTwoTierBootstrap(options: TwoTierBootstrapOptions): TwoTier
     };
 
     /**
-     * Measure the wall-clock duration of `fn` in milliseconds and call
-     * `emit(durationMs)` with the result. Uses `performance.now()` when
-     * available (Hermes + browsers), falls back to `Date.now()` (1ms
-     * resolution, still useful for a 100ms budget).
+     * Measure the wall-clock duration of `fn` in milliseconds and return
+     * `{result, durationMs}`. Uses `performance.now()` when available
+     * (Hermes + browsers), falls back to `Date.now()` (1ms resolution,
+     * still useful for a 100ms budget).
+     *
+     * `durationMs` is clamped to `undefined` when the computed value isn't
+     * a finite non-negative number — protects the Phase 11b Q5b dashboard
+     * from a misbehaving clock. The editor's `OverlayAckMessageSchema`
+     * rejects Infinity/NaN too, but it's cheaper + clearer to filter
+     * before the wire hop.
      */
     const measureMountDuration = <T>(
         fn: () => T,
-    ): { result: T; durationMs: number } => {
+    ): { result: T; durationMs: number | undefined } => {
         const perf = (
             globalThis as {
                 performance?: { now?: () => number };
@@ -172,7 +178,9 @@ export function startTwoTierBootstrap(options: TwoTierBootstrapOptions): TwoTier
             typeof perf?.now === 'function' ? perf.now() : Date.now();
         const start = now();
         const result = fn();
-        const durationMs = now() - start;
+        const raw = now() - start;
+        const durationMs =
+            Number.isFinite(raw) && raw >= 0 ? raw : undefined;
         return { result, durationMs };
     };
 

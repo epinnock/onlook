@@ -77,6 +77,38 @@ describe('perf-guardrails / evaluatePushTelemetry', () => {
         // Only retries event, not slow-push.
         expect(events.map((e) => e.category)).toEqual(['push-retried']);
     });
+
+    test('defensive: Infinity durationMs does NOT emit push-slow (would poison dashboard)', () => {
+        const events: PerfGuardrailEvent[] = [];
+        evaluatePushTelemetry(
+            {
+                sessionId: 's',
+                attempts: 1,
+                durationMs: Infinity,
+                bytes: 100,
+                ok: true,
+                delivered: 1,
+            },
+            (e) => events.push(e),
+        );
+        expect(events).toHaveLength(0);
+    });
+
+    test('defensive: NaN durationMs does NOT emit push-slow', () => {
+        const events: PerfGuardrailEvent[] = [];
+        evaluatePushTelemetry(
+            {
+                sessionId: 's',
+                attempts: 1,
+                durationMs: NaN,
+                bytes: 100,
+                ok: true,
+                delivered: 1,
+            },
+            (e) => events.push(e),
+        );
+        expect(events).toHaveLength(0);
+    });
 });
 
 describe('perf-guardrails / evaluateBuildDuration', () => {
@@ -94,6 +126,28 @@ describe('perf-guardrails / evaluateBuildDuration', () => {
     test('does not warn when build is under budget', () => {
         let emitted: PerfGuardrailEvent | null = null;
         evaluateBuildDuration(50, (e) => {
+            emitted = e;
+        });
+        expect(emitted).toBeNull();
+    });
+
+    test('defensive: Infinity build duration does NOT emit', () => {
+        // Without the Number.isFinite guard, `Infinity > BUILD_SLOW_MS` is
+        // true and `.toFixed(0)` produces "Infinity" in the message —
+        // emit-blocked at the top of the function now.
+        let emitted: PerfGuardrailEvent | null = null;
+        evaluateBuildDuration(Infinity, (e) => {
+            emitted = e;
+        });
+        expect(emitted).toBeNull();
+    });
+
+    test('defensive: NaN build duration does NOT emit', () => {
+        // `NaN <= BUILD_SLOW_MS` is false (NaN comparisons always false)
+        // so the old code would have fallen through to emit. Guard
+        // catches it.
+        let emitted: PerfGuardrailEvent | null = null;
+        evaluateBuildDuration(NaN, (e) => {
             emitted = e;
         });
         expect(emitted).toBeNull();

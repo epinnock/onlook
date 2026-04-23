@@ -52,7 +52,16 @@ export function evaluatePushTelemetry(
     sink: PerfGuardrailSink = DEFAULT_PERF_SINK,
 ): readonly PerfGuardrailEvent[] {
     const events: PerfGuardrailEvent[] = [];
-    if (telemetry.durationMs > PUSH_SLOW_MS && telemetry.ok) {
+    // `Number.isFinite` filters NaN + ±Infinity. Currently `pushOverlay`
+    // measures durationMs via `performance.now()` which is always finite,
+    // but keeping the guard defensive so a future phone-round-tripped
+    // duration or a test harness injecting a broken clock can't emit a
+    // guardrail event with Infinity in the detail.
+    if (
+        Number.isFinite(telemetry.durationMs) &&
+        telemetry.durationMs > PUSH_SLOW_MS &&
+        telemetry.ok
+    ) {
         events.push({
             category: 'push-slow',
             severity: 'warn',
@@ -89,6 +98,11 @@ export function evaluateBuildDuration(
     durationMs: number,
     sink: PerfGuardrailSink = DEFAULT_PERF_SINK,
 ): PerfGuardrailEvent | null {
+    // Defensive: don't emit a guardrail with NaN/Infinity in the detail.
+    // `<=` against NaN is `false` so NaN would pass through and fire the
+    // warning; `.toFixed(0)` on Infinity yields "Infinity" which would
+    // land in the log and dashboard.
+    if (!Number.isFinite(durationMs)) return null;
     if (durationMs <= BUILD_SLOW_MS) return null;
     const event: PerfGuardrailEvent = {
         category: 'build-slow',
