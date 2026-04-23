@@ -47,7 +47,10 @@ export const feedbackInsertSchema = createInsertSchema(feedbacks, {
     email: z.string().email('Invalid email format').optional(),
     pageUrl: z.url('Invalid URL format').optional(),
     attachments: z.array(attachmentSchema).default([]),
-    metadata: z.record(z.string(), z.any()).default({}),
+    // `z.unknown()` is safer than `z.any()` — forces consumers to
+    // narrow before use. `z.any()` silently accepts undefined/Symbol
+    // and doesn't give you any type safety on the consumer side.
+    metadata: z.record(z.string(), z.unknown()).default({}),
 });
 
 export const feedbackSubmitSchema = feedbackInsertSchema.pick({
