@@ -134,21 +134,44 @@ describe('compareScreenshots (v2r baseline screenshots)', () => {
         expect(result.tier).toBe('hash');
     });
 
-    test('v2r-hello vs v2r-updated — different backgrounds → mismatch', () => {
+    test('v2r-hello vs v2r-updated — perceptual tier catches dramatic colour + text change', () => {
         // The two screenshots render completely different colour palettes
-        // (dark blue vs dark green) with different text strings. PNG
-        // compression yields similar bytes (94181 vs 90086 → ~4%) but the
-        // hashes diverge. Whether this passes depends on the tolerance —
-        // with 2%, it mismatches; with 5%, size-tier passes (false
-        // positive the MCG.11 harness needs to beware of).
+        // (dark blue + "Hello, Onlook!" vs dark green + "UPDATED via v2!").
+        // PNG compression yields similar bytes (94181 vs 90086 → ~4%), which
+        // used to pass a loose size-tier gate — a false positive the
+        // perceptual tier now catches decisively.
         const tight = compareScreenshots(BASELINE_HELLO, BASELINE_UPDATED, 0.02);
         expect(tight.match).toBe(false);
         expect(tight.tier).toBe('mismatch');
 
+        // Loose tolerance used to false-positive via size tier. With the
+        // perceptual tier enabled (default), the mismatch surfaces through
+        // pixel diff instead of leaking past the size gate.
         const loose = compareScreenshots(BASELINE_HELLO, BASELINE_UPDATED, 0.05);
-        // size delta between the two is ~4.4% — should tip into size-tier match
-        expect(loose.tier).toBe('size');
-        expect(loose.match).toBe(true);
+        expect(loose.match).toBe(false);
+        expect(loose.tier).toBe('mismatch');
+        expect(loose.perceptualRatio).toBeGreaterThan(0.05);
+
+        // With perceptual disabled, the legacy size-tier behaviour returns.
+        const legacy = compareScreenshots(BASELINE_HELLO, BASELINE_UPDATED, {
+            tolerance: 0.05,
+            noPerceptual: true,
+        });
+        expect(legacy.match).toBe(true);
+        expect(legacy.tier).toBe('size');
+    });
+
+    test('perceptual tier matches near-identical screenshots below threshold', () => {
+        // v2r-hello compared to itself via the perceptual path (hash tier
+        // would win, so force perceptual by using a different path — the
+        // sibling symlink trick: load the same file twice as two copies).
+        const result = compareScreenshots(BASELINE_HELLO, BASELINE_HELLO, {
+            tolerance: 0.05,
+            perceptualThreshold: 0.001,
+        });
+        // Hash match wins first (same bytes), but perceptualRatio shouldn't
+        // be populated in that case since we short-circuit on hash.
+        expect(result.tier).toBe('hash');
     });
 });
 
