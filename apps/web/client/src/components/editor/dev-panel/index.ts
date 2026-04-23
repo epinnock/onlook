@@ -10,6 +10,7 @@
  *   - MobileConsoleTab (MC5.16) — console stream rendering
  *   - MobileNetworkTab (MC5.17) — network stream rendering
  *   - MobileOverlayAckTab (MCG.10) — phone→editor overlay ack stream
+ *   - OverlayPreflightPanel (#81) — overlay preflight issues before push
  */
 
 export {
@@ -37,3 +38,10 @@ export {
     type MobileOverlayAckRowProps,
     type MobileOverlayAckTabProps,
 } from './MobileOverlayAckTab';
+
+export {
+    OverlayPreflightIssueRow,
+    OverlayPreflightPanel,
+    type OverlayPreflightIssueRowProps,
+    type OverlayPreflightPanelProps,
+} from './OverlayPreflightPanel';
