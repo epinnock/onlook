@@ -224,25 +224,77 @@ describe('startTwoTierBootstrap', () => {
         }
     });
 
-    test('v1 message falls back to reloadBundle when mountOverlay is missing', () => {
+    test('v1 message does NOT fall back to reloadBundle when runtime lacks mountOverlay (fails loudly instead)', () => {
         const fake = new FakeDispatcher();
         const reloadCalls: string[] = [];
         const priorRuntime = globalThis.OnlookRuntime;
-        // Runtime reports abi=v1 but doesn't expose mountOverlay — the bootstrap
-        // falls back to reloadBundle (legacy behavior) so bundles still eval.
+        // Runtime reports abi=v1 but doesn't expose mountOverlay — e.g. editor
+        // flipped to v1 before the phone's runtime was upgraded. The bundle
+        // MUST NOT fall back to reloadBundle: the v1 envelope self-evals but
+        // doesn't render, so reloadBundle would produce a false-positive
+        // 'mounted' ack. Instead the bootstrap must send 'failed' so the
+        // editor's soak dashboard can detect the config drift.
         globalThis.OnlookRuntime = {
             abi: 'v1',
             reloadBundle: (code: string) => reloadCalls.push(code),
         };
         try {
             startTwoTierBootstrap({
-                sessionId: 'sess',
+                sessionId: 'sess-config-drift',
                 relayUrl: 'ws://relay',
                 enabled: true,
                 createDispatcher: () => fake as unknown as OverlayDispatcher,
             });
-            fake.emitV1('envelope-v1');
-            expect(reloadCalls).toEqual(['envelope-v1']);
+            fake.emitV1('envelope-v1', {
+                meta: {
+                    overlayHash: 'c'.repeat(64),
+                    entryModule: 0,
+                    buildDurationMs: 0,
+                },
+            });
+            // reloadBundle NOT called — the v1 envelope would silently mis-mount.
+            expect(reloadCalls).toEqual([]);
+            // Ack surfaces the config drift with a diagnostic message.
+            expect(fake.sent).toHaveLength(1);
+            const ack = fake.sent[0] as {
+                status: string;
+                overlayHash: string;
+                error?: { message: string };
+            };
+            expect(ack.status).toBe('failed');
+            expect(ack.overlayHash).toBe('c'.repeat(64));
+            expect(ack.error?.message).toContain('OnlookRuntime is not v1-capable');
+        } finally {
+            globalThis.OnlookRuntime = priorRuntime;
+        }
+    });
+
+    test('v1 message with NO runtime at all also fails loudly (not silent drop)', () => {
+        const fake = new FakeDispatcher();
+        const priorRuntime = globalThis.OnlookRuntime;
+        globalThis.OnlookRuntime = undefined;
+        try {
+            startTwoTierBootstrap({
+                sessionId: 'sess-no-runtime',
+                relayUrl: 'ws://relay',
+                enabled: true,
+                createDispatcher: () => fake as unknown as OverlayDispatcher,
+            });
+            fake.emitV1('envelope-v1', {
+                meta: {
+                    overlayHash: 'd'.repeat(64),
+                    entryModule: 0,
+                    buildDurationMs: 0,
+                },
+            });
+            // Failed ack sent even though runtime is undefined.
+            expect(fake.sent).toHaveLength(1);
+            const ack = fake.sent[0] as {
+                status: string;
+                error?: { message: string };
+            };
+            expect(ack.status).toBe('failed');
+            expect(ack.error?.message).toContain('not v1-capable');
         } finally {
             globalThis.OnlookRuntime = priorRuntime;
         }

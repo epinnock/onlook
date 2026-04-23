@@ -180,6 +180,23 @@ export function startTwoTierBootstrap(options: TwoTierBootstrapOptions): TwoTier
             }
             return;
         }
+        // V1 message but runtime isn't v1-capable: DO NOT fall through to
+        // reloadBundle. The v1 envelope is self-evaluating (it publishes to
+        // __pendingEntry) but doesn't call renderApp — reloadBundle would
+        // eval it without rendering, producing a silent false-positive
+        // "mounted" ack. Instead, surface the mismatch explicitly so the
+        // editor's Phase 11b soak dashboard can detect the config drift
+        // (editor flipped to v1 before the phone's runtime was v1-ready).
+        if (isV1) {
+            const message =
+                'v1 overlay received but OnlookRuntime is not v1-capable ' +
+                '(missing abi==="v1" or mountOverlay). The envelope would ' +
+                'self-eval but not render — flipping editor to overlay-v1 ' +
+                'before the phone runtime is upgraded is the likely cause.';
+            log(message);
+            sendAck(msg, 'failed', message);
+            return;
+        }
         const reloadBundle = runtime?.reloadBundle;
         if (typeof reloadBundle === 'function') {
             try {
