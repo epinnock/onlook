@@ -78,6 +78,7 @@ Neutral:
 - Screenshot evidence (permanent):
   - `plans/adr/assets/v2-pipeline/v2r-hello.png` — initial mount ("Hello, Onlook!" on dark blue)
   - `plans/adr/assets/v2-pipeline/v2r-updated.png` — in-place overlay update ("UPDATED via v2!" on dark green)
+  - `plans/adr/assets/v2-pipeline/post-g-launcher.png` — post-Phase-G rebuild launcher (2026-04-23, Xcode 16.4 on mini, iPhone 16 sim): confirms committed code compiles, app boots without RedBox, OverlayHost sibling doesn't break AppRouter rendering, slim `bundle-client-only.js` serves correctly from `/Resources/onlook-runtime.js`, `__noOnlookRuntime=true` + subscribable renderApp + entry.js gate all compose cleanly in main.jsbundle
 - Iteration trail (ephemeral): `tmp-screenshots/validate-v2-take2/v2*.png`
 - Mock relay: `mini:/tmp/mock-relay.js`
 - Earlier post-mortem on dual-React: `plans/post-mortems/2026-04-16-runtime-d-r-clobber.md`
