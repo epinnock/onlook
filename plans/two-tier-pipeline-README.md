@@ -2,14 +2,29 @@
 
 **Status:** Shipping on `feat/two-tier-bundle` as of 2026-04-20. Feature-flagged off by default; the legacy `shim` path is untouched.
 
-> **2026-04-21 update — Overlay ABI v1 in progress.** The sections below describe the
-> pre-ABI design (Spike B shim path). ABI v1 redefines the wire contract and runtime
-> globals to eliminate dialect drift across editor/relay/runtime/native layers. See
-> [`plans/adr/overlay-abi-v1.md`](adr/overlay-abi-v1.md) for the new contract and
-> [`plans/two-tier-overlay-v2-task-queue.md`](two-tier-overlay-v2-task-queue.md) for
-> the 100-task migration queue + live status log. Migration is incremental — the
-> sections below remain accurate for the currently-shipping legacy product path until
-> the cleanup wave (tasks #89–#94) retires it.
+> **2026-04-23 update — ABI v1 validated on real hardware, Phase 11a wired.**
+> Phase G shipped the overlay pipeline end-to-end on iPhone 16 sim
+> (`plans/adr/assets/v2-pipeline/post-g-{hello,updated}.png`). Phase 7 asset
+> pipeline closed at the bundler + runtime primitive level. `two-tier.ts`
+> now supports both legacy and ABI v1 wire shapes behind the
+> `NEXT_PUBLIC_MOBILE_PREVIEW_PIPELINE=overlay-v1` flag (default off — legacy
+> path preserved per ADR-0009 Phase 11a). See
+> [`plans/two-tier-overlay-v2-task-queue.md`](two-tier-overlay-v2-task-queue.md)
+> "Session log — 2026-04-23 autonomous loop" for the full delta, and
+> [`plans/adr/phase-11-legacy-overlay-migration.md`](adr/phase-11-legacy-overlay-migration.md)
+> for the 4-phase legacy-path removal sequence (11a shipped, 11b/11c/11d
+> operator-gated).
+
+> **2026-04-21 original note — Overlay ABI v1 in progress.** The sections
+> below describe the pre-ABI design (Spike B shim path). ABI v1 redefines
+> the wire contract and runtime globals to eliminate dialect drift across
+> editor/relay/runtime/native layers. See
+> [`plans/adr/overlay-abi-v1.md`](adr/overlay-abi-v1.md) for the contract
+> and [`plans/two-tier-overlay-v2-task-queue.md`](two-tier-overlay-v2-task-queue.md)
+> for the 100-task migration queue + live status log. Migration is
+> incremental — the sections below remain accurate for the
+> currently-shipping legacy product path until the cleanup wave (tasks
+> #89–#94) retires it.
 
 ## What this is
 
