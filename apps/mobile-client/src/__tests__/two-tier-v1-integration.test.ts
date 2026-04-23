@@ -220,7 +220,14 @@ describe('Phase 11b v1 end-to-end integration', () => {
         };
         expect(ack.status).toBe('failed');
         expect(ack.overlayHash).toBe(realHash);
+        expect(ack.error?.kind).toBe('overlay-runtime');
         expect(ack.error?.message).toContain('mount boom in v1');
+
+        // Schema round-trip — editor's OverlayAckMessageSchema must accept
+        // this ack. Guards against the bug where error.kind was once
+        // 'mount-threw' (not in the enum) → editor silently dropped.
+        const { OverlayAckMessageSchema } = await import('@onlook/mobile-client-protocol');
+        expect(OverlayAckMessageSchema.safeParse(ack).success).toBe(true);
     });
 
     test('v1 config drift (editor ahead of phone) fails loudly — no silent false-positive mount', async () => {
@@ -274,11 +281,18 @@ describe('Phase 11b v1 end-to-end integration', () => {
         const ack = sockets[0]!.sent[0] as {
             status: string;
             overlayHash: string;
-            error?: { message: string };
+            error?: { kind: string; message: string };
         };
         expect(ack.status).toBe('failed');
         expect(ack.overlayHash).toBe(realHash);
+        expect(ack.error?.kind).toBe('abi-mismatch');
         expect(ack.error?.message).toContain('not v1-capable');
+
+        // Schema round-trip — editor's OverlayAckMessageSchema must accept
+        // this ack, including the error.kind='abi-mismatch' value (that
+        // enum member exists exactly for this scenario).
+        const { OverlayAckMessageSchema } = await import('@onlook/mobile-client-protocol');
+        expect(OverlayAckMessageSchema.safeParse(ack).success).toBe(true);
     });
 
     test('legacy wire shape on the same integration path still mounts via reloadBundle (Phase G preservation)', async () => {
