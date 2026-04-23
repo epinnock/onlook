@@ -108,3 +108,44 @@ export function buildOnlookDeepLink(
 function stripTrailingSlash(url: string): string {
     return url.endsWith('/') ? url.slice(0, -1) : url;
 }
+
+/**
+ * Inverse of `buildManifestUrl` — extracts the `{relayBaseUrl,
+ * bundleHash}` pair from a manifest URL. Accepts the three scheme
+ * variants the builder produces (`http://`, `https://`, `exp://`,
+ * `exps://`) and normalizes back to the HTTP transport scheme the
+ * cf-expo-relay WS client actually needs.
+ *
+ * Needed by the Phase 9 `RelayWsClient` wire-in (see ADR-0009 Q5b):
+ * the mobile-preview `/status` endpoint returns a full `manifestUrl`
+ * string but no separate `sessionId` or `relayBaseUrl` fields. The
+ * editor needs both to open a WS connection — this helper is the
+ * extraction boundary so the hook layer doesn't have to re-implement
+ * URL parsing.
+ *
+ * Returns `null` when the URL doesn't match the expected shape
+ * (wrong scheme / no /manifest/ segment / invalid hash) so callers
+ * can surface a clear error to the user.
+ */
+export function parseManifestUrl(
+    manifestUrl: string,
+): { relayBaseUrl: string; bundleHash: string } | null {
+    // Normalize exp:// → http://, exps:// → https:// before URL parse
+    // (URL constructor in browsers + Node doesn't understand exp scheme).
+    const normalized = manifestUrl
+        .replace(/^exps:\/\//i, 'https://')
+        .replace(/^exp:\/\//i, 'http://');
+    let parsed: URL;
+    try {
+        parsed = new URL(normalized);
+    } catch {
+        return null;
+    }
+    // Expected path: /manifest/<64-char hex>
+    const match = /^\/manifest\/([0-9a-f]{64})\/?$/.exec(parsed.pathname);
+    if (!match) return null;
+    const bundleHash = match[1]!;
+    // Rebuild the base URL WITHOUT the /manifest/... path. Preserve port.
+    const relayBaseUrl = `${parsed.protocol}//${parsed.host}`;
+    return { relayBaseUrl, bundleHash };
+}
