@@ -585,3 +585,34 @@ Only action remaining: operator validation on the Mac mini (Xcode
 `bun run mobile:build:ios` + simulator overlay mount goes through
 the native path, queue rows #23–#25 flip from "partial" → "done".
 No code changes needed.
+
+### Phase 9 Task A — shipped (cont.)
+
+After the user prompted for concrete scoping, continued execution
+landed the entire primitive + wire-in chain:
+
+- **`parseManifestUrl()`** (`5ab9a70c`) — extracts `{relayBaseUrl,
+  bundleHash}` from the `/status` response's `manifestUrl`. The
+  sessionId IS the bundleHash. 11 round-trip tests.
+
+- **`useRelayWsClient()` hook + `createRelayWsFromManifest()` pure
+  helper** (`a796b754`) — React lifecycle wrapper. Inert when
+  manifestUrl is null/unparseable. `emitOverlayAckTelemetry`
+  defaults as the onOverlayAck handler. 8 tests covering null
+  inputs, scheme normalization (exp/exps → ws/wss), ack delivery
+  through custom handlers, state transitions.
+
+- **`useMobilePreviewStatus` composition** (`a3dbd5d4`) — the hook
+  now returns `relayWsClient: RelayWsClient | null` on its result.
+  Gated on `isOpen && status.kind === 'ready'` so closed modals
+  don't open WS connections. Phase 11b Q5b PostHog signal starts
+  flowing automatically the moment this ships.
+
+**Remaining Task A surface work** (editor-side, UI-only):
+- Render `MobileDevPanel` somewhere — recommend `terminal-area.tsx`
+  as a new tab (already uses React-19-compatible Radix Tabs).
+- Subscribe to `relayWsClient.snapshot()` via `requestAnimationFrame`
+  loop to push `{messages, acks}` into the panel's props.
+
+The render-surface decision is a UX call, not a protocol / schema /
+wire-level concern — the data plumbing is done.
