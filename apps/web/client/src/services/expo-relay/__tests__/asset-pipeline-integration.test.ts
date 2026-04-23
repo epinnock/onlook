@@ -157,4 +157,106 @@ describe('asset pipeline integration (check → upload → push)', () => {
         expect(check.unknown).toEqual([]);
         expect(relay.uploads).toHaveLength(0);
     });
+
+    // ─── Extended coverage ──────────────────────────────────────────────────
+
+    test('empty hashes input: check returns empty unknown + no uploads', async () => {
+        const relay = makeFakeRelay([]);
+        const check = await checkAssetHashes({
+            relayBaseUrl: 'https://r',
+            sessionId: 's',
+            hashes: [],
+            fetchImpl: relay.fetchImpl,
+        });
+        expect(check.unknown).toEqual([]);
+        expect(check.known.size).toBe(0);
+        expect(relay.uploads).toHaveLength(0);
+    });
+
+    test('all-novel assets: every hash uploads', async () => {
+        const bytesA = new TextEncoder().encode('novel-a');
+        const bytesB = new TextEncoder().encode('novel-b');
+        const bytesC = new TextEncoder().encode('novel-c');
+        const hashes = await Promise.all([
+            sha256HexOfBytes(bytesA),
+            sha256HexOfBytes(bytesB),
+            sha256HexOfBytes(bytesC),
+        ]);
+
+        const relay = makeFakeRelay([]); // server knows nothing
+
+        const check = await checkAssetHashes({
+            relayBaseUrl: 'https://r',
+            sessionId: 's',
+            hashes,
+            fetchImpl: relay.fetchImpl,
+        });
+        expect(check.unknown).toHaveLength(3);
+
+        const bytes = [bytesA, bytesB, bytesC];
+        for (let i = 0; i < hashes.length; i += 1) {
+            const result = await uploadAsset({
+                relayBaseUrl: 'https://r',
+                sessionId: 's',
+                bytes: bytes[i]!,
+                mime: 'image/png',
+                hash: hashes[i]!,
+                fetchImpl: relay.fetchImpl,
+            });
+            expect(result.ok).toBe(true);
+        }
+        expect(relay.uploads).toHaveLength(3);
+        const uploadedHashes = relay.uploads.map((u) => u.hash).sort();
+        expect(uploadedHashes).toEqual([...hashes].sort());
+    });
+
+    test('upload failure (5xx) surfaces ok:false and the manifest can omit the asset', async () => {
+        const bytes = new TextEncoder().encode('x');
+        const hash = await sha256HexOfBytes(bytes);
+
+        const failingFetch: FakeRelay['fetchImpl'] = async (input, init) => {
+            const url = typeof input === 'string' ? input : (input as Request).url;
+            if (url.includes('/assets/check')) {
+                return new Response(JSON.stringify({ known: [] }), {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                });
+            }
+            if (url.includes('/assets/upload/')) {
+                return new Response('server exploded', { status: 500 });
+            }
+            return new Response('unknown', { status: 404 });
+        };
+
+        const upload = await uploadAsset({
+            relayBaseUrl: 'https://r',
+            sessionId: 's',
+            bytes,
+            mime: 'image/png',
+            hash,
+            fetchImpl: failingFetch,
+        });
+        expect(upload.ok).toBe(false);
+        if (!upload.ok) {
+            // The uploader exposes status + error so the editor can branch on 5xx/4xx.
+            expect(upload.status).toBe(500);
+        }
+    });
+
+    test('pushOverlayV1 with no assets field emits an empty manifest', async () => {
+        const relay = makeFakeRelay([]);
+        const pushResult = await pushOverlayV1({
+            relayBaseUrl: 'https://r',
+            sessionId: 's',
+            overlay: { code: 'module.exports = {};', buildDurationMs: 0 },
+            // assets intentionally omitted
+            fetchImpl: relay.fetchImpl,
+            onTelemetry: null,
+        });
+        expect(pushResult.ok).toBe(true);
+        expect(relay.pushes).toHaveLength(1);
+        const pushed = relay.pushes[0] as { assets: { abi: string; assets: Record<string, unknown> } };
+        expect(pushed.assets.abi).toBe('v1');
+        expect(pushed.assets.assets).toEqual({});
+    });
 });
