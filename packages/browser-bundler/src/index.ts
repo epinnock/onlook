@@ -46,6 +46,14 @@ export {
     type WrappedOverlayV1,
 } from './wrap-overlay-v1';
 
+// Tasks #98–#100 — pure size-gate checker for CI / editor pre-upload guards.
+export {
+    checkOverlaySize,
+    type CheckOverlaySizeOptions,
+    type OverlaySizeCheckResult,
+    type OverlaySizeStatus,
+} from './check-overlay-size';
+
 // Task #47 — pure-JS package artifact format.
 export {
     createInMemoryPureJsCache,
