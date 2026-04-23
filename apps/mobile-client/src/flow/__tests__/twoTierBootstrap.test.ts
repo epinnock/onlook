@@ -719,4 +719,105 @@ describe('startTwoTierBootstrap', () => {
         });
         expect(pollStart).toHaveBeenCalledTimes(0);
     });
+
+    // --- mountDurationMs measurement (OverlayAckMessage eval-latency) ---
+    // Phone-side measurement around the mount call. Lands in the ack so
+    // the editor can compute the Phase 11b Q5b (eval-latency p95) signal
+    // from real device runs. ADR-0001 target: ≤100ms on a 2-year-old
+    // iPhone for a typical 50–100 KB overlay.
+
+    test('explicit mountOverlay path includes mountDurationMs in the ack', () => {
+        const fake = new FakeDispatcher();
+        startTwoTierBootstrap({
+            sessionId: 'sess',
+            relayUrl: 'http://relay',
+            enabled: true,
+            createDispatcher: () => fake as unknown as OverlayDispatcher,
+            mountOverlay: () => undefined,
+            startOverlayAckPoll: () =>
+                ({ installed: false, stop: () => undefined }) satisfies OverlayAckPollHandle,
+        });
+
+        fake.emit('x'.repeat(100));
+        expect(fake.sent.length).toBe(1);
+        const ack = fake.sent[0] as Record<string, unknown>;
+        expect(ack.status).toBe('mounted');
+        expect(typeof ack.mountDurationMs).toBe('number');
+        expect(ack.mountDurationMs as number).toBeGreaterThanOrEqual(0);
+    });
+
+    test('failed mount does NOT include mountDurationMs (only successful mounts carry it)', () => {
+        const fake = new FakeDispatcher();
+        startTwoTierBootstrap({
+            sessionId: 'sess',
+            relayUrl: 'http://relay',
+            enabled: true,
+            createDispatcher: () => fake as unknown as OverlayDispatcher,
+            mountOverlay: () => {
+                throw new Error('boom');
+            },
+            startOverlayAckPoll: () =>
+                ({ installed: false, stop: () => undefined }) satisfies OverlayAckPollHandle,
+        });
+
+        fake.emit('x');
+        const ack = fake.sent[0] as Record<string, unknown>;
+        expect(ack.status).toBe('failed');
+        // Omitted — legacy relay/schema paths stay backward-compatible when
+        // the field is absent. Failure latency could still be useful but
+        // is deferred to a future iteration.
+        expect(ack.mountDurationMs).toBeUndefined();
+    });
+
+    test('v1 mountOverlay path measures duration around runtime.mountOverlay', () => {
+        const fake = new FakeDispatcher();
+        const runtimeStub = {
+            abi: 'v1' as const,
+            mountOverlay: mock(() => undefined),
+        };
+        const prev = globalThis.OnlookRuntime;
+        (globalThis as { OnlookRuntime?: unknown }).OnlookRuntime = runtimeStub;
+        try {
+            startTwoTierBootstrap({
+                sessionId: 'sess',
+                relayUrl: 'ws://relay:8787',
+                enabled: true,
+                createDispatcher: () => fake as unknown as OverlayDispatcher,
+                startOverlayAckPoll: () =>
+                    ({ installed: false, stop: () => undefined }) satisfies OverlayAckPollHandle,
+            });
+            fake.emitV1('x'.repeat(200));
+            expect(runtimeStub.mountOverlay).toHaveBeenCalledTimes(1);
+            const ack = fake.sent[0] as Record<string, unknown>;
+            expect(ack.status).toBe('mounted');
+            expect(typeof ack.mountDurationMs).toBe('number');
+            expect(ack.mountDurationMs as number).toBeGreaterThanOrEqual(0);
+        } finally {
+            (globalThis as { OnlookRuntime?: unknown }).OnlookRuntime = prev;
+        }
+    });
+
+    test('legacy reloadBundle path measures duration too', () => {
+        const fake = new FakeDispatcher();
+        const runtimeStub = { reloadBundle: mock(() => undefined) };
+        const prev = globalThis.OnlookRuntime;
+        (globalThis as { OnlookRuntime?: unknown }).OnlookRuntime = runtimeStub;
+        try {
+            startTwoTierBootstrap({
+                sessionId: 'sess',
+                relayUrl: 'http://relay',
+                enabled: true,
+                createDispatcher: () => fake as unknown as OverlayDispatcher,
+                startOverlayAckPoll: () =>
+                    ({ installed: false, stop: () => undefined }) satisfies OverlayAckPollHandle,
+            });
+            fake.emit('legacy-code');
+            expect(runtimeStub.reloadBundle).toHaveBeenCalledTimes(1);
+            const ack = fake.sent[0] as Record<string, unknown>;
+            expect(ack.status).toBe('mounted');
+            expect(typeof ack.mountDurationMs).toBe('number');
+        } finally {
+            (globalThis as { OnlookRuntime?: unknown }).OnlookRuntime = prev;
+        }
+    });
 });

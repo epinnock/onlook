@@ -112,6 +112,7 @@ export function startTwoTierBootstrap(options: TwoTierBootstrapOptions): TwoTier
         status: 'mounted' | 'failed',
         errorMessage?: string,
         errorKind: 'overlay-runtime' | 'abi-mismatch' | 'overlay-react' = 'overlay-runtime',
+        mountDurationMs?: number,
     ): void => {
         // Phase 11a — v1 messages carry the REAL sha256 at msg.meta.overlayHash
         // (copied verbatim from the editor's push). Using it lets the editor
@@ -128,6 +129,15 @@ export function startTwoTierBootstrap(options: TwoTierBootstrapOptions): TwoTier
             status,
             timestamp: Date.now(),
         };
+        // ADR-0001 §"Performance envelope" eval-latency signal. Populated
+        // whenever we measured a wall-clock duration around the mount call
+        // (not synthesized — only real measurements flow here). The editor's
+        // `OverlayAckMessageSchema` accepts the field as optional + non-
+        // negative; omitted when undefined so legacy relay / schema paths
+        // stay backward-compatible.
+        if (typeof mountDurationMs === 'number' && mountDurationMs >= 0) {
+            ack.mountDurationMs = mountDurationMs;
+        }
         if (errorMessage !== undefined) {
             // errorKind MUST be a value from `OnlookRuntimeErrorKindSchema` so
             // the editor's OverlayAckMessageSchema.safeParse accepts it.
@@ -136,15 +146,44 @@ export function startTwoTierBootstrap(options: TwoTierBootstrapOptions): TwoTier
             ack.error = { kind: errorKind, message: errorMessage };
         }
         const sent = dispatcher.send(ack);
-        log(`overlayAck ${status} sent=${sent} hash=${overlayHash}`);
+        log(
+            `overlayAck ${status} sent=${sent} hash=${overlayHash}` +
+                (mountDurationMs !== undefined
+                    ? ` mountDurationMs=${mountDurationMs.toFixed(1)}`
+                    : ''),
+        );
+    };
+
+    /**
+     * Measure the wall-clock duration of `fn` in milliseconds and call
+     * `emit(durationMs)` with the result. Uses `performance.now()` when
+     * available (Hermes + browsers), falls back to `Date.now()` (1ms
+     * resolution, still useful for a 100ms budget).
+     */
+    const measureMountDuration = <T>(
+        fn: () => T,
+    ): { result: T; durationMs: number } => {
+        const perf = (
+            globalThis as {
+                performance?: { now?: () => number };
+            }
+        ).performance;
+        const now = (): number =>
+            typeof perf?.now === 'function' ? perf.now() : Date.now();
+        const start = now();
+        const result = fn();
+        const durationMs = now() - start;
+        return { result, durationMs };
     };
 
     const mount: OverlayListener = (msg) => {
         const explicit = options.mountOverlay;
         if (typeof explicit === 'function') {
             try {
-                explicit(msg.code);
-                sendAck(msg, 'mounted');
+                const { durationMs } = measureMountDuration(() =>
+                    explicit(msg.code),
+                );
+                sendAck(msg, 'mounted', undefined, undefined, durationMs);
             } catch (err) {
                 const message = err instanceof Error ? err.message : String(err);
                 log(`mount threw: ${message}`);
@@ -176,8 +215,10 @@ export function startTwoTierBootstrap(options: TwoTierBootstrapOptions): TwoTier
                     ...(relayHost !== undefined ? { relayHost } : {}),
                     ...(relayPort !== undefined ? { relayPort } : {}),
                 };
-                runtime.mountOverlay(msg.code, props, msg.assets);
-                sendAck(msg, 'mounted');
+                const { durationMs } = measureMountDuration(() =>
+                    runtime.mountOverlay!(msg.code, props, msg.assets),
+                );
+                sendAck(msg, 'mounted', undefined, undefined, durationMs);
             } catch (err) {
                 const message = err instanceof Error ? err.message : String(err);
                 log(`mountOverlay (v1) threw: ${message}`);
@@ -205,8 +246,10 @@ export function startTwoTierBootstrap(options: TwoTierBootstrapOptions): TwoTier
         const reloadBundle = runtime?.reloadBundle;
         if (typeof reloadBundle === 'function') {
             try {
-                reloadBundle(msg.code);
-                sendAck(msg, 'mounted');
+                const { durationMs } = measureMountDuration(() =>
+                    reloadBundle(msg.code),
+                );
+                sendAck(msg, 'mounted', undefined, undefined, durationMs);
             } catch (err) {
                 const message = err instanceof Error ? err.message : String(err);
                 log(`reloadBundle threw: ${message}`);
