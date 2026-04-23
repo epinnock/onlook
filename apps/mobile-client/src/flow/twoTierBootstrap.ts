@@ -111,6 +111,7 @@ export function startTwoTierBootstrap(options: TwoTierBootstrapOptions): TwoTier
         msg: Parameters<OverlayListener>[0],
         status: 'mounted' | 'failed',
         errorMessage?: string,
+        errorKind: 'overlay-runtime' | 'abi-mismatch' | 'overlay-react' = 'overlay-runtime',
     ): void => {
         // Phase 11a — v1 messages carry the REAL sha256 at msg.meta.overlayHash
         // (copied verbatim from the editor's push). Using it lets the editor
@@ -128,7 +129,11 @@ export function startTwoTierBootstrap(options: TwoTierBootstrapOptions): TwoTier
             timestamp: Date.now(),
         };
         if (errorMessage !== undefined) {
-            ack.error = { kind: 'mount-threw', message: errorMessage };
+            // errorKind MUST be a value from `OnlookRuntimeErrorKindSchema` so
+            // the editor's OverlayAckMessageSchema.safeParse accepts it.
+            // Previously used `mount-threw` which is NOT in the enum → silent
+            // ack drops at the editor schema validation boundary.
+            ack.error = { kind: errorKind, message: errorMessage };
         }
         const sent = dispatcher.send(ack);
         log(`overlayAck ${status} sent=${sent} hash=${overlayHash}`);
@@ -194,7 +199,7 @@ export function startTwoTierBootstrap(options: TwoTierBootstrapOptions): TwoTier
                 'self-eval but not render — flipping editor to overlay-v1 ' +
                 'before the phone runtime is upgraded is the likely cause.';
             log(message);
-            sendAck(msg, 'failed', message);
+            sendAck(msg, 'failed', message, 'abi-mismatch');
             return;
         }
         const reloadBundle = runtime?.reloadBundle;

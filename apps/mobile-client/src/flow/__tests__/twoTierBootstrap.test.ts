@@ -269,6 +269,48 @@ describe('startTwoTierBootstrap', () => {
         }
     });
 
+    test('failed ack with abi-mismatch kind passes OverlayAckMessageSchema (editor wouldn\'t silently drop)', async () => {
+        const fake = new FakeDispatcher();
+        const priorRuntime = globalThis.OnlookRuntime;
+        globalThis.OnlookRuntime = undefined;
+        try {
+            startTwoTierBootstrap({
+                sessionId: 'sess',
+                relayUrl: 'ws://relay',
+                enabled: true,
+                createDispatcher: () => fake as unknown as OverlayDispatcher,
+            });
+            fake.emitV1('v1-src', {
+                meta: { overlayHash: 'e'.repeat(64), entryModule: 0, buildDurationMs: 0 },
+            });
+            const ack = fake.sent[0];
+            const { OverlayAckMessageSchema } = await import('@onlook/mobile-client-protocol');
+            const parse = OverlayAckMessageSchema.safeParse(ack);
+            expect(parse.success).toBe(true);
+        } finally {
+            globalThis.OnlookRuntime = priorRuntime;
+        }
+    });
+
+    test('failed ack from mount-throw uses overlay-runtime kind (passes schema)', async () => {
+        const fake = new FakeDispatcher();
+        startTwoTierBootstrap({
+            sessionId: 'sess',
+            relayUrl: 'ws://relay',
+            enabled: true,
+            createDispatcher: () => fake as unknown as OverlayDispatcher,
+            mountOverlay: () => {
+                throw new Error('render kaboom');
+            },
+        });
+        fake.emit('legacy-code-that-throws');
+        const ack = fake.sent[0] as { error?: { kind: string } };
+        expect(ack.error?.kind).toBe('overlay-runtime');
+        const { OverlayAckMessageSchema } = await import('@onlook/mobile-client-protocol');
+        const parse = OverlayAckMessageSchema.safeParse(ack);
+        expect(parse.success).toBe(true);
+    });
+
     test('v1 message with NO runtime at all also fails loudly (not silent drop)', () => {
         const fake = new FakeDispatcher();
         const priorRuntime = globalThis.OnlookRuntime;
