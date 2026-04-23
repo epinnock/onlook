@@ -12,15 +12,19 @@ import {
     parseRelayEvent,
 } from '../relay-events';
 
+// `as const` on the `type` field preserves the literal-type narrowing that
+// the discriminated-union schemas need — without it, TypeScript widens the
+// fixture's type to `string` and expect(...).toEqual(fixture) fails to
+// match the schema's narrower literal type.
 const validAck = {
     id: 'e1',
-    type: 'overlayAck',
+    type: 'overlayAck' as const,
     data: { sessionId: 'sess', mountedAt: 1700000000 },
 };
 
 const validBundleUpdate = {
     id: 'e2',
-    type: 'bundleUpdate',
+    type: 'bundleUpdate' as const,
     data: {
         sessionId: 'sess',
         bundleUrl: 'https://relay.example.com/bundles/abc.js',
@@ -31,13 +35,13 @@ const validBundleUpdate = {
 
 const validMounted = {
     id: 'e3',
-    type: 'overlayMounted',
+    type: 'overlayMounted' as const,
     data: { sessionId: 'sess', mountedAt: 1700000002 },
 };
 
 const validError = {
     id: 'e4',
-    type: 'overlayError',
+    type: 'overlayError' as const,
     data: {
         sessionId: 'sess',
         message: 'TypeError: x is not a function',
@@ -48,7 +52,7 @@ const validError = {
 
 const validKeepAlive = {
     id: 'e5',
-    type: 'keepAlive',
+    type: 'keepAlive' as const,
     data: { timestamp: 1700000004 },
 };
 
