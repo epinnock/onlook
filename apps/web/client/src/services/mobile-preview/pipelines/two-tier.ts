@@ -1,37 +1,36 @@
+import type {
+    BrowserBundlerEsbuildService,
+    IncrementalBundler,
+} from '../../../../../../../packages/browser-bundler/src';
+import type {
+    MobilePreviewLaunchTarget,
+    MobilePreviewPipeline,
+    MobilePreviewPipelineCapabilities,
+    MobilePreviewPipelineStatusCallback,
+    MobilePreviewPipelineVfs,
+    MobilePreviewPrepareInput,
+    MobilePreviewSyncInput,
+    MobilePreviewSyncResult,
+    MobilePreviewTwoTierPipelineConfig,
+    MobilePreviewTwoTierSyncResult,
+} from './types';
+import {
+    emitOverlayPerfGuardrail,
+    emitOverlayPushTelemetry,
+} from '@/services/expo-relay/overlay-telemetry-sink';
+import {
+    evaluateBuildDuration,
+    evaluatePushTelemetry,
+} from '@/services/expo-relay/perf-guardrails';
+import { pushOverlay, pushOverlayV1 } from '@/services/expo-relay/push-overlay';
 import {
     bundleBrowserProject,
     checkOverlaySize,
     createIncrementalBundler,
     wrapOverlayCode,
     wrapOverlayV1,
-    type BrowserBundlerEsbuildService,
-    type IncrementalBundler,
 } from '../../../../../../../packages/browser-bundler/src';
-
-import { pushOverlay, pushOverlayV1 } from '@/services/expo-relay/push-overlay';
-import {
-    evaluateBuildDuration,
-    evaluatePushTelemetry,
-} from '@/services/expo-relay/perf-guardrails';
-import {
-    emitOverlayPerfGuardrail,
-    emitOverlayPushTelemetry,
-} from '@/services/expo-relay/overlay-telemetry-sink';
-
 import { isMobilePreviewOverlayV1PipelineEnabled } from '../pipeline-flag';
-
-import type {
-    MobilePreviewPipeline,
-    MobilePreviewPipelineCapabilities,
-    MobilePreviewPipelineStatusCallback,
-    MobilePreviewLaunchTarget,
-    MobilePreviewPrepareInput,
-    MobilePreviewPipelineVfs,
-    MobilePreviewSyncInput,
-    MobilePreviewSyncResult,
-    MobilePreviewTwoTierPipelineConfig,
-    MobilePreviewTwoTierSyncResult,
-} from './types';
 
 const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.json'] as const;
 const BUNDLED_CODE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.json']);
@@ -206,10 +205,7 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
             // pipeline. Fires only when the build duration exceeds
             // `BUILD_SLOW_MS` (1000ms); returns null otherwise.
             evaluateBuildDuration(buildDurationMs, (perfEvent) =>
-                emitOverlayPerfGuardrail(
-                    useV1 ? 'overlay-v1' : 'overlay-legacy',
-                    perfEvent,
-                ),
+                emitOverlayPerfGuardrail(useV1 ? 'overlay-v1' : 'overlay-legacy', perfEvent),
             );
 
             // Tasks #98-#100 — Pre-push size gate on the v1 branch. The
@@ -237,9 +233,7 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
                             hardCap: sizeCheck.hardCap,
                         },
                     });
-                    throw new Error(
-                        `two-tier pipeline (v1): ${sizeCheck.message}`,
-                    );
+                    throw new Error(`two-tier pipeline (v1): ${sizeCheck.message}`);
                 }
                 if (sizeCheck.status === 'warn-soft') {
                     // Mirrors cf-expo-relay's `hmr.push.v1.softcap` warn log.
@@ -358,10 +352,7 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
                       onTelemetry: (event) => {
                           emitOverlayPushTelemetry('overlay-legacy', event);
                           evaluatePushTelemetry(event, (perfEvent) =>
-                              emitOverlayPerfGuardrail(
-                                  'overlay-legacy',
-                                  perfEvent,
-                              ),
+                              emitOverlayPerfGuardrail('overlay-legacy', perfEvent),
                           );
                       },
                   });
@@ -511,9 +502,7 @@ function lastExtension(filePath: string): string {
     return filePath.slice(idx).toLowerCase();
 }
 
-function pickEntry(
-    files: ReadonlyArray<{ path: string; contents: string }>,
-): string | null {
+function pickEntry(files: ReadonlyArray<{ path: string; contents: string }>): string | null {
     // Prefer App.tsx (overlay entry), then index.tsx/ts, then anything that
     // looks entry-like.
     const candidates = ['/App.tsx', '/index.tsx', '/index.ts', '/src/App.tsx', '/src/index.tsx'];
@@ -563,9 +552,7 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
 }
 
 function isAbortError(error: unknown): boolean {
-    return (
-        error instanceof DOMException && error.name === 'AbortError'
-    );
+    return error instanceof DOMException && error.name === 'AbortError';
 }
 
 function formatError(cause: unknown): string {

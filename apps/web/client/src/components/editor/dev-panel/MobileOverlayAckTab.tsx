@@ -27,13 +27,12 @@
  * out of scope for this component. The component ships isolated and
  * unit-tested so it composes with the eventual parent.
  */
-
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { OverlayAckMessage, WsMessage } from '@onlook/mobile-client-protocol';
+import { cn } from '@onlook/ui/utils';
 
 import { EVAL_LATENCY_TARGET_MS } from '@/services/expo-relay/overlay-telemetry-sink';
-import { cn } from '@onlook/ui/utils';
 
 export interface MobileOverlayAckTabProps {
     /**
@@ -91,7 +90,7 @@ export function filterOverlayAcks(
     for (const m of messages) {
         if (m.type !== 'onlook:overlayAck') continue;
         if (sessionId && m.sessionId !== sessionId) continue;
-        out.push(m as OverlayAckMessage);
+        out.push(m);
     }
     return out;
 }
@@ -102,9 +101,7 @@ export interface MobileOverlayAckRowProps {
 
 export function MobileOverlayAckRow({ ack }: MobileOverlayAckRowProps) {
     const errorLine =
-        ack.status === 'failed' && ack.error
-            ? `${ack.error.kind}: ${ack.error.message}`
-            : null;
+        ack.status === 'failed' && ack.error ? `${ack.error.kind}: ${ack.error.message}` : null;
     return (
         <div
             data-testid="mobile-overlay-ack-row"
@@ -114,7 +111,7 @@ export function MobileOverlayAckRow({ ack }: MobileOverlayAckRowProps) {
             <div className="flex items-center gap-2">
                 <span
                     data-testid="mobile-overlay-ack-timestamp"
-                    className="shrink-0 tabular-nums text-neutral-500"
+                    className="shrink-0 text-neutral-500 tabular-nums"
                 >
                     {formatTimestamp(ack.timestamp)}
                 </span>
@@ -130,10 +127,7 @@ export function MobileOverlayAckRow({ ack }: MobileOverlayAckRowProps) {
                 </span>
                 <span
                     data-testid="mobile-overlay-ack-hash"
-                    className={cn(
-                        'min-w-0 truncate tabular-nums',
-                        STATUS_ROW_CLS[ack.status],
-                    )}
+                    className={cn('min-w-0 truncate tabular-nums', STATUS_ROW_CLS[ack.status])}
                     title={ack.overlayHash}
                 >
                     {shortHash(ack.overlayHash)}
@@ -144,7 +138,7 @@ export function MobileOverlayAckRow({ ack }: MobileOverlayAckRowProps) {
                     // `number` in TS, so we capture into a typed var.
                     const dur = ack.mountDurationMs;
                     if (!Number.isFinite(dur)) return null;
-                    const finiteDur = dur as number;
+                    const finiteDur = dur!;
                     return (
                         <span
                             data-testid="mobile-overlay-ack-mount-duration"
@@ -217,7 +211,7 @@ export function summarizeAcks(
         // but `summarizeAcks` accepts an `OverlayAckMessage[]` which a
         // caller could construct without running through safeParse.
         if (Number.isFinite(ack.mountDurationMs)) {
-            const d = ack.mountDurationMs as number;
+            const d = ack.mountDurationMs!;
             durations.push(d);
             if (d > evalTarget) overBudgetCount += 1;
         }
@@ -232,16 +226,12 @@ export function summarizeAcks(
             overBudgetCount: 0,
         };
     }
-    const mean =
-        durations.reduce((a, b) => a + b, 0) / durations.length;
+    const mean = durations.reduce((a, b) => a + b, 0) / durations.length;
     // p95: ceil(n * 0.95) - 1 index in the sorted list (1-indexed p95 in
     // common statistical software). For small n this overshoots toward
     // the high end; that's fine for a dev-time summary.
     const sorted = [...durations].sort((a, b) => a - b);
-    const p95Index = Math.min(
-        sorted.length - 1,
-        Math.ceil(sorted.length * 0.95) - 1,
-    );
+    const p95Index = Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1);
     const p95 = sorted[Math.max(0, p95Index)]!;
     return {
         count: acks.length,
@@ -253,11 +243,7 @@ export function summarizeAcks(
     };
 }
 
-export function MobileOverlayAckTab({
-    acks,
-    sessionId,
-    className,
-}: MobileOverlayAckTabProps) {
+export function MobileOverlayAckTab({ acks, sessionId, className }: MobileOverlayAckTabProps) {
     const entries = useMemo(() => filterOverlayAcks(acks, sessionId), [acks, sessionId]);
     const summary = useMemo(() => summarizeAcks(entries), [entries]);
 
@@ -286,8 +272,7 @@ export function MobileOverlayAckTab({
                     className,
                 )}
             >
-                No overlay mounts yet. Push one from the editor and watch for
-                the ack here.
+                No overlay mounts yet. Push one from the editor and watch for the ack here.
             </div>
         );
     }
@@ -297,10 +282,7 @@ export function MobileOverlayAckTab({
             ref={scrollRef}
             onScroll={onScroll}
             data-testid="mobile-overlay-ack-tab"
-            className={cn(
-                'h-full overflow-y-auto bg-neutral-950 text-neutral-100',
-                className,
-            )}
+            className={cn('h-full overflow-y-auto bg-neutral-950 text-neutral-100', className)}
         >
             <div
                 data-testid="mobile-overlay-ack-summary"
@@ -310,10 +292,7 @@ export function MobileOverlayAckTab({
                     {summary.count} ack{summary.count === 1 ? '' : 's'}
                 </span>
                 <span className="text-neutral-600">·</span>
-                <span
-                    data-testid="mobile-overlay-ack-summary-mounted"
-                    className="text-emerald-400"
-                >
+                <span data-testid="mobile-overlay-ack-summary-mounted" className="text-emerald-400">
                     {summary.mountedCount} mounted
                 </span>
                 {summary.failedCount > 0 ? (

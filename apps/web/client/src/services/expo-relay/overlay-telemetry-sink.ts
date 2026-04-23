@@ -160,9 +160,7 @@ export interface OverlayPipelineMarker {
     readonly note?: string;
 }
 
-export function emitOverlayPipelineMarker(
-    marker: OverlayPipelineMarker,
-): void {
+export function emitOverlayPipelineMarker(marker: OverlayPipelineMarker): void {
     console.info('[onlook.pipeline-marker]', marker);
     captureSafely(OVERLAY_PIPELINE_MARKER_EVENT, {
         kind: marker.kind,
@@ -194,8 +192,7 @@ export function emitOverlayAckTelemetry(ack: OverlayAckMessage): void {
     // here cleanly instead of polluting the `evalLatencyOverBudget`
     // boolean or the posthog `mountDurationMs` column.
     const overBudget =
-        Number.isFinite(ack.mountDurationMs) &&
-        (ack.mountDurationMs as number) > EVAL_LATENCY_TARGET_MS;
+        Number.isFinite(ack.mountDurationMs) && ack.mountDurationMs! > EVAL_LATENCY_TARGET_MS;
     if (overBudget) {
         console.warn('[onlook.overlay-ack]', { overBudget: true, ...ack });
     } else {

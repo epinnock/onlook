@@ -28,31 +28,18 @@
  * is intentionally not exposed — parent reference uses Tabs' default
  * uncontrolled semantics).
  */
-
-import type {
-    OverlayAckMessage,
-    WsMessage,
-} from '@onlook/mobile-client-protocol';
+import type { OverlayAckMessage, WsMessage } from '@onlook/mobile-client-protocol';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@onlook/ui/tabs';
 import { cn } from '@onlook/ui/utils';
 
-import { EVAL_LATENCY_TARGET_MS } from '@/services/expo-relay/overlay-telemetry-sink';
 import type { PreflightSummary } from '@/services/expo-relay/preflight-formatter';
-
+import { EVAL_LATENCY_TARGET_MS } from '@/services/expo-relay/overlay-telemetry-sink';
 import { MobileConsoleTab } from './MobileConsoleTab';
 import { MobileNetworkTab } from './MobileNetworkTab';
-import {
-    MobileOverlayAckTab,
-    filterOverlayAcks,
-    summarizeAcks,
-} from './MobileOverlayAckTab';
+import { filterOverlayAcks, MobileOverlayAckTab, summarizeAcks } from './MobileOverlayAckTab';
 import { OverlayPreflightPanel } from './OverlayPreflightPanel';
 
-export type MobileDevPanelTabKey =
-    | 'console'
-    | 'network'
-    | 'acks'
-    | 'preflight';
+export type MobileDevPanelTabKey = 'console' | 'network' | 'acks' | 'preflight';
 
 export interface MobileDevPanelProps {
     /** Full WsMessage stream from the RelayWsClient. Filtered per-tab. */
@@ -120,11 +107,7 @@ export function MobileDevPanel({
     panelClassName,
 }: MobileDevPanelProps) {
     const ackCount = deriveAckCount(messages, acks, sessionId);
-    const ackOverBudgetCount = deriveAckOverBudgetCount(
-        messages,
-        acks,
-        sessionId,
-    );
+    const ackOverBudgetCount = deriveAckOverBudgetCount(messages, acks, sessionId);
     const preflightCount = derivePreflightIssueCount(preflightSummary);
 
     const ackItems = acks ?? messages;
@@ -135,10 +118,7 @@ export function MobileDevPanel({
             data-testid="mobile-dev-panel"
             className={cn('flex h-full flex-col bg-neutral-950', className)}
         >
-            <TabsList
-                data-testid="mobile-dev-panel-tabs"
-                className="shrink-0 bg-neutral-900"
-            >
+            <TabsList data-testid="mobile-dev-panel-tabs" className="shrink-0 bg-neutral-900">
                 <TabsTrigger value="console" data-testid="mobile-dev-panel-tab-console">
                     Console
                 </TabsTrigger>
@@ -150,7 +130,7 @@ export function MobileDevPanel({
                     {ackCount > 0 ? (
                         <span
                             data-testid="mobile-dev-panel-acks-badge"
-                            className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500/25 px-1 text-[10px] tabular-nums text-emerald-300"
+                            className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500/25 px-1 text-[10px] text-emerald-300 tabular-nums"
                         >
                             {ackCount}
                         </span>
@@ -159,7 +139,7 @@ export function MobileDevPanel({
                         <span
                             data-testid="mobile-dev-panel-acks-over-budget-badge"
                             title={`Acks with mountDurationMs > ${EVAL_LATENCY_TARGET_MS}ms (ADR-0001 eval-latency budget).`}
-                            className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500/25 px-1 text-[10px] tabular-nums text-amber-300"
+                            className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500/25 px-1 text-[10px] text-amber-300 tabular-nums"
                         >
                             {ackOverBudgetCount}
                         </span>
@@ -170,7 +150,7 @@ export function MobileDevPanel({
                     {preflightCount > 0 ? (
                         <span
                             data-testid="mobile-dev-panel-preflight-badge"
-                            className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500/25 px-1 text-[10px] tabular-nums text-red-300"
+                            className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500/25 px-1 text-[10px] text-red-300 tabular-nums"
                         >
                             {preflightCount}
                         </span>
