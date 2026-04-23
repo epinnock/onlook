@@ -9,6 +9,7 @@
  * Populated so far:
  *   - MobileConsoleTab (MC5.16) — console stream rendering
  *   - MobileNetworkTab (MC5.17) — network stream rendering
+ *   - MobileOverlayAckTab (MCG.10) — phone→editor overlay ack stream
  */
 
 export {
@@ -28,3 +29,11 @@ export {
     type MobileNetworkRowProps,
     type MobileNetworkTabProps,
 } from './MobileNetworkTab';
+
+export {
+    MobileOverlayAckRow,
+    MobileOverlayAckTab,
+    filterOverlayAcks,
+    type MobileOverlayAckRowProps,
+    type MobileOverlayAckTabProps,
+} from './MobileOverlayAckTab';
