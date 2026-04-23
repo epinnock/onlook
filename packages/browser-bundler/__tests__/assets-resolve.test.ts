@@ -6,6 +6,7 @@ import {
     createOverlayAssetManifestBuilder,
     deriveFontFamily,
     extractSvgViewBox,
+    parseScaleSuffix,
     routeAssetKind,
     sha256Hex,
     type AssetDescriptor,
@@ -319,5 +320,95 @@ describe('createAssetsResolvePlugin — path + file resolution', () => {
         harness.load('b/icon.png');
         // Same hash + same kind → same assetId → 1 entry in manifest (last write wins).
         expect(harness.manifest.size).toBe(1);
+    });
+});
+
+// ─── Scale-variant parsing (task #54) ────────────────────────────────────────
+describe('parseScaleSuffix', () => {
+    test('returns undefined for a plain extension', () => {
+        expect(parseScaleSuffix('icon.png')).toBeUndefined();
+        expect(parseScaleSuffix('logo.jpg')).toBeUndefined();
+    });
+
+    test('parses @2x', () => {
+        expect(parseScaleSuffix('icon@2x.png')).toBe(2);
+    });
+
+    test('parses @3x', () => {
+        expect(parseScaleSuffix('icon@3x.png')).toBe(3);
+    });
+
+    test('parses fractional scales like @1.5x', () => {
+        expect(parseScaleSuffix('icon@1.5x.png')).toBe(1.5);
+    });
+
+    test('works with a directory prefix', () => {
+        expect(parseScaleSuffix('assets/icons/logo@2x.png')).toBe(2);
+    });
+
+    test('works with platform-style stems (e.g. name.ios@2x.png)', () => {
+        // Metro's canonical form puts platform before @scale.
+        expect(parseScaleSuffix('icon.ios@2x.png')).toBe(2);
+    });
+
+    test('returns undefined when @ is present but not scale-formatted', () => {
+        expect(parseScaleSuffix('user@host.png')).toBeUndefined();
+        expect(parseScaleSuffix('icon@xhdpi.png')).toBeUndefined();
+    });
+
+    test('returns undefined when the stem lacks an @Nx suffix entirely', () => {
+        expect(parseScaleSuffix('icon-2x.png')).toBeUndefined();
+    });
+});
+
+describe('createAssetsResolvePlugin — image scale variants (task #54)', () => {
+    test('emits descriptor.scale = 2 for a @2x asset', () => {
+        const harness = createPluginHarness({
+            'assets/icon@2x.png': new Uint8Array([0]),
+        });
+        harness.load('assets/icon@2x.png');
+        const d = Object.values(harness.manifest.build().assets)[0] as Extract<
+            AssetDescriptor,
+            { kind: 'image' }
+        >;
+        expect(d.scale).toBe(2);
+    });
+
+    test('emits descriptor.scale = 3 for a @3x asset', () => {
+        const harness = createPluginHarness({
+            'assets/icon@3x.png': new Uint8Array([0]),
+        });
+        harness.load('assets/icon@3x.png');
+        const d = Object.values(harness.manifest.build().assets)[0] as Extract<
+            AssetDescriptor,
+            { kind: 'image' }
+        >;
+        expect(d.scale).toBe(3);
+    });
+
+    test('scale is absent from descriptor for unscaled assets', () => {
+        const harness = createPluginHarness({
+            'assets/icon.png': new Uint8Array([0]),
+        });
+        harness.load('assets/icon.png');
+        const d = Object.values(harness.manifest.build().assets)[0] as Extract<
+            AssetDescriptor,
+            { kind: 'image' }
+        >;
+        expect(d.scale).toBeUndefined();
+    });
+
+    test('scale is NOT set on fonts (descriptor has no scale field)', () => {
+        const harness = createPluginHarness({
+            'fonts/Inter@2x.ttf': new Uint8Array([0]),
+        });
+        harness.load('fonts/Inter@2x.ttf');
+        const d = Object.values(harness.manifest.build().assets)[0] as Extract<
+            AssetDescriptor,
+            { kind: 'font' }
+        >;
+        expect(d.kind).toBe('font');
+        // @ts-expect-error — font descriptor has no scale field
+        expect(d.scale).toBeUndefined();
     });
 });

@@ -306,12 +306,15 @@ function buildDescriptor(input: {
     switch (input.kind) {
         case 'image': {
             if (input.mime === undefined) return undefined;
-            return {
+            const scale = parseScaleSuffix(input.path);
+            const descriptor: ImageAssetDescriptor = {
                 kind: 'image',
                 hash: input.hash,
                 mime: input.mime,
                 uri: input.urlForKey({ path: input.path, hash: input.hash, contents: input.bytes }),
+                ...(scale !== undefined ? { scale } : {}),
             };
+            return descriptor;
         }
         case 'font': {
             if (input.mime === undefined) return undefined;
@@ -373,6 +376,35 @@ function buildDescriptor(input: {
 export function extractSvgViewBox(svg: string): string | undefined {
     const match = /viewBox=["']([^"']+)["']/i.exec(svg);
     return match?.[1];
+}
+
+/**
+ * Parse Metro-style scale suffixes in an asset filename:
+ *
+ *   icon@2x.png        → 2
+ *   icon@3x.png        → 3
+ *   icon@1.5x.png      → 1.5
+ *   icon.ios@2x.png    → 2  (platform suffix permitted before @scale)
+ *   icon.png           → undefined (no suffix)
+ *
+ * Mirrors React Native's packager asset-scale resolution. Returning
+ * `undefined` leaves the descriptor's `scale` field unset; callers should
+ * assume scale=1 in that case (ABI v1 semantics).
+ */
+export function parseScaleSuffix(path: string): number | undefined {
+    const normalized = normalizeAssetPath(path);
+    // Strip directory.
+    const slash = normalized.lastIndexOf('/');
+    const base = slash === -1 ? normalized : normalized.slice(slash + 1);
+    // Strip extension.
+    const dot = base.lastIndexOf('.');
+    if (dot === -1) return undefined;
+    const stem = base.slice(0, dot);
+    // Match `...@<N>x` suffix.
+    const match = /@(\d+(?:\.\d+)?)x$/.exec(stem);
+    if (match === null || match[1] === undefined) return undefined;
+    const parsed = Number.parseFloat(match[1]);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 export function deriveFontFamily(path: string): string {
