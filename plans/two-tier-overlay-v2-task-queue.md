@@ -352,3 +352,46 @@ Plus 3 pre-existing typecheck cleanups in `apps/web/client/src/services/`:
 SubtleCrypto.digest BufferSource cast, `onAny` bundleUpdate narrowing,
 arrow-return void fix. And `use-mobile-preview-status.tsx` now forwards
 manifestUrl as onlookUrl for QrModalStatus compatibility.
+
+### Phase 11b bug-hunt (10 real fixes)
+
+Systematic audit of the v1 wire path uncovered 10 production bugs that
+would have silently regressed behavior if Phase 11b flipped the flag.
+Each has a dedicated test locking in the fix:
+
+1. **OverlayDispatcher rejected v1 wire shape** — phone would never
+   dispatch v1 messages to listeners (hard blocker).
+2. **twoTierBootstrap called `reloadBundle` for v1** — v1 envelopes
+   self-eval but don't call renderApp; reloadBundle path never mounts
+   (hard blocker).
+3. **`sendAck` synthesized `legacy-<length>` hash for v1** — editor
+   couldn't correlate ACKs to pushed overlays.
+4. **Phase 11a mount props missing `relayHost`/`relayPort`** —
+   divergence from AppRouter's initial-mount shape.
+5. **`qrToMount` missing `relayPort`** — QR-scan mount diverged from
+   AppRouter too.
+6. **`AppRouter` regex-matched wrong URL source + hardcoded port
+   `8788`** — pre-existing bug, every initial URL-submit mount silently
+   used wrong host/port.
+7. **DO stale-replay after wire-shape switch** — mid-session flag flip
+   left the OTHER key's stale payload for reconnect replay.
+8. **`OverlayErrorBoundary` silent** — React-lifecycle crashes in
+   mounted overlays produced no telemetry; editor saw `mounted` forever.
+9. **V1-without-v1-runtime false-positive `mounted`** — config-drift
+   scenario (editor flipped before phone upgraded) fell through to
+   `reloadBundle` and emitted `mounted` ack without rendering.
+10. **`sendAck` used invalid `error.kind: 'mount-threw'`** — NOT in
+    `OnlookRuntimeErrorKindSchema`; editor silently dropped every
+    failed ack at schema validation.
+
+**End-to-end integration test** (`two-tier-v1-integration.test.ts`)
+composes all 10 fixes through the REAL OverlayDispatcher +
+twoTierBootstrap + MockSocket wire-level simulation with 4 scenarios:
+v1 happy path, v1 mount failure, v1 config-drift, legacy Phase G
+preservation. Each asserts schema round-trip against
+`OverlayAckMessageSchema` to catch regressions of the bug-10 silent-
+drop class.
+
+ADR-0009 Phase 11b checklist updated with the pre-flip runtime-
+capability check + roll-forward order (upgrade phones first, then
+flip editor flag).
