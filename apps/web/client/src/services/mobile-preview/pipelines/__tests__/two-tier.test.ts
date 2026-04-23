@@ -514,6 +514,38 @@ describe('TwoTierMobilePreviewPipeline.sync', () => {
         }
     });
 
+    test('v1 branch: pre-push size-gate rejects bundles over the hard cap before hitting the relay', async () => {
+        pipelineFlagState.v1Enabled = true;
+        const relay = await startFakeRelay();
+        try {
+            // Produce a bundle just over the 2 MB hard cap by stuffing the
+            // bundler output with a huge string. The wrapped envelope will
+            // exceed the cap, tripping checkOverlaySize.
+            const bigString = 'x'.repeat(3 * 1024 * 1024); // 3 MB
+            const { service } = makeEsbuildService(`module.exports = ${JSON.stringify(bigString)};`);
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                { esbuildService: service, createSessionId: () => 'v1-big' },
+            );
+            // The size cap fires at one of two layers:
+            //   - wrapOverlayV1 (throws "overlay size N bytes exceeds hard cap M")
+            //   - pre-push checkOverlaySize (throws "two-tier pipeline (v1): …")
+            // Both are valid — both prevent the push from reaching the relay.
+            await expect(pipeline.sync({ fileSystem: makeVfs(FILES) })).rejects.toThrow(
+                /exceeds (?:the )?hard cap/,
+            );
+            // Relay never sees this push.
+            expect(relay.pushes).toHaveLength(0);
+        } finally {
+            await relay.close();
+            resetPipelineFlag();
+        }
+    });
+
     test('v1 branch: message parses against OverlayUpdateMessageSchema', async () => {
         pipelineFlagState.v1Enabled = true;
         const relay = await startFakeRelay();

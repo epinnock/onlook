@@ -1,5 +1,6 @@
 import {
     bundleBrowserProject,
+    checkOverlaySize,
     createIncrementalBundler,
     wrapOverlayCode,
     wrapOverlayV1,
@@ -186,6 +187,21 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
             const wrapped = useV1
                 ? wrapOverlayV1(result.code, { sourceMap: result.sourceMap })
                 : wrapOverlayCode(result.code, { sourceMap: result.sourceMap });
+
+            // Tasks #98-#100 — Pre-push size gate on the v1 branch. The
+            // relay already rejects > 2MB bodies with 413, but surfacing the
+            // failure here gives a clearer error message that names the cap
+            // and the overlay's actual size. Legacy branch skips this — its
+            // wire shape has no hard cap gate yet and the relay's 413 is the
+            // current enforcement point (tracked separately in Phase 11a).
+            if (useV1) {
+                const sizeCheck = checkOverlaySize(wrapped.code);
+                if (sizeCheck.status === 'fail-hard') {
+                    throw new Error(
+                        `two-tier pipeline (v1): ${sizeCheck.message}`,
+                    );
+                }
+            }
 
             emitStatus(input.onStatus, { kind: 'pushing' });
 
