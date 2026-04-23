@@ -178,7 +178,11 @@ export const sandboxRouter = createTRPCRouter({
             z.object({
                 sandbox: z.object({
                     id: z.string(),
-                    port: z.number(),
+                    // Ports are integers in the 1..65535 range — `.int()`
+                    // rejects NaN+Infinity+fractional, `.min(1).max(65535)`
+                    // rejects nonsense values. Pre-existing `z.number()`
+                    // accepted any numeric including 0 and Infinity.
+                    port: z.number().int().min(1).max(65535),
                 }),
                 config: z
                     .object({
@@ -248,7 +252,9 @@ export const sandboxRouter = createTRPCRouter({
             z.object({
                 repoUrl: z.string(),
                 branch: z.string(),
-                port: z.number().optional(),
+                // Ports are 1..65535 integers; `.int().min(1).max(65535)`
+                // replaces the too-permissive `z.number().optional()`.
+                port: z.number().int().min(1).max(65535).optional(),
             }),
         )
         .mutation(async ({ input }) => {
