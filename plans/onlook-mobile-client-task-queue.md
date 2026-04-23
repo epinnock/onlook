@@ -1089,6 +1089,68 @@ Dead letter queue lives at `apps/mobile-client/verification/dead-letter.json`. O
 
 ---
 
+## Session of 2026-04-22/23 — Phase G overlay pipeline validation + MCG.10 full round-trip
+
+Origin advanced `27abae84` → `db155597` (+17 commits) across the session — the two-tier overlay v2 pipeline landed end-to-end on real hardware plus the editor surfaces for the ack and preflight channels.
+
+**Commits (in order, feat/two-tier-bundle):**
+
+- `8528cc4c` feat(mobile-client): Phase G two-tier overlay pipeline — subscribable renderApp, bridgeless event poll, typed schema, bundle split, real-relay local dev (4775 insertions)
+- `179743bf` feat(mobile-client): phone-side `onlook:overlayAck` via WS.send (MCG.10 step 1)
+- `ed28a7fe` feat(web-client): RelayWsClient — editor-side WS ingest for `/hmr/:sessionId` (MCG.10 step 1 editor half)
+- `d088e7d7` feat(mobile-client): perceptual pixel-diff tier for screenshot-diff CLI (#99)
+- `0b8c8934` test(two-tier-overlay-v2): close v2 queue tasks #76 + #82
+- `7a6fe7c4` docs: mark #76/#82 done in status log
+- `9baf3153` test(mobile-client): post-Phase-G iOS rebuild + launch on Xcode 16.4 (mini)
+- `1c58d3a2` test(mobile-client): post-Phase-G E2E — deep link → mount → update on rebuilt app
+- `695b3ccb` docs: mark task #97 done — iOS sim smoke unblocked
+- `2ab3de45` feat(web-client): MobileOverlayAckTab dev-panel component (MCG.10 editor UI)
+- `3545cbee` docs: mark tasks #38–43, #72, #83 done in status log (stale; code already shipped)
+- `4db404f9` feat(web-client): OverlayPreflightPanel dev-panel component (#81 editor UI)
+- `ca73e3eb` docs: mark #81 component shipped
+- `4d8d0bbf` test(browser-bundler): circular-import coverage for wrap-overlay-v1 (task #37)
+- `f530dcaa` docs: mark #35 done — sourceMap R2 round-trip shipped
+- `db155597` test(cf-expo-relay): events route ↔ EventsSession DO cross-layer integration
+
+**Headlines:**
+
+- **Photographic evidence captured + committed** at `plans/adr/assets/v2-pipeline/{v2r,post-g}-{launcher,hello,updated}.png`. v2r-* uses mock-relay bundle-append shortcut; post-g-* uses the REAL committed code path (qrToMount → OnlookRuntime.mountOverlay → subscribable renderApp → OverlayHost → in-place update 7s later).
+- **mini's Xcode 16.4 unblocked #97** — rebuilt IPA with current source compiles + installs + launches + runs full pipeline. The JS-fallback OnlookRuntime covers the ABI contract today; native C++ wiring (#23–25) remains a separate optimization project.
+- **MCG.10 completed end-to-end** across 4 surfaces: phone WS.send (mobile-client), relay fan-out (cf-expo-relay HmrSession), editor ingest (RelayWsClient), dev-panel UI (MobileOverlayAckTab). One layer remaining: wiring the component into the actual editor panel layout (parent container, tab group).
+- **#81 component shipped** (OverlayPreflightPanel) — renders unsupported-native + unknown-specifier imports in-editor before the overlay is pushed. Formatter-driven, isolated, unit-tested via react-dom/server.
+- **#99 perceptual pixel-diff** replaced the size-tolerance false-positive via a pure-TS PNG decoder (no `sharp` dep). CLI at `apps/mobile-client/scripts/screenshot-diff.ts` — three-tier (hash → perceptual → size-fallback) with 22+ tests.
+- **Local two-wrangler dev setup** shipped — workerd's loopback-fetch restriction means cf-esm-cache needs to run as a sibling wrangler-dev process for the service binding to resolve. `apps/cf-expo-relay/scripts/wrangler-local-esm-cache.jsonc` + `local-esm-cache-worker.ts` handle it. `smoke-e2e.sh` hits the full pipeline with 11 assertions.
+- **CLAUDE.md Phase G section added** — 40+ lines of architecture + gotchas + key-file references so the next agent isn't starting from scratch.
+- **v2 queue status log 10 rows updated** — #35, #37, #38–43, #71, #72, #76, #81, #82, #83, #97 moved pending/partial → done with evidence pointers.
+
+**Test totals across touched packages:**
+
+| Package                   | Pass | Files |
+|---------------------------|------|-------|
+| mobile-client             |  447 |   46 |
+| cf-expo-relay             |  197 |   17 |
+| mobile-preview            |   94 |    8 |
+| mobile-client-protocol    |   98 |   10 |
+| web-client expo-relay     |  188 |   22 |
+| web-client dev-panel      |   23 |    3 (MobileOverlayAckTab + OverlayPreflightPanel added) |
+| browser-bundler           |  157 |   25 (+2 circular-import tests) |
+| browser-metro             |  103 |    8 |
+| base-bundle-builder       |   99 |   23 |
+
+**Typecheck state:** mobile-client + mobile-preview + mobile-client-protocol + cf-expo-relay all exit 0. web-client has pre-existing `packages/code-provider` errors unchanged by this session.
+
+**What remains on the v2 queue (explicitly still pending):**
+
+- Native C++ wiring (#23–25) — JS-fallback covers ABI today; native would be optimization
+- Phase 5 resolver INTEGRATION with multi-module overlays (#31 + #38–43 primitives are ready but need a Phase 5 resolveSpecifier helper wired into a multi-module wrap-overlay flow that doesn't exist yet)
+- Phase 6 pure-JS packages (#45–52) — lodash/zod/etc as overlay deps
+- Phase 7 asset pipeline (#54–68) — image/font/media/svg support, needs R2 upload wiring
+- Phase 10 inspector (#34 + #84–88) — `__source` injection needs a Babel plugin dep
+- Phase 11 migration cleanup (#89–94) — removing legacy `eval`/`bundle` paths, risky without sign-off
+- Perf + size gates (#98–100) — needs CI infrastructure decisions
+
+---
+
 ## Open questions the decomposition did not resolve
 
 These are explicit holes in the source plan that the decomposition surfaced. Each deserves an ADR before the tasks that depend on them leave dead-letter:
