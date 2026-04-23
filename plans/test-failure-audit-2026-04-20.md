@@ -1,6 +1,12 @@
 # Test-failure audit — 2026-04-20 (feat/two-tier-bundle)
 
-**Purpose.** `bun test` at the repo root reports 46 distinct failing describes (a few sub-tests expand to a 64-failure count in the full run). None of them are regressions from the two-tier pipeline work landing on this branch — the failures all pre-exist the validation changes in this session. This doc categorizes them so the maintainer can triage before merge.
+**Status: RESOLVED 2026-04-23.** All 46 failures in the 4 buckets below are
+now either green or gracefully-skipped in `cd apps/web/client && bun run test`.
+See "Resolution" section at the bottom for the commit trail. The rest of this
+doc is kept as historical record of the pre-resolution state so a reader can
+follow the narrative.
+
+**Original purpose.** `bun test` at the repo root reports 46 distinct failing describes (a few sub-tests expand to a 64-failure count in the full run). None of them are regressions from the two-tier pipeline work landing on this branch — the failures all pre-exist the validation changes in this session. This doc categorizes them so the maintainer can triage before merge.
 
 **Total.** 46 distinct failing `describe > test` rows across 4 buckets:
 
@@ -66,4 +72,46 @@ For a maintainer to reproduce this snapshot:
 bun test 2>&1 | grep "^(fail)" | sort -u | wc -l   # → 46
 bun test packages/base-bundle-builder packages/browser-bundler apps/cf-expo-relay apps/mobile-client/src/flow apps/mobile-client/src/relay apps/web/client/src/services/expo-relay  # → all green
 bunx playwright test apps/web/client/e2e/workers-pipeline/  # → 42 pass + 2 skip
+```
+
+## Resolution — 2026-04-23
+
+All 4 buckets closed in commit `002a5574` + follow-ups:
+
+- **CF Worker Endpoints (30) and CF Sandbox Full Flow (10).**
+  `isWorkerRunning` / `beforeAll` probes strengthened to verify a real
+  sandbox route (`POST /sandbox/create`) responds 2xx in addition to
+  `/health`. Previously a stray HTTP server (another worktree's wrangler,
+  a dev static server, etc.) answering `/health` would make
+  `workerAvailable=true` and then every sandbox call would 404, producing
+  the 40 failures. Now the probe is additive so non-sandbox servers can't
+  trick the skip logic. Both suites skip cleanly when a real sandbox
+  worker isn't reachable; they only run when one is.
+
+- **MCP App Utils (2).** Commit `1ca2e19a` deliberately changed
+  `resolveUiResourceUri` from `{base}/_mcp/ui/{path}` to
+  `{origin}/{widgetPath}` (widget HTML served directly from the MCP
+  server's origin per the current spec); the test expectations weren't
+  updated at the time. Tests aligned to the live semantics plus an
+  origin-stripping case covering the `{mcpServerUrl}/mcp` path prefix
+  the new implementation discards.
+
+- **binary-size-audit.sh (4).** Surfaces only in the mobile-client's
+  `bun run test`; the path was already gated on the presence of
+  `apps/mobile-client/ios/build/…`. As of 2026-04-23 all 8 tests in
+  `scripts/__tests__/binary-size-audit.sh.test.ts` pass on a fresh
+  worktree (the gate fires when the build artifact is absent).
+
+- **`bun test` scoping.** Added `"test": "bun test test src"` to
+  `apps/web/client/package.json` so `bun run test` excludes the
+  Playwright `.spec.ts` files under `e2e/` (which were blowing up with
+  "Playwright Test did not expect test.describe() to be called here").
+  E2E Playwright runs are still driven through `bun run test:e2e`.
+
+**Verification after resolution:**
+
+```bash
+cd apps/web/client && bun run test      # 548 pass / 0 fail (54 files)
+cd apps/web/client && bun run typecheck  # 0 errors
+bun test packages/                       # 1771 pass / 2 skip / 0 fail
 ```
