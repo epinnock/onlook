@@ -10,7 +10,6 @@ import { CLISessionImpl, CLISessionType, type CLISession, type TerminalSession }
 // runs that don't have the full env. The actual import happens inside
 // the ExpoBrowser branch of the start() method, only at runtime in the
 // browser.
-type SupabaseClientFactory = () => unknown;
 
 export class SessionManager {
     provider: Provider | null = null;
@@ -88,7 +87,20 @@ export class SessionManager {
                 const branchId = (this.branch as { id?: string } | undefined)?.id ?? sandboxId;
                 // Lazy-import to dodge env validation at test time (see top of file)
                 const { createClient: createSupabaseBrowserClient } = await import('@/utils/supabase/client');
-                const supabaseClient = createSupabaseBrowserClient() as unknown as SupabaseClientFactory;
+                // The ExpoBrowser provider's supabaseClient option expects
+                // a SupabaseClient shape from @supabase/supabase-js.
+                // createBrowserClient() from @supabase/ssr returns a
+                // structurally-compatible instance — cast through `unknown`
+                // to satisfy the narrower typed contract.
+                type SupabaseClientLike = Parameters<
+                    typeof createCodeProviderClient
+                >[1] extends {
+                    providerOptions?: { expoBrowser?: { supabaseClient?: infer S } };
+                }
+                    ? NonNullable<S>
+                    : never;
+                const supabaseClient =
+                    createSupabaseBrowserClient() as unknown as SupabaseClientLike;
                 provider = await createCodeProviderClient(CodeProvider.ExpoBrowser, {
                     providerOptions: {
                         expoBrowser: {
