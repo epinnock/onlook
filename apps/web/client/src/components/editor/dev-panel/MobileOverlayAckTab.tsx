@@ -136,6 +136,20 @@ export function MobileOverlayAckRow({ ack }: MobileOverlayAckRowProps) {
                 >
                     {shortHash(ack.overlayHash)}
                 </span>
+                {typeof ack.mountDurationMs === 'number' ? (
+                    <span
+                        data-testid="mobile-overlay-ack-mount-duration"
+                        className={cn(
+                            'shrink-0 tabular-nums',
+                            ack.mountDurationMs > 100
+                                ? 'text-amber-400'
+                                : 'text-neutral-500',
+                        )}
+                        title="Phone-side mountOverlay() latency. ADR-0001 target is ≤ 100ms on a 2-year-old iPhone."
+                    >
+                        {Math.round(ack.mountDurationMs)}ms
+                    </span>
+                ) : null}
                 <span
                     data-testid="mobile-overlay-ack-session"
                     className="ml-auto shrink-0 text-neutral-600"

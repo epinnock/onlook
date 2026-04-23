@@ -127,6 +127,22 @@ Formula: count(*)
 Alert threshold: any single error string > 10/hour sustained
 ```
 
+### Q5b — phone-side mount latency (eval-slow signal)
+
+**Motivation.** ADR-0001 §"Performance envelope" targets ≤100ms eval latency on a 2-year-old iPhone. The phone populates `OverlayAckMessage.mountDurationMs` with the wall-clock time spent in `mountOverlay` (see `packages/mobile-client-protocol/src/abi-v1.ts`). Editor-side capture flows through `RelayWsClient.snapshot().acks` → `MobileOverlayAckTab` (dev panel). To land this in PostHog, an editor-side subscription to `onOverlayAck` needs to call `emitOverlayPushTelemetry`-equivalent for the ack; that wiring is still TODO at time of writing (the schema + dev-panel-render pieces landed 2026-04-23).
+
+Once ack-side PostHog emission is wired, the expected query shape:
+
+```
+Events: onlook_overlay_ack  (event name TBD — not live yet)
+Filter: properties.pipeline = 'overlay-v1' AND has(properties.mountDurationMs)
+Formula: p95(properties.mountDurationMs)
+Pass gate: p95 <= 120ms
+Stop gate: p95 > 250ms sustained
+```
+
+Until that's wired, the dev panel's amber-highlighted `mountDurationMs` cells on `MobileOverlayAckTab` serve as a local-dev signal when the phone runtime populates the field. Legacy phone binaries that predate the schema field simply don't emit it — backward-compatible by design (`mountDurationMs` is optional in the schema).
+
 ### Q6 — session-level divergence
 
 **Motivation.** Detect sessions that ping-pong between pass/fail — these are usually the config-drift case (phone binary isn't v1-capable) that the ADR's pre-flip checklist is supposed to catch.

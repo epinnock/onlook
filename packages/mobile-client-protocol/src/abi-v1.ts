@@ -203,6 +203,15 @@ export const OverlayAckMessageSchema = z.object({
     status: z.enum(['mounted', 'failed']),
     error: OnlookRuntimeErrorSchema.optional(),
     timestamp: z.number().int().nonnegative(),
+    /**
+     * Wall-clock milliseconds the phone spent between receiving the overlay
+     * source on the WS channel and `mountOverlay` resolving. ADR-0001
+     * §"Performance envelope" targets ≤100ms on a 2-year-old iPhone. Optional
+     * because legacy phone binaries don't populate it; new binaries measure
+     * with `performance.now()` around the mount call and send the delta.
+     * Editor-side: surfaces in Phase 11b soak as the eval-latency signal.
+     */
+    mountDurationMs: z.number().nonnegative().optional(),
 });
 export type OverlayAckMessage = z.infer<typeof OverlayAckMessageSchema>;
 

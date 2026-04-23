@@ -12,6 +12,7 @@ import {
     AbiHelloMessageSchema,
     AssetDescriptorSchema,
     BaseManifestSchema,
+    OverlayAckMessageSchema,
     OverlayAssetManifestSchema,
     OverlayUpdateMessageSchema,
     RuntimeCapabilitiesSchema,
@@ -248,5 +249,68 @@ describe('ABI v1 negative cases — AbiHelloMessage', () => {
     test('round-trip via RuntimeCapabilitiesSchema preserves shape', () => {
         const parsed = RuntimeCapabilitiesSchema.parse(baseCaps);
         expect(parsed).toEqual(baseCaps);
+    });
+});
+
+describe('ABI v1 — OverlayAckMessage', () => {
+    const validAck = {
+        type: 'onlook:overlayAck' as const,
+        sessionId: 'sess-1',
+        overlayHash: 'abc123',
+        status: 'mounted' as const,
+        timestamp: 1700000000,
+    };
+
+    test('accepts minimal mounted ack (no mountDurationMs)', () => {
+        const parsed = OverlayAckMessageSchema.parse(validAck);
+        expect(parsed.status).toBe('mounted');
+        expect(parsed.mountDurationMs).toBeUndefined();
+    });
+
+    test('accepts optional mountDurationMs for eval-latency soak signal', () => {
+        // Phone populates this with `performance.now()` delta around the
+        // mount call. Phase 11b dashboard uses it to compute p95 eval
+        // latency against the ADR-0001 ≤100ms target.
+        const parsed = OverlayAckMessageSchema.parse({
+            ...validAck,
+            mountDurationMs: 42,
+        });
+        expect(parsed.mountDurationMs).toBe(42);
+    });
+
+    test('rejects negative mountDurationMs', () => {
+        expect(
+            OverlayAckMessageSchema.safeParse({
+                ...validAck,
+                mountDurationMs: -1,
+            }).success,
+        ).toBe(false);
+    });
+
+    test('backward compat: legacy phone binaries (no mountDurationMs) still pass', () => {
+        // This is the invariant that lets this field land before every
+        // phone binary populates it. If this test ever fails, the field
+        // has been accidentally made required, blocking the soft-launch.
+        const { mountDurationMs: _omit, ...legacyShape } = {
+            ...validAck,
+            mountDurationMs: 0,
+        };
+        expect(OverlayAckMessageSchema.safeParse(legacyShape).success).toBe(
+            true,
+        );
+    });
+
+    test('failed-status ack with an error + mountDurationMs is valid', () => {
+        // Phone populates mountDurationMs even on failure (time spent
+        // trying before the throw) — useful for "how long does it take
+        // to fail" distributions.
+        const parsed = OverlayAckMessageSchema.parse({
+            ...validAck,
+            status: 'failed',
+            mountDurationMs: 150,
+            error: { kind: 'overlay-runtime', message: 'TypeError' },
+        });
+        expect(parsed.status).toBe('failed');
+        expect(parsed.mountDurationMs).toBe(150);
     });
 });
