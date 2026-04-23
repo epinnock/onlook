@@ -9,7 +9,10 @@ import {
 } from '../../../../../../../packages/browser-bundler/src';
 
 import { pushOverlay, pushOverlayV1 } from '@/services/expo-relay/push-overlay';
-import { evaluatePushTelemetry } from '@/services/expo-relay/perf-guardrails';
+import {
+    evaluateBuildDuration,
+    evaluatePushTelemetry,
+} from '@/services/expo-relay/perf-guardrails';
 import {
     emitOverlayPerfGuardrail,
     emitOverlayPushTelemetry,
@@ -181,6 +184,15 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
             );
             const buildDurationMs = Date.now() - buildStartMs;
 
+            // Phase 11b soak: evaluate against the 1000ms build-slow
+            // threshold (ADR-0001 §"Performance envelope"). Emits a
+            // `build-slow` perf guardrail event when over budget. Uses
+            // the soak sink so the dashboard sees builds by pipeline —
+            // we don't yet know `useV1` at this exact line (the flag is
+            // read next), so `evaluateBuildDuration` runs AFTER the
+            // useV1 branch picks a pipeline tag below. This lets Q4-style
+            // segmentation work for build-slow too.
+
             // Task #89-#94 / ADR-0009 Phase 11a — flag-gated parallel v1 path.
             // When `NEXT_PUBLIC_MOBILE_PREVIEW_PIPELINE=overlay-v1` is set, the
             // editor emits a Hermes-safe ABI v1 envelope via wrapOverlayV1 and
@@ -188,6 +200,17 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
             // to the legacy path so Phase G's shipped simulator mount flow
             // keeps working until the flag is flipped (ADR-0009 Phase 11b).
             const useV1 = isMobilePreviewOverlayV1PipelineEnabled();
+
+            // Emit `build-slow` guardrail event via the soak sink so
+            // the Phase 11b dashboard can compare build-time by
+            // pipeline. Fires only when the build duration exceeds
+            // `BUILD_SLOW_MS` (1000ms); returns null otherwise.
+            evaluateBuildDuration(buildDurationMs, (perfEvent) =>
+                emitOverlayPerfGuardrail(
+                    useV1 ? 'overlay-v1' : 'overlay-legacy',
+                    perfEvent,
+                ),
+            );
 
             // Tasks #98-#100 — Pre-push size gate on the v1 branch. The
             // relay already rejects > 2MB bodies with 413, but surfacing the
