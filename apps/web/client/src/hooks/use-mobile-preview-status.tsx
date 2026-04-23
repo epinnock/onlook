@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { renderQrSvg } from '@/services/expo-relay';
+import type { RelayWsClient } from '@/services/expo-relay/relay-ws-client';
 import {
     buildMobilePreviewBundle,
     createMobilePreviewPipeline,
@@ -30,6 +31,8 @@ import {
     type MobilePreviewVfs,
 } from '@/services/mobile-preview';
 import { registerTwoTierEsbuildServiceFactory } from '@/services/mobile-preview/pipelines/two-tier';
+
+import { useRelayWsClient } from './use-relay-ws-client';
 
 import type { QrModalStatus } from '@/components/ui/qr-modal';
 
@@ -53,6 +56,17 @@ export interface UseMobilePreviewStatusResult {
     open: () => Promise<void>;
     close: () => void;
     retry: () => Promise<void>;
+    /**
+     * Relay WS client opened against `/hmr/:sessionId` when `status`
+     * is `'ready'` and a valid manifestUrl is available. Null
+     * otherwise. Exposed so dev-panel surfaces (MobileDevPanel,
+     * MobileOverlayAckTab) can tap `.snapshot()` for live data.
+     *
+     * Phase 11b Q5b eval-latency telemetry (`emitOverlayAckTelemetry`)
+     * fires as the default `onOverlayAck` handler — no additional
+     * wire-in needed for the PostHog soak signal to start flowing.
+     */
+    relayWsClient: RelayWsClient | null;
 }
 
 interface MobilePreviewStatusResponse {
@@ -306,5 +320,20 @@ export function useMobilePreviewStatus(
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [opts.fileSystem, opts.serverBaseUrl]);
 
-    return { status, isOpen, open, close, retry };
+    // Phase 9 Task A / ADR-0009 Q5b — open a RelayWsClient whenever
+    // the status is ready AND the modal is open. The hook is inert
+    // when `manifestUrl` is null (parseManifestUrl returns null on
+    // invalid input). `emitOverlayAckTelemetry` fires as the default
+    // ack handler, so Phase 11b PostHog signal flows for free with no
+    // additional wire-in. Gated on `isOpen` to avoid opening a
+    // long-lived WS in the background when the modal is closed.
+    const manifestUrlForRelay =
+        isOpen && status.kind === 'ready' && status.manifestUrl
+            ? status.manifestUrl
+            : null;
+    const { client: relayWsClient } = useRelayWsClient({
+        manifestUrl: manifestUrlForRelay,
+    });
+
+    return { status, isOpen, open, close, retry, relayWsClient };
 }
