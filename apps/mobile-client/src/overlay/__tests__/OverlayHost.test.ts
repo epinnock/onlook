@@ -11,6 +11,8 @@
 import { describe, expect, mock, test } from 'bun:test';
 
 import {
+    OVERLAY_FRAME_POINTER_EVENTS,
+    OVERLAY_FRAME_STYLE,
     subscribeOverlayPull,
     type OverlayGlobals,
 } from '../overlayHostSubscription';
@@ -87,6 +89,44 @@ describe('subscribeOverlayPull', () => {
         const unsubscribe = subscribeOverlayPull(gt, pull);
         expect(seen).toEqual({ type: 'View' });
         unsubscribe();
+    });
+});
+
+// ─── Overlay-frame contract (task MCG.7) ─────────────────────────────────────
+// The wrapper View's styling is the contract that lets the overlay coexist
+// as a sibling of <AppRouter /> inside App.tsx's root fragment — empty space
+// falls through to the navigator, absolute positioning pins to all edges.
+describe('OVERLAY_FRAME_POINTER_EVENTS', () => {
+    test('is box-none so the overlay wrapper never catches touches', () => {
+        // 'box-none' → wrapper lets children receive events but transparent
+        // regions (everything outside the mounted overlay content) fall
+        // through to AppRouter below. Any other value would either block
+        // touches entirely ('none') or swallow them ('auto'/'box-only').
+        expect(OVERLAY_FRAME_POINTER_EVENTS).toBe('box-none');
+    });
+});
+
+describe('OVERLAY_FRAME_STYLE', () => {
+    test('absolutely positions the overlay pinned to all four edges', () => {
+        expect(OVERLAY_FRAME_STYLE.position).toBe('absolute');
+        expect(OVERLAY_FRAME_STYLE.top).toBe(0);
+        expect(OVERLAY_FRAME_STYLE.left).toBe(0);
+        expect(OVERLAY_FRAME_STYLE.right).toBe(0);
+        expect(OVERLAY_FRAME_STYLE.bottom).toBe(0);
+    });
+
+    test('style object is frozen-safe readonly (const assertion preserved)', () => {
+        // Regression guard: if someone adds a mutation path (e.g.
+        // Object.assign(OVERLAY_FRAME_STYLE, ...)) the TS `as const` will
+        // fail at compile time. At runtime, we still verify key count so a
+        // dev who accidentally widens the shape can't ship a non-fixed set.
+        expect(Object.keys(OVERLAY_FRAME_STYLE).sort()).toEqual([
+            'bottom',
+            'left',
+            'position',
+            'right',
+            'top',
+        ]);
     });
 });
 

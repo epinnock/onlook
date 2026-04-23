@@ -27,3 +27,26 @@ export function subscribeOverlayPull(gt: OverlayGlobals, pull: () => void): () =
         gt._onlookOverlaySubscribers?.delete(pull);
     };
 }
+
+/**
+ * Frame contract — the View wrapper that lets the overlay coexist as a
+ * sibling of `<AppRouter />` inside `App.tsx`'s root fragment:
+ *
+ *   - `pointerEvents: "box-none"` means the wrapper itself never catches
+ *     touches; children (the overlay content) can still receive them while
+ *     any empty space falls through to the AppRouter screens behind.
+ *   - Absolute positioning pinned to all four edges means the overlay fills
+ *     the whole surface without pushing AppRouter content around.
+ *
+ * Exported as constants so bun:test can lock in the values without a
+ * React renderer. OverlayHost.tsx consumes them directly.
+ */
+export const OVERLAY_FRAME_POINTER_EVENTS = 'box-none' as const;
+
+export const OVERLAY_FRAME_STYLE = {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+} as const;

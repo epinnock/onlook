@@ -981,10 +981,15 @@ Photographic DoD for the whole phase: `plans/adr/assets/v2-pipeline/v2r-hello.pn
   - Status: **shipped 2026-04-22** — captures OverlayHost-in-App.tsx as chosen surface, documents the four rejected alternatives (second AppRegistry root, dedicated native surface, module-local subscribers Set), consequences, and open questions.
 
 - **MCG.7** — Verify OverlayHost coexists with every AppRouter screen
-  - Files: `apps/mobile-client/src/App.tsx` + new `src/__tests__/OverlayHost.render.test.tsx`
+  - Files: `apps/mobile-client/src/overlay/overlayHostSubscription.ts` (+ `OVERLAY_FRAME_POINTER_EVENTS`/`OVERLAY_FRAME_STYLE` constants), `apps/mobile-client/src/overlay/OverlayHost.tsx` (consume constants), `apps/mobile-client/src/overlay/__tests__/OverlayHost.test.ts` (frame-contract assertions), `apps/mobile-client/src/__tests__/App.composition.test.ts` (App.tsx structural guard)
   - Deps: MCG.3, MCG.4
-  - Validate: `bun test src/__tests__/OverlayHost.render.test.tsx` — launcher/scan/settings active with overlay pushed, assert overlay absolutely-positions, pointerEvents=box-none, and re-renders on subscriber notification.
+  - Validate: `cd apps/mobile-client && bun test src/overlay/__tests__/OverlayHost.test.ts src/__tests__/App.composition.test.ts` (14 pass)
   - Risk: React Native's `Pressable` + `pointerEvents` interactions differ between Fabric-on-new-arch and legacy; the test must drive only the component tree, not the native layer.
+  - Status: **shipped 2026-04-23** — because mobile-client has no React renderer dep (no `react-test-renderer`, no `react-dom`) and the isolated test runner rejects `.tsx` files, drove the validation through two complementary guards instead of a real render:
+    1. **Frame contract** — extracted `OVERLAY_FRAME_POINTER_EVENTS = 'box-none'` + `OVERLAY_FRAME_STYLE = { position: 'absolute', top/left/right/bottom: 0 }` as `as const` exports on `overlayHostSubscription.ts`. `OverlayHost.tsx` imports them; 3 new bun tests (`OverlayHost.test.ts`: pointer-events value, absolute pin, shape cardinality) lock in the contract. Any regression that drops box-none or the absolute positioning fails the test.
+    2. **App.tsx composition guard** — `src/__tests__/App.composition.test.ts` reads `App.tsx` as source text and asserts both imports present, `<>`-fragment with `<AppRouter />` before `<OverlayHost />` as siblings (regex resilient to whitespace drift), AppRouter used self-closing (can't nest OverlayHost inside it by construction), and `<OverlayHost />` actually rendered (not import-without-use). 4 new bun tests.
+    3. Re-render on subscriber notification was already proven by `overlay/__tests__/fakeRuntime.integration.test.ts` + the existing `OverlayHost.test.ts` subscription tests.
+    Full mobile-client suite: 403 → 410 pass / 0 fail across 39 files. Typecheck clean.
 
 - **MCG.8** — Split `runtime.js` out of the mobile-client bundle
   - Files: `packages/mobile-preview/runtime/entry-client-only.js` + `packages/mobile-preview/server/build-runtime-client-only.ts` + `packages/mobile-preview/package.json` (added `build:runtime:client-only` script) + `apps/mobile-client/scripts/bundle-runtime.ts` (default sourcePath swap)

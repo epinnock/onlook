@@ -3,10 +3,14 @@ import { View } from 'react-native';
 
 import type { OverlayGlobals } from './overlayHostSubscription';
 import { OverlayErrorBoundary } from './OverlayErrorBoundary';
-import { subscribeOverlayPull } from './overlayHostSubscription';
+import {
+    OVERLAY_FRAME_POINTER_EVENTS,
+    OVERLAY_FRAME_STYLE,
+    subscribeOverlayPull,
+} from './overlayHostSubscription';
 
 export type { OverlayGlobals };
-export { subscribeOverlayPull };
+export { OVERLAY_FRAME_POINTER_EVENTS, OVERLAY_FRAME_STYLE, subscribeOverlayPull };
 
 /**
  * OverlayHost — single React surface the two-tier v2 mount pipeline uses to
@@ -36,8 +40,8 @@ export function OverlayHost(): React.ReactElement | null {
     if (element === null || element === undefined) return null;
     return (
         <View
-            pointerEvents="box-none"
-            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+            pointerEvents={OVERLAY_FRAME_POINTER_EVENTS}
+            style={OVERLAY_FRAME_STYLE}
         >
             <OverlayErrorBoundary>{element as React.ReactElement}</OverlayErrorBoundary>
         </View>
