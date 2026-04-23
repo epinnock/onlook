@@ -16,9 +16,8 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 
-import type { PushOverlayTelemetry } from '../push-overlay';
 import type { PerfGuardrailEvent } from '../perf-guardrails';
-
+import type { PushOverlayTelemetry } from '../push-overlay';
 import {
     emitOverlayPerfGuardrail,
     emitOverlayPushTelemetry,
@@ -132,18 +131,14 @@ describe('emitOverlayPushTelemetry', () => {
             },
         };
         // Must not throw — the overlay push caller depends on this.
-        expect(() =>
-            emitOverlayPushTelemetry('overlay-v1', samplePush),
-        ).not.toThrow();
+        expect(() => emitOverlayPushTelemetry('overlay-v1', samplePush)).not.toThrow();
     });
 
     test('tolerates a non-posthog-shaped global', () => {
         (globalThis as unknown as Record<string, unknown>).posthog = {
             notCapture: 1,
         };
-        expect(() =>
-            emitOverlayPushTelemetry('overlay-v1', samplePush),
-        ).not.toThrow();
+        expect(() => emitOverlayPushTelemetry('overlay-v1', samplePush)).not.toThrow();
     });
 });
 
@@ -192,8 +187,6 @@ describe('emitOverlayPerfGuardrail', () => {
                 throw new Error('perf capture boom');
             },
         };
-        expect(() =>
-            emitOverlayPerfGuardrail('overlay-v1', warnEvent),
-        ).not.toThrow();
+        expect(() => emitOverlayPerfGuardrail('overlay-v1', warnEvent)).not.toThrow();
     });
 });

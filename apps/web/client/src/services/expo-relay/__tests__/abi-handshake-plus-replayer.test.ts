@@ -22,17 +22,12 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import type {
-    AbiHelloMessage,
-    RuntimeCapabilities,
-} from '@onlook/mobile-client-protocol';
 
+import type { AbiHelloMessage, RuntimeCapabilities } from '@onlook/mobile-client-protocol';
+
+import type { PushOverlayResult, PushOverlayV1Options } from '../push-overlay';
 import { startEditorAbiHandshake } from '../abi-hello';
 import { createReconnectReplayer } from '../reconnect-replayer';
-import type {
-    PushOverlayResult,
-    PushOverlayV1Options,
-} from '../push-overlay';
 
 const baseCaps: RuntimeCapabilities = {
     abi: 'v1',

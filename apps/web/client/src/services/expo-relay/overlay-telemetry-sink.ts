@@ -24,8 +24,8 @@
  *    files that `mock.module` the sink itself without touching posthog.
  */
 
-import type { PushOverlayTelemetry } from './push-overlay';
 import type { PerfGuardrailEvent } from './perf-guardrails';
+import type { PushOverlayTelemetry } from './push-overlay';
 
 export type OverlayPipelineTag = 'overlay-v1' | 'overlay-legacy';
 
@@ -42,8 +42,7 @@ function resolvePostHog(): PostHogLike | null {
         // PostHogProvider assigns `posthog` onto the global object indirectly
         // via posthog-js's own `init`. Access through globalThis so SSR,
         // test contexts, and browser contexts all go through the same path.
-        const candidate = (globalThis as unknown as { posthog?: unknown })
-            .posthog;
+        const candidate = (globalThis as unknown as { posthog?: unknown }).posthog;
         if (
             candidate &&
             typeof candidate === 'object' &&
@@ -74,11 +73,7 @@ function captureSafely(event: string, props: Record<string, unknown>): void {
  * pre-existing `DEFAULT_TELEMETRY` in `push-overlay.ts` so dev-time
  * visibility is unchanged when PostHog is absent.
  */
-function logPushEvent(
-    pipeline: OverlayPipelineTag,
-    event: PushOverlayTelemetry,
-): void {
-    // eslint-disable-next-line no-console
+function logPushEvent(pipeline: OverlayPipelineTag, event: PushOverlayTelemetry): void {
     console.info('[onlook.push-overlay]', { pipeline, ...event });
 }
 
@@ -116,10 +111,8 @@ export function emitOverlayPerfGuardrail(
     event: PerfGuardrailEvent,
 ): void {
     if (event.severity === 'warn') {
-        // eslint-disable-next-line no-console
         console.warn('[onlook.perf]', { pipeline, ...event });
     } else {
-        // eslint-disable-next-line no-console
         console.info('[onlook.perf]', { pipeline, ...event });
     }
     captureSafely(OVERLAY_PERF_EVENT, {
