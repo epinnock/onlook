@@ -15,6 +15,7 @@ import { startTwoTierBootstrap } from '../flow/twoTierBootstrap';
 class FakeDispatcher {
     started = 0;
     stopped = 0;
+    readonly sent: unknown[] = [];
     private readonly listeners = new Set<OverlayListener>();
 
     constructor(readonly id: string) {}
@@ -25,6 +26,10 @@ class FakeDispatcher {
     stop(): void {
         this.stopped += 1;
         this.listeners.clear();
+    }
+    send(payload: unknown): boolean {
+        this.sent.push(payload);
+        return true;
     }
     onOverlay(listener: OverlayListener): () => void {
         this.listeners.add(listener);

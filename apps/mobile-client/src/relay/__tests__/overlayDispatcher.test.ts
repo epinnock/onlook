@@ -20,6 +20,8 @@ class MockSocket {
 
     readyState = MockSocket.OPEN;
     closedCount = 0;
+    readonly sent: string[] = [];
+    sendThrow: Error | null = null;
 
     private readonly listeners = new Map<string, Array<(event: { data?: unknown }) => void>>();
 
@@ -33,6 +35,11 @@ class MockSocket {
         this.closedCount += 1;
         this.readyState = MockSocket.CLOSED;
         this.emit('close');
+    }
+
+    send(payload: string): void {
+        if (this.sendThrow) throw this.sendThrow;
+        this.sent.push(payload);
     }
 
     emit(type: string, data?: unknown): void {
@@ -179,5 +186,58 @@ describe('resolveHmrSessionUrl', () => {
 
     test('URL-encodes session ids with special characters', () => {
         expect(resolveHmrSessionUrl('ws://r', 'a b/c')).toBe('ws://r/hmr/a%20b%2Fc');
+    });
+});
+
+describe('OverlayDispatcher.send', () => {
+    test('returns false when dispatcher is not started', () => {
+        const { dispatcher } = createDispatcher();
+        expect(dispatcher.send({ type: 'onlook:overlayAck' })).toBe(false);
+    });
+
+    test('JSON-stringifies objects and writes to socket', () => {
+        const { dispatcher, socket } = createDispatcher();
+        dispatcher.start();
+        const ok = dispatcher.send({
+            type: 'onlook:overlayAck',
+            sessionId: 's',
+            overlayHash: 'h',
+            status: 'mounted',
+            timestamp: 1,
+        });
+        expect(ok).toBe(true);
+        expect(socket.sent.length).toBe(1);
+        const parsed = JSON.parse(socket.sent[0] ?? '{}');
+        expect(parsed.type).toBe('onlook:overlayAck');
+        expect(parsed.status).toBe('mounted');
+    });
+
+    test('passes string payloads through verbatim', () => {
+        const { dispatcher, socket } = createDispatcher();
+        dispatcher.start();
+        dispatcher.send('raw-string');
+        expect(socket.sent).toEqual(['raw-string']);
+    });
+
+    test('returns false when socket is not OPEN', () => {
+        const { dispatcher, socket } = createDispatcher();
+        dispatcher.start();
+        socket.readyState = 2; // CLOSING
+        expect(dispatcher.send({})).toBe(false);
+        expect(socket.sent.length).toBe(0);
+    });
+
+    test('returns false when socket.send throws', () => {
+        const { dispatcher, socket } = createDispatcher();
+        dispatcher.start();
+        socket.sendThrow = new Error('boom');
+        expect(dispatcher.send({})).toBe(false);
+    });
+
+    test('returns false after stop() closes the socket', () => {
+        const { dispatcher } = createDispatcher();
+        dispatcher.start();
+        dispatcher.stop();
+        expect(dispatcher.send({})).toBe(false);
     });
 });

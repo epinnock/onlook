@@ -97,13 +97,36 @@ export function startTwoTierBootstrap(options: TwoTierBootstrapOptions): TwoTier
         ? options.createDispatcher(hmrUrl)
         : new OverlayDispatcher(hmrUrl);
 
+    // phone→editor ack. HmrSession's onMessage whitelists `onlook:overlayAck`
+    // in ONLOOK_OBSERVABILITY_TYPES and fans it out to the editor's socket.
+    // Bridgeless iOS 18.6's WS receive-side is dead (ADR finding #8); send-
+    // side TCP write works, so this is the supported ack path from device.
+    const sendAck = (msg: { code: string }, status: 'mounted' | 'failed', errorMessage?: string): void => {
+        const overlayHash = `legacy-${msg.code.length}`;
+        const ack: Record<string, unknown> = {
+            type: 'onlook:overlayAck',
+            sessionId: options.sessionId,
+            overlayHash,
+            status,
+            timestamp: Date.now(),
+        };
+        if (errorMessage !== undefined) {
+            ack.error = { kind: 'mount-threw', message: errorMessage };
+        }
+        const sent = dispatcher.send(ack);
+        log(`overlayAck ${status} sent=${sent} hash=${overlayHash}`);
+    };
+
     const mount: OverlayListener = (msg) => {
         const explicit = options.mountOverlay;
         if (typeof explicit === 'function') {
             try {
                 explicit(msg.code);
+                sendAck(msg, 'mounted');
             } catch (err) {
-                log(`mount threw: ${err instanceof Error ? err.message : String(err)}`);
+                const message = err instanceof Error ? err.message : String(err);
+                log(`mount threw: ${message}`);
+                sendAck(msg, 'failed', message);
             }
             return;
         }
@@ -111,8 +134,11 @@ export function startTwoTierBootstrap(options: TwoTierBootstrapOptions): TwoTier
         if (typeof reloadBundle === 'function') {
             try {
                 reloadBundle(msg.code);
+                sendAck(msg, 'mounted');
             } catch (err) {
-                log(`reloadBundle threw: ${err instanceof Error ? err.message : String(err)}`);
+                const message = err instanceof Error ? err.message : String(err);
+                log(`reloadBundle threw: ${message}`);
+                sendAck(msg, 'failed', message);
             }
             return;
         }

@@ -8,6 +8,8 @@ class FakeDispatcher {
     started = 0;
     stopped = 0;
     unsubscribedCount = 0;
+    readonly sent: unknown[] = [];
+    sendShouldFail = false;
     private listeners = new Set<OverlayListener>();
 
     start(): void {
@@ -16,6 +18,12 @@ class FakeDispatcher {
 
     stop(): void {
         this.stopped += 1;
+    }
+
+    send(payload: unknown): boolean {
+        if (this.sendShouldFail) return false;
+        this.sent.push(payload);
+        return true;
     }
 
     onOverlay(listener: OverlayListener): () => void {
@@ -163,6 +171,111 @@ describe('startTwoTierBootstrap', () => {
         } finally {
             globalThis.OnlookRuntime = priorRuntime;
         }
+    });
+
+    test('sends onlook:overlayAck with status=mounted after successful explicit mount', () => {
+        const fake = new FakeDispatcher();
+        const beforeSend = Date.now();
+        startTwoTierBootstrap({
+            sessionId: 'sess-ok',
+            relayUrl: 'ws://relay',
+            enabled: true,
+            createDispatcher: () => fake as unknown as OverlayDispatcher,
+            mountOverlay: () => {
+                /* succeed */
+            },
+        });
+        fake.emit('bundle-body-42-bytes-of-code-here-ok');
+        expect(fake.sent.length).toBe(1);
+        const ack = fake.sent[0] as {
+            type: string;
+            sessionId: string;
+            overlayHash: string;
+            status: string;
+            timestamp: number;
+        };
+        expect(ack.type).toBe('onlook:overlayAck');
+        expect(ack.sessionId).toBe('sess-ok');
+        expect(ack.status).toBe('mounted');
+        expect(ack.overlayHash).toBe(`legacy-${'bundle-body-42-bytes-of-code-here-ok'.length}`);
+        expect(ack.timestamp).toBeGreaterThanOrEqual(beforeSend);
+    });
+
+    test('sends onlook:overlayAck with status=failed when explicit mount throws', () => {
+        const fake = new FakeDispatcher();
+        startTwoTierBootstrap({
+            sessionId: 'sess-err',
+            relayUrl: 'ws://relay',
+            enabled: true,
+            createDispatcher: () => fake as unknown as OverlayDispatcher,
+            mountOverlay: () => {
+                throw new Error('mount boom');
+            },
+        });
+        fake.emit('payload');
+        expect(fake.sent.length).toBe(1);
+        const ack = fake.sent[0] as {
+            status: string;
+            error?: { kind: string; message: string };
+        };
+        expect(ack.status).toBe('failed');
+        expect(ack.error?.message).toBe('mount boom');
+    });
+
+    test('sends ack via OnlookRuntime.reloadBundle path on success', () => {
+        const fake = new FakeDispatcher();
+        const priorRuntime = globalThis.OnlookRuntime;
+        globalThis.OnlookRuntime = {
+            reloadBundle: () => undefined,
+        };
+        try {
+            startTwoTierBootstrap({
+                sessionId: 'sess',
+                relayUrl: 'ws://relay',
+                enabled: true,
+                createDispatcher: () => fake as unknown as OverlayDispatcher,
+            });
+            fake.emit('some-bundle-code');
+            expect(fake.sent.length).toBe(1);
+            expect((fake.sent[0] as { status: string }).status).toBe('mounted');
+        } finally {
+            globalThis.OnlookRuntime = priorRuntime;
+        }
+    });
+
+    test('does NOT send ack when no mount path is available (runtime not booted)', () => {
+        const fake = new FakeDispatcher();
+        const priorRuntime = globalThis.OnlookRuntime;
+        globalThis.OnlookRuntime = undefined;
+        try {
+            startTwoTierBootstrap({
+                sessionId: 'sess',
+                relayUrl: 'ws://relay',
+                enabled: true,
+                createDispatcher: () => fake as unknown as OverlayDispatcher,
+            });
+            fake.emit('code');
+            expect(fake.sent.length).toBe(0);
+        } finally {
+            globalThis.OnlookRuntime = priorRuntime;
+        }
+    });
+
+    test('ack survives when dispatcher.send reports failure (no throw, logs)', () => {
+        const fake = new FakeDispatcher();
+        fake.sendShouldFail = true;
+        const logs: string[] = [];
+        startTwoTierBootstrap({
+            sessionId: 'sess',
+            relayUrl: 'ws://relay',
+            enabled: true,
+            createDispatcher: () => fake as unknown as OverlayDispatcher,
+            mountOverlay: () => undefined,
+            log: (m) => logs.push(m),
+        });
+        expect(() => fake.emit('code')).not.toThrow();
+        expect(fake.sent.length).toBe(0);
+        expect(logs.some((l) => l.includes('sent=false'))).toBe(true);
     });
 
     test('starts overlay-ack poll with the same session / relay', () => {

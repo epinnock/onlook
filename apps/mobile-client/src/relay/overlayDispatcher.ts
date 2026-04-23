@@ -90,6 +90,27 @@ export class OverlayDispatcher {
         }
     }
 
+    /**
+     * Write a payload to the HmrSession socket (phone → editor direction).
+     * TCP send works on bridgeless iOS 18.6 even though receive-side event
+     * dispatch is broken (ADR finding #8), so this is the supported path
+     * for `onlook:overlayAck` and sibling observability messages.
+     *
+     * Returns `true` if the frame was handed to the socket. `false` when
+     * the dispatcher isn't started or the socket isn't in OPEN state —
+     * callers can drop the ack silently in that case.
+     */
+    send(payload: unknown): boolean {
+        const ws = this.socket;
+        if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+        try {
+            ws.send(typeof payload === 'string' ? payload : JSON.stringify(payload));
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
     onOverlay(listener: OverlayListener): () => void {
         this.listeners.add(listener);
         return () => {
