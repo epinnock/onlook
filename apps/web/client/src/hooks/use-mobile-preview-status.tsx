@@ -137,7 +137,16 @@ export function useMobilePreviewStatus(
             }
 
             const qrSvg = await renderQrSvg(body.manifestUrl);
-            setStatus({ kind: 'ready', manifestUrl: body.manifestUrl, qrSvg });
+            // Shim path doesn't mint Onlook deep-links the way the
+            // two-tier pipeline does — the manifest URL IS what the phone
+            // scans / opens. Pass it as onlookUrl so the QrModalBody's
+            // "Copy Onlook URL" button copies the scannable URL.
+            setStatus({
+                kind: 'ready',
+                manifestUrl: body.manifestUrl,
+                onlookUrl: body.manifestUrl,
+                qrSvg,
+            });
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             setStatus({
