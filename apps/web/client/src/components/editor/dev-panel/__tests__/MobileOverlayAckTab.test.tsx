@@ -11,6 +11,7 @@ import {
     MobileOverlayAckRow,
     MobileOverlayAckTab,
     filterOverlayAcks,
+    summarizeAcks,
 } from '../MobileOverlayAckTab';
 
 function makeAck(
@@ -217,5 +218,134 @@ describe('MobileOverlayAckTab', () => {
         const markup = renderToStaticMarkup(<MobileOverlayAckRow ack={ack} />);
         expect(markup).toContain('43ms');
         expect(markup).not.toContain('42.7');
+    });
+});
+
+describe('summarizeAcks', () => {
+    test('empty input returns zero counts + null durations', () => {
+        const summary = summarizeAcks([]);
+        expect(summary).toEqual({
+            count: 0,
+            mountedCount: 0,
+            failedCount: 0,
+            meanMountDurationMs: null,
+            p95MountDurationMs: null,
+            overBudgetCount: 0,
+        });
+    });
+
+    test('counts status per ack', () => {
+        const acks = [
+            makeAck({ status: 'mounted' }),
+            makeAck({ status: 'mounted' }),
+            makeAck({ status: 'failed' }),
+        ];
+        const summary = summarizeAcks(acks);
+        expect(summary.count).toBe(3);
+        expect(summary.mountedCount).toBe(2);
+        expect(summary.failedCount).toBe(1);
+    });
+
+    test('computes mean mountDurationMs across acks that populate it', () => {
+        const acks = [
+            makeAck({ mountDurationMs: 30 }),
+            makeAck({ mountDurationMs: 40 }),
+            makeAck({ mountDurationMs: 50 }),
+            makeAck(), // no mountDurationMs — excluded from mean
+        ];
+        const summary = summarizeAcks(acks);
+        expect(summary.meanMountDurationMs).toBe(40);
+    });
+
+    test('skips mean + p95 when no ack has mountDurationMs', () => {
+        const acks = [makeAck(), makeAck()];
+        const summary = summarizeAcks(acks);
+        expect(summary.meanMountDurationMs).toBeNull();
+        expect(summary.p95MountDurationMs).toBeNull();
+    });
+
+    test('p95 selects the high-end sample correctly for small n', () => {
+        // 20 samples → ceil(20 * 0.95) - 1 = 18 → sorted[18] is the 19th
+        const acks: OverlayAckMessage[] = [];
+        for (let i = 1; i <= 20; i += 1) {
+            acks.push(makeAck({ mountDurationMs: i * 10 }));
+        }
+        const summary = summarizeAcks(acks);
+        // 10, 20, 30, ..., 200 sorted; index 18 is 190.
+        expect(summary.p95MountDurationMs).toBe(190);
+    });
+
+    test('overBudgetCount reflects acks over the 100ms target', () => {
+        const summary = summarizeAcks([
+            makeAck({ mountDurationMs: 50 }),
+            makeAck({ mountDurationMs: 150 }),
+            makeAck({ mountDurationMs: 200 }),
+            makeAck({ mountDurationMs: 95 }),
+        ]);
+        expect(summary.overBudgetCount).toBe(2);
+    });
+
+    test('custom evalLatencyTargetMs overrides the default 100', () => {
+        const summary = summarizeAcks(
+            [
+                makeAck({ mountDurationMs: 45 }),
+                makeAck({ mountDurationMs: 55 }),
+            ],
+            { evalLatencyTargetMs: 50 },
+        );
+        expect(summary.overBudgetCount).toBe(1);
+    });
+});
+
+describe('MobileOverlayAckTab summary row', () => {
+    test('renders count + mounted count when there are acks', () => {
+        const markup = renderToStaticMarkup(
+            <MobileOverlayAckTab acks={[makeAck(), makeAck()]} />,
+        );
+        expect(markup).toContain('mobile-overlay-ack-summary');
+        expect(markup).toContain('2 acks');
+        expect(markup).toContain('2 mounted');
+    });
+
+    test('hides failed-count block when there are no failures', () => {
+        const markup = renderToStaticMarkup(
+            <MobileOverlayAckTab acks={[makeAck()]} />,
+        );
+        expect(markup).not.toContain('mobile-overlay-ack-summary-failed');
+    });
+
+    test('shows p95 when mountDurationMs present, under-budget colored neutral', () => {
+        const markup = renderToStaticMarkup(
+            <MobileOverlayAckTab
+                acks={[
+                    makeAck({ mountDurationMs: 40 }),
+                    makeAck({ mountDurationMs: 60 }),
+                ]}
+            />,
+        );
+        expect(markup).toContain('mobile-overlay-ack-summary-p95');
+        expect(markup).toContain('p95 60ms');
+    });
+
+    test('p95 > 100ms renders amber', () => {
+        const markup = renderToStaticMarkup(
+            <MobileOverlayAckTab
+                acks={[makeAck({ mountDurationMs: 250 })]}
+            />,
+        );
+        expect(markup).toContain('p95 250ms');
+        expect(markup).toContain('text-amber-400');
+    });
+
+    test('over-budget count surfaces when > 0', () => {
+        const markup = renderToStaticMarkup(
+            <MobileOverlayAckTab
+                acks={[
+                    makeAck({ mountDurationMs: 200 }),
+                    makeAck({ mountDurationMs: 250 }),
+                ]}
+            />,
+        );
+        expect(markup).toContain('2 over budget');
     });
 });

@@ -169,12 +169,81 @@ export function MobileOverlayAckRow({ ack }: MobileOverlayAckRowProps) {
     );
 }
 
+/**
+ * Aggregate stats over a filtered `OverlayAckMessage[]` for the
+ * dev-panel summary footer and anyone else who wants a pure
+ * computation (e.g. inline assertions in tests). Mirrors the
+ * Phase 11b dashboard Q5b signal locally so devs without PostHog
+ * access can still eyeball mount-latency behavior.
+ *
+ * Returns null for p95/mean fields when no ack in the set carries a
+ * populated `mountDurationMs` — keeps the type clean instead of
+ * returning 0 which would be misleading.
+ */
+export interface OverlayAckSummary {
+    readonly count: number;
+    readonly mountedCount: number;
+    readonly failedCount: number;
+    readonly meanMountDurationMs: number | null;
+    readonly p95MountDurationMs: number | null;
+    readonly overBudgetCount: number;
+}
+
+export function summarizeAcks(
+    acks: ReadonlyArray<OverlayAckMessage>,
+    opts: { evalLatencyTargetMs?: number } = {},
+): OverlayAckSummary {
+    const evalTarget = opts.evalLatencyTargetMs ?? 100;
+    let mountedCount = 0;
+    let failedCount = 0;
+    let overBudgetCount = 0;
+    const durations: number[] = [];
+    for (const ack of acks) {
+        if (ack.status === 'mounted') mountedCount += 1;
+        else if (ack.status === 'failed') failedCount += 1;
+        if (typeof ack.mountDurationMs === 'number') {
+            durations.push(ack.mountDurationMs);
+            if (ack.mountDurationMs > evalTarget) overBudgetCount += 1;
+        }
+    }
+    if (durations.length === 0) {
+        return {
+            count: acks.length,
+            mountedCount,
+            failedCount,
+            meanMountDurationMs: null,
+            p95MountDurationMs: null,
+            overBudgetCount: 0,
+        };
+    }
+    const mean =
+        durations.reduce((a, b) => a + b, 0) / durations.length;
+    // p95: ceil(n * 0.95) - 1 index in the sorted list (1-indexed p95 in
+    // common statistical software). For small n this overshoots toward
+    // the high end; that's fine for a dev-time summary.
+    const sorted = [...durations].sort((a, b) => a - b);
+    const p95Index = Math.min(
+        sorted.length - 1,
+        Math.ceil(sorted.length * 0.95) - 1,
+    );
+    const p95 = sorted[Math.max(0, p95Index)]!;
+    return {
+        count: acks.length,
+        mountedCount,
+        failedCount,
+        meanMountDurationMs: mean,
+        p95MountDurationMs: p95,
+        overBudgetCount,
+    };
+}
+
 export function MobileOverlayAckTab({
     acks,
     sessionId,
     className,
 }: MobileOverlayAckTabProps) {
     const entries = useMemo(() => filterOverlayAcks(acks, sessionId), [acks, sessionId]);
+    const summary = useMemo(() => summarizeAcks(entries), [entries]);
 
     const scrollRef = useRef<HTMLDivElement>(null);
     const [pinned, setPinned] = useState(true);
@@ -217,6 +286,61 @@ export function MobileOverlayAckTab({
                 className,
             )}
         >
+            <div
+                data-testid="mobile-overlay-ack-summary"
+                className="sticky top-0 z-10 flex items-center gap-2 border-b border-neutral-800/80 bg-neutral-950/95 px-3 py-1 font-mono text-[10px] text-neutral-400 backdrop-blur"
+            >
+                <span data-testid="mobile-overlay-ack-summary-count">
+                    {summary.count} ack{summary.count === 1 ? '' : 's'}
+                </span>
+                <span className="text-neutral-600">·</span>
+                <span
+                    data-testid="mobile-overlay-ack-summary-mounted"
+                    className="text-emerald-400"
+                >
+                    {summary.mountedCount} mounted
+                </span>
+                {summary.failedCount > 0 ? (
+                    <>
+                        <span className="text-neutral-600">·</span>
+                        <span
+                            data-testid="mobile-overlay-ack-summary-failed"
+                            className="text-red-400"
+                        >
+                            {summary.failedCount} failed
+                        </span>
+                    </>
+                ) : null}
+                {summary.p95MountDurationMs !== null ? (
+                    <>
+                        <span className="text-neutral-600">·</span>
+                        <span
+                            data-testid="mobile-overlay-ack-summary-p95"
+                            title="p95 mountDurationMs across acks with the field populated. ADR-0001 target is ≤100ms."
+                            className={cn(
+                                'tabular-nums',
+                                summary.p95MountDurationMs > 100
+                                    ? 'text-amber-400'
+                                    : 'text-neutral-400',
+                            )}
+                        >
+                            p95 {Math.round(summary.p95MountDurationMs)}ms
+                        </span>
+                    </>
+                ) : null}
+                {summary.overBudgetCount > 0 ? (
+                    <>
+                        <span className="text-neutral-600">·</span>
+                        <span
+                            data-testid="mobile-overlay-ack-summary-over-budget"
+                            title="Mounts that exceeded the 100ms eval-latency budget."
+                            className="text-amber-400"
+                        >
+                            {summary.overBudgetCount} over budget
+                        </span>
+                    </>
+                ) : null}
+            </div>
             {entries.map((ack, idx) => (
                 <MobileOverlayAckRow key={`${ack.overlayHash}-${idx}`} ack={ack} />
             ))}
