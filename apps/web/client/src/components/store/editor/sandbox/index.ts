@@ -466,14 +466,22 @@ export class SandboxManager {
                 return null;
             }
 
-            // Read each file's content
+            // Read each file's content. Match the current code-provider types:
+            //   - ListFilesOutputFile exposes `name` (not `path`); since this
+            //     listFiles call is scoped to the root (`path: '.'`), the
+            //     file's full path is just its name. Nested directories are
+            //     silently skipped by the `file.type === 'file'` gate.
+            //   - ReadFileOutput is `{ file: ReadFileOutputFile }` (not a
+            //     top-level `content`). Call `.toString()` to materialize
+            //     the text content (SandboxFile's text/binary union).
             const fileContents: Array<{ path: string; content: string }> = [];
             for (const file of files) {
                 if (file.type === 'file') {
                     try {
-                        const { content } = await this.session.provider.readFile({ args: { path: file.path } });
-                        if (content) {
-                            fileContents.push({ path: file.path, content });
+                        const { file: readFile } = await this.session.provider.readFile({ args: { path: file.name } });
+                        if (readFile) {
+                            const content = readFile.toString();
+                            fileContents.push({ path: file.name, content });
                         }
                     } catch {
                         // Skip files that can't be read
