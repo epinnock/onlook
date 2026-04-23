@@ -230,10 +230,15 @@ export const branchRouter = createTRPCRouter({
                 projectId: z.string().uuid(),
                 branchName: z.string().optional(),
                 framePosition: z.object({
-                    x: z.number(),
-                    y: z.number(),
-                    width: z.number(),
-                    height: z.number(),
+                    // `.finite()` rejects NaN + ±Infinity; `.nonnegative()`
+                    // on width/height rejects degenerate frames. Guards the
+                    // tRPC boundary from a caller that sends garbage
+                    // numerics — prevents DB rows with Infinity in the
+                    // frame columns.
+                    x: z.number().finite(),
+                    y: z.number().finite(),
+                    width: z.number().finite().nonnegative(),
+                    height: z.number().finite().nonnegative(),
                 }).optional(),
             }),
         )
