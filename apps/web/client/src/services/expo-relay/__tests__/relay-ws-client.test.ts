@@ -319,6 +319,80 @@ describe('RelayWsClient — reconnect', () => {
     });
 });
 
+describe('RelayWsClient — reconnect-replay (task #82)', () => {
+    test('HmrSession-style replay payload on the fresh socket is ingested normally', () => {
+        // Simulates: WS closes → RelayWsClient's backoff fires → second
+        // connection opens → server immediately replays the last overlay
+        // payload via the new socket (HmrSession.replayLastOverlay). The
+        // client should surface it through onAny / onOverlayAck just like
+        // any other push.
+        const sockets: MockWebSocket[] = [];
+        const timer = makeTimer();
+        const acks: unknown[] = [];
+        const c = new RelayWsClient({
+            relayBaseUrl: 'ws://relay',
+            sessionId: 's-replay',
+            onAny: (m) => acks.push(m),
+            setTimeout: timer.setTimeoutFn,
+            clearTimeout: timer.clearTimeoutFn,
+            createSocket: (url) => {
+                const s = new MockWebSocket(url);
+                sockets.push(s);
+                return s as unknown as WebSocket;
+            },
+            reconnectMinMs: 50,
+        });
+        // Initial connection + first push.
+        sockets[0]!.fire('open');
+        sockets[0]!.fire(
+            'message',
+            JSON.stringify({
+                ...validAck,
+                overlayHash: 'h-first',
+            }),
+        );
+        // Server disconnects (DO eviction, worker redeploy, etc.).
+        sockets[0]!.fire('close');
+        // Backoff fires, second connection opens, server replays latest.
+        timer.runNext();
+        expect(sockets.length).toBe(2);
+        sockets[1]!.fire('open');
+        sockets[1]!.fire(
+            'message',
+            JSON.stringify({
+                ...validAck,
+                overlayHash: 'h-replay',
+            }),
+        );
+        expect(c.snapshot().acks.map((a) => a.overlayHash)).toEqual(['h-first', 'h-replay']);
+        c.disconnect();
+    });
+
+    test('messages received on a stale socket after close() are dropped', () => {
+        const sockets: MockWebSocket[] = [];
+        const timer = makeTimer();
+        const c = new RelayWsClient({
+            relayBaseUrl: 'ws://relay',
+            sessionId: 's',
+            setTimeout: timer.setTimeoutFn,
+            clearTimeout: timer.clearTimeoutFn,
+            createSocket: (url) => {
+                const s = new MockWebSocket(url);
+                sockets.push(s);
+                return s as unknown as WebSocket;
+            },
+        });
+        sockets[0]!.fire('open');
+        sockets[0]!.fire('close');
+        // Fire a message on the now-unsubscribed socket — should not reach
+        // the buffer since `subscribeRelayEvents.cancel()` removed the
+        // listener on close.
+        sockets[0]!.fire('message', JSON.stringify(validAck));
+        expect(c.snapshot().messages.length).toBe(0);
+        c.disconnect();
+    });
+});
+
 describe('RelayWsClient — disconnect idempotence + side-effect cleanup', () => {
     test('disconnect closes the socket exactly once', () => {
         let ref: MockWebSocket | null = null;

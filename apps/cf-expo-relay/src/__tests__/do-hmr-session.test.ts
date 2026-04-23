@@ -390,3 +390,116 @@ describe('HmrSession durable storage persistence', () => {
         expect(pair.server.sent).toEqual([JSON.stringify(payload)]);
     });
 });
+
+describe('HmrSession overlayUpdate (v1) — multi-client + disconnect (task #76)', () => {
+    function makeValidOverlayUpdate(src = 'module.exports = { default: () => null };') {
+        return {
+            type: 'overlayUpdate' as const,
+            abi: 'v1' as const,
+            sessionId: 'sess-76',
+            source: src,
+            assets: { abi: 'v1' as const, assets: {} },
+            meta: {
+                overlayHash: 'b'.repeat(64),
+                entryModule: 0 as const,
+                buildDurationMs: 5,
+            },
+        };
+    }
+
+    async function postOverlayV1(
+        session: InstanceType<HmrSessionModule['HmrSession']>,
+        body: object | string,
+    ): Promise<Response> {
+        return session.fetch(
+            new Request('https://hmr-relay.dev.workers.dev/push', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: typeof body === 'string' ? body : JSON.stringify(body),
+            }),
+        );
+    }
+
+    test('POST /push with overlayUpdate fans out to every connected phone socket', async () => {
+        const session = makeSession();
+        const a = await openSocket(session);
+        const b = await openSocket(session);
+        const c = await openSocket(session);
+
+        const payload = makeValidOverlayUpdate();
+        const resp = await postOverlayV1(session, payload);
+        expect(resp.status).toBe(202);
+        const body = (await resp.json()) as { delivered: number };
+        expect(body.delivered).toBe(3);
+
+        const expected = JSON.stringify(payload);
+        expect(a.server.sent).toEqual([expected]);
+        expect(b.server.sent).toEqual([expected]);
+        expect(c.server.sent).toEqual([expected]);
+    });
+
+    test('Socket that fires "close" is removed from subsequent fan-outs', async () => {
+        const session = makeSession();
+        const a = await openSocket(session);
+        const b = await openSocket(session);
+        a.server.emit('close');
+
+        const payload = makeValidOverlayUpdate('module.exports = { x: 1 };');
+        const resp = await postOverlayV1(session, payload);
+        const body = (await resp.json()) as { delivered: number };
+        expect(body.delivered).toBe(1);
+
+        expect(a.server.sent).toEqual([]); // closed — never received
+        expect(b.server.sent).toEqual([JSON.stringify(payload)]);
+    });
+
+    test('Socket that fires "error" is removed from subsequent fan-outs', async () => {
+        const session = makeSession();
+        const a = await openSocket(session);
+        const b = await openSocket(session);
+        a.server.emit('error');
+
+        const payload = makeValidOverlayUpdate('module.exports = { e: 2 };');
+        await postOverlayV1(session, payload);
+        expect(a.server.sent).toEqual([]);
+        expect(b.server.sent).toEqual([JSON.stringify(payload)]);
+    });
+
+    test('Phone socket that transitions to non-OPEN readyState is skipped', async () => {
+        const session = makeSession();
+        const a = await openSocket(session);
+        const b = await openSocket(session);
+        a.server.readyState = 3; // CLOSED but we don't fire 'close'
+
+        const payload = makeValidOverlayUpdate('module.exports = { r: 3 };');
+        const resp = await postOverlayV1(session, payload);
+        const body = (await resp.json()) as { delivered: number };
+        expect(body.delivered).toBe(1);
+        expect(a.server.sent).toEqual([]);
+        expect(b.server.sent).toEqual([JSON.stringify(payload)]);
+    });
+
+    test('Late-joining phone gets the persisted overlay v1 via replay', async () => {
+        const session = makeSession();
+        const early = await openSocket(session);
+        const payload = makeValidOverlayUpdate('module.exports = { replay: 4 };');
+        await postOverlayV1(session, payload);
+        expect(early.server.sent).toEqual([JSON.stringify(payload)]);
+
+        // Late joiner — should receive the v1 payload immediately via
+        // replayLastOverlay (not the legacy overlay shape).
+        const late = await openSocket(session);
+        expect(late.server.sent).toEqual([JSON.stringify(payload)]);
+    });
+
+    test('New v1 payload overwrites prior v1 payload; late joiners see the newer one', async () => {
+        const session = makeSession();
+        const first = makeValidOverlayUpdate('module.exports = { v: 1 };');
+        const second = makeValidOverlayUpdate('module.exports = { v: 2 };');
+        await postOverlayV1(session, first);
+        await postOverlayV1(session, second);
+
+        const late = await openSocket(session);
+        expect(late.server.sent).toEqual([JSON.stringify(second)]);
+    });
+});
