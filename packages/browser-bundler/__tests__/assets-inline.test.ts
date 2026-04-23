@@ -3,14 +3,16 @@ import { describe, expect, test } from 'bun:test';
 import {
     createAssetsInlinePlugin,
     createInlineAssetModule,
+    hasBypassQuery,
     inferAssetMimeType,
+    stripQuery,
     type EsbuildLoadBuild,
     type EsbuildLoadResult,
 } from '../src/plugins/assets-inline';
 
 function createPluginHarness(files: Record<string, string | Uint8Array>, maxInlineBytes: number) {
     let callback:
-        | ((args: { path: string; namespace?: string }) => EsbuildLoadResult | undefined | void)
+        | ((args: { path: string; namespace?: string; suffix?: string }) => EsbuildLoadResult | undefined | void)
         | undefined;
     let filter: RegExp | undefined;
 
@@ -29,8 +31,8 @@ function createPluginHarness(files: Record<string, string | Uint8Array>, maxInli
 
     return {
         filter,
-        load(path: string) {
-            return callback?.({ path });
+        load(path: string, suffix?: string) {
+            return callback?.({ path, suffix });
         },
     };
 }
@@ -205,5 +207,50 @@ describe('assets inline plugin', () => {
         expect(result?.contents).toBe(
             'export default "data:audio/mpeg;base64,AAEC";',
         );
+    });
+
+    // ─── ?url / ?raw bypass (task #56) ──────────────────────────────────────
+    test('stripQuery drops everything after the first ?', () => {
+        expect(stripQuery('icon.png')).toBe('icon.png');
+        expect(stripQuery('icon.png?url')).toBe('icon.png');
+        expect(stripQuery('icon.png?raw&v=1')).toBe('icon.png');
+    });
+
+    test('hasBypassQuery detects ?url and ?raw in both forms', () => {
+        expect(hasBypassQuery('icon.png')).toBe(false);
+        expect(hasBypassQuery('icon.png?url')).toBe(true);
+        expect(hasBypassQuery('icon.png?raw')).toBe(true);
+        expect(hasBypassQuery('icon.png?other')).toBe(false);
+        expect(hasBypassQuery('icon.png', '?url')).toBe(true);
+        expect(hasBypassQuery('icon.png', '?raw')).toBe(true);
+        expect(hasBypassQuery('icon.png?v=1&raw')).toBe(true);
+        expect(hasBypassQuery('icon.png?url=custom')).toBe(true);
+    });
+
+    test('?url query skips inline handoff (downstream R2 plugin picks it up)', () => {
+        const harness = createPluginHarness(
+            { 'icon.svg': '<svg/>' },
+            1024,
+        );
+        // Without the query, a small svg inlines.
+        expect(harness.load('icon.svg')?.contents).toContain('data:image/svg+xml');
+        // With the query, the plugin returns undefined so esbuild falls through.
+        expect(harness.load('icon.svg?url')).toBeUndefined();
+    });
+
+    test('?raw query also skips inline handoff', () => {
+        const harness = createPluginHarness(
+            { 'doc.svg': '<svg/>' },
+            1024,
+        );
+        expect(harness.load('doc.svg?raw')).toBeUndefined();
+    });
+
+    test('esbuild suffix "?url" skips inline even when path has no query', () => {
+        const harness = createPluginHarness(
+            { 'icon.svg': '<svg/>' },
+            1024,
+        );
+        expect(harness.load('icon.svg', '?url')).toBeUndefined();
     });
 });

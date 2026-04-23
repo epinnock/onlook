@@ -5,6 +5,7 @@ export type InlineAssetFileMap = Readonly<Record<string, InlineAssetContents>>;
 export interface EsbuildLoadArgs {
     readonly path: string;
     readonly namespace?: string;
+    readonly suffix?: string;
 }
 
 export interface EsbuildLoadResult {
@@ -62,8 +63,10 @@ const ASSET_MIME_TYPES: Readonly<Record<string, string>> = {
     '.m4v': 'video/mp4',
 };
 
+// Match asset extensions with an optional `?url` / `?raw` suffix so the
+// plugin can branch on the query-string bypass (task #56).
 const ASSET_FILTER =
-    /\.(?:avif|bmp|gif|ico|jpeg|jpg|otf|png|svg|ttf|webp|woff|woff2|mp3|wav|m4a|aac|ogg|flac|mp4|mov|webm|m4v)$/i;
+    /\.(?:avif|bmp|gif|ico|jpeg|jpg|otf|png|svg|ttf|webp|woff|woff2|mp3|wav|m4a|aac|ogg|flac|mp4|mov|webm|m4v)(?:\?(?:url|raw))?$/i;
 
 const textEncoder = new TextEncoder();
 
@@ -76,7 +79,16 @@ export function createAssetsInlinePlugin(
         name: 'assets-inline',
         setup(build) {
             build.onLoad({ filter: ASSET_FILTER, namespace: options.namespace }, (args) => {
-                const contents = options.files[normalizeAssetPath(args.path)];
+                // Task #56 — `?url` / `?raw` query bypasses inline handoff so
+                // a later plugin (assets-r2 or assets-raw-text) can pick the
+                // asset up. The filter matches the suffix form so esbuild
+                // reaches our handler; we simply opt out here.
+                if (hasBypassQuery(args.path, args.suffix)) {
+                    return undefined;
+                }
+
+                const pathWithoutQuery = stripQuery(args.path);
+                const contents = options.files[normalizeAssetPath(pathWithoutQuery)];
 
                 if (contents === undefined) {
                     return undefined;
@@ -84,7 +96,7 @@ export function createAssetsInlinePlugin(
 
                 return createInlineAssetModule({
                     contents,
-                    path: args.path,
+                    path: pathWithoutQuery,
                     maxInlineBytes,
                 });
             });
@@ -137,6 +149,25 @@ function getAssetExtension(path: string): string | undefined {
 
 function normalizeAssetPath(path: string): string {
     return path.replace(/\\/g, '/').replace(/^\/+/, '');
+}
+
+export function stripQuery(path: string): string {
+    const qIndex = path.indexOf('?');
+    return qIndex === -1 ? path : path.slice(0, qIndex);
+}
+
+/**
+ * Returns true when the asset import carries a `?url` or `?raw` query — in
+ * both forms (inline as part of the path string, or via esbuild's separate
+ * `suffix` argument). The inline plugin skips these so a downstream plugin
+ * (R2 for `?url`, raw-text for `?raw`) can claim the module.
+ */
+export function hasBypassQuery(path: string, suffix?: string): boolean {
+    if (suffix === '?url' || suffix === '?raw') return true;
+    const qIndex = path.indexOf('?');
+    if (qIndex === -1) return false;
+    const query = path.slice(qIndex);
+    return /(?:^|[?&])(?:url|raw)(?:$|&|=)/.test(query);
 }
 
 function toUint8Array(contents: InlineAssetContents): Uint8Array {

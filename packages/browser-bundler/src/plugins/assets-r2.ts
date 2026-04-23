@@ -7,6 +7,7 @@ export type R2AssetFileMap = Readonly<Record<string, R2AssetContents>>;
 export interface EsbuildLoadArgs {
     readonly path: string;
     readonly namespace?: string;
+    readonly suffix?: string;
 }
 
 export interface EsbuildLoadResult {
@@ -39,7 +40,7 @@ export interface CreateAssetsR2PluginOptions {
 const DEFAULT_MAX_INLINE_BYTES = 8 * 1024;
 
 const ASSET_FILTER =
-    /\.(?:avif|bmp|gif|ico|jpeg|jpg|otf|png|svg|ttf|webp|woff|woff2|mp3|wav|m4a|aac|ogg|flac|mp4|mov|webm|m4v)$/i;
+    /\.(?:avif|bmp|gif|ico|jpeg|jpg|otf|png|svg|ttf|webp|woff|woff2|mp3|wav|m4a|aac|ogg|flac|mp4|mov|webm|m4v)(?:\?url)?$/i;
 
 const textEncoder = new TextEncoder();
 
@@ -54,7 +55,10 @@ export function createAssetsR2Plugin(
         name: 'assets-r2',
         setup(build) {
             build.onLoad({ filter: ASSET_FILTER, namespace: options.namespace }, (args) => {
-                const contents = options.files[normalizeAssetPath(args.path)];
+                const pathWithoutQuery = stripQuery(args.path);
+                const hasUrlQuery = hasUrlBypass(args.path, args.suffix);
+
+                const contents = options.files[normalizeAssetPath(pathWithoutQuery)];
 
                 if (contents === undefined) {
                     return undefined;
@@ -62,9 +66,12 @@ export function createAssetsR2Plugin(
 
                 return createR2AssetModule({
                     contents,
-                    path: args.path,
+                    path: pathWithoutQuery,
                     baseAssetUrl,
-                    maxInlineBytes,
+                    // Task #56 — `?url` forces R2 upload even for assets that
+                    // would otherwise be inlined. Drop the threshold to 0 so
+                    // every byte > 0 goes through the upload path.
+                    maxInlineBytes: hasUrlQuery ? 0 : maxInlineBytes,
                     assetKey,
                 });
             });
@@ -138,6 +145,18 @@ function encodeAssetKeyPath(key: string): string {
 
 function normalizeAssetPath(path: string): string {
     return path.replace(/\\/g, '/').replace(/^\/+/, '');
+}
+
+export function stripQuery(path: string): string {
+    const qIndex = path.indexOf('?');
+    return qIndex === -1 ? path : path.slice(0, qIndex);
+}
+
+export function hasUrlBypass(path: string, suffix?: string): boolean {
+    if (suffix === '?url') return true;
+    const qIndex = path.indexOf('?');
+    if (qIndex === -1) return false;
+    return /(?:^|[?&])url(?:$|&|=)/.test(path.slice(qIndex));
 }
 
 function isAssetPath(path: string): boolean {
