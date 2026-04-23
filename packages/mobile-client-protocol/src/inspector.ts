@@ -9,11 +9,15 @@
  */
 import { z } from 'zod';
 
+// `.finite()` rejects NaN + ±Infinity from a misbehaving phone. Overlay
+// rect math on the editor side (e.g. `OverlayHost` hit-testing against
+// the selection) assumes finite values — an `Infinity` width would
+// explode any bounding-box computation it feeds into.
 export const RectSchema = z.object({
-    x: z.number(),
-    y: z.number(),
-    width: z.number().nonnegative(),
-    height: z.number().nonnegative(),
+    x: z.number().finite(),
+    y: z.number().finite(),
+    width: z.number().finite().nonnegative(),
+    height: z.number().finite().nonnegative(),
 });
 export type Rect = z.infer<typeof RectSchema>;
 

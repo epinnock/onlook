@@ -42,6 +42,20 @@ describe('ABI v1 negative cases — AssetDescriptor', () => {
         ).toBe(false);
     });
 
+    test('image descriptor rejects Infinity width/height/scale (would break layout)', () => {
+        for (const key of ['width', 'height', 'scale'] as const) {
+            expect(
+                AssetDescriptorSchema.safeParse({
+                    kind: 'image',
+                    hash: 'x',
+                    mime: 'image/png',
+                    uri: 'u',
+                    [key]: Infinity,
+                }).success,
+            ).toBe(false);
+        }
+    });
+
     test('font descriptor rejects non-integer or negative weight', () => {
         expect(
             AssetDescriptorSchema.safeParse({

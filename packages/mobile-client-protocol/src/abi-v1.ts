@@ -34,9 +34,14 @@ export const AssetDescriptorSchema = z.discriminatedUnion('kind', [
         kind: z.literal('image'),
         hash: z.string().min(1),
         mime: z.string().min(1),
-        width: z.number().positive().optional(),
-        height: z.number().positive().optional(),
-        scale: z.number().positive().optional(),
+        // `.finite()` rejects Infinity — a corrupt asset descriptor with
+        // `width: Infinity` would break aspect-ratio layout in any
+        // overlay that uses the descriptor's dimensions. Integer would
+        // be natural here but PNG spec allows sub-integer @2x/@3x
+        // scaling that we parse, so keep the float domain + finite gate.
+        width: z.number().finite().positive().optional(),
+        height: z.number().finite().positive().optional(),
+        scale: z.number().finite().positive().optional(),
         uri: z.string().min(1),
     }),
     z.object({
