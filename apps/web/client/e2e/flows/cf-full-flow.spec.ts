@@ -13,9 +13,24 @@ async function workerFetch<T = any>(path: string, body: Record<string, unknown>)
 }
 
 beforeAll(async () => {
+    // Strengthen probe: verify BOTH /health AND a real sandbox route so
+    // an unrelated server answering /health can't trick us into running
+    // the flow against a different worker (would surface as 404s below).
     try {
-        const res = await fetch(`${WORKER_URL}/health`, { signal: AbortSignal.timeout(2000) });
-        workerAvailable = res.ok;
+        const healthRes = await fetch(`${WORKER_URL}/health`, {
+            signal: AbortSignal.timeout(2000),
+        });
+        if (!healthRes.ok) {
+            workerAvailable = false;
+        } else {
+            const createRes = await fetch(`${WORKER_URL}/sandbox/create`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({}),
+                signal: AbortSignal.timeout(2000),
+            });
+            workerAvailable = createRes.ok;
+        }
     } catch { workerAvailable = false; }
     if (!workerAvailable) console.log('⚠ Worker not running, skipping CF flow tests');
 });
