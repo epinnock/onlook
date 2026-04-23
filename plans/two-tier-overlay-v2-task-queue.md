@@ -538,3 +538,50 @@ web-client 595/0 (53 files), mobile-client 451/0 (42 files),
 cf-expo-relay 217/0 (17 files), packages 1787/0 (135+ files).
 Total ~3,050 passing tests across critical suites, 0 failures.
 Typecheck clean across web-client + mobile-client + mobile-preview.
+
+### Phase 9 integration scoping + sessionId blocker resolved (cont.)
+
+User asked for a concrete scope on the two remaining Phase 9 items.
+Delegated to an Explore agent to audit the code; findings were
+concrete enough to unblock partial execution.
+
+**Task A — `RelayWsClient`/`MobileDevPanel` wire-in (4-6h):** The
+only open design question was "where does sessionId come from?"
+The answer is in the mobile-preview server's `/status` response —
+`body.manifestUrl` is `http(s)://relayBase/manifest/<bundleHash>`
+where bundleHash IS the sessionId. Shipped `parseManifestUrl()`
+(commit `5ab9a70c`, 11 new tests) as the extraction boundary so the
+hook layer doesn't have to re-implement URL parsing. With that
+primitive in place, the remaining wire-in is purely React lifecycle:
+
+```ts
+// inside useMobilePreviewStatus.open(), after /status returns body
+const parsed = parseManifestUrl(body.manifestUrl);
+const client = new RelayWsClient({
+  relayBaseUrl: parsed.relayBaseUrl,
+  sessionId: parsed.bundleHash,
+  handlers: { onOverlayAck: emitOverlayAckTelemetry },
+});
+```
+
+Open design call for whoever lands the wire-in: whether to own the
+client via React hook cleanup or attach to `SessionManager`
+(MobX). Recommend SessionManager (one per branch, lifecycle matches).
+Where to render `MobileDevPanel` — candidate is `terminal-area.tsx`
+as a new tab (already uses React-19-compatible `@onlook/ui/tabs`).
+
+**Task B — Native C++ JSI registration:** Queue status #23–#25 is
+STALE. Code audit via Explore found:
+- All `.cpp`/`.mm` files present in `apps/mobile-client/cpp/`
+- All pbxproj UUIDs registered in Sources build phase
+- Delegation chain complete (`OnlookRuntime::get()` → `makeHostMethod()`
+  → `*Impl()` functions)
+- `apps/mobile-client/index.js:104-117` ALREADY calls
+  `TurboModuleRegistry.get('OnlookRuntimeInstaller').install()`
+- `mountOverlay` wired as inline method in `OnlookRuntime.cpp:176-201`
+
+Only action remaining: operator validation on the Mac mini (Xcode
+16.4, already unblocked per commit `1c58d3a2`). If
+`bun run mobile:build:ios` + simulator overlay mount goes through
+the native path, queue rows #23–#25 flip from "partial" → "done".
+No code changes needed.
