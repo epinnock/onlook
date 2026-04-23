@@ -219,6 +219,18 @@ describe('MobileOverlayAckTab', () => {
         expect(markup).toContain('43ms');
         expect(markup).not.toContain('42.7');
     });
+
+    test('defensive: Infinity mountDurationMs renders NO mount-duration span', () => {
+        // Row-level `Number.isFinite` guard filters non-finite values so
+        // they never render. Schema rejects these at validation too but
+        // `<MobileOverlayAckRow>` accepts any OverlayAckMessage shape so
+        // we guard defensively at render.
+        const ack = makeAck({
+            mountDurationMs: Infinity as unknown as number,
+        });
+        const markup = renderToStaticMarkup(<MobileOverlayAckRow ack={ack} />);
+        expect(markup).not.toContain('mobile-overlay-ack-mount-duration');
+    });
 });
 
 describe('summarizeAcks', () => {
@@ -294,6 +306,18 @@ describe('summarizeAcks', () => {
             { evalLatencyTargetMs: 50 },
         );
         expect(summary.overBudgetCount).toBe(1);
+    });
+
+    test('defensive: Infinity/NaN mountDurationMs excluded from mean + p95', () => {
+        const summary = summarizeAcks([
+            makeAck({ mountDurationMs: 30 }),
+            makeAck({ mountDurationMs: Infinity as unknown as number }),
+            makeAck({ mountDurationMs: NaN as unknown as number }),
+            makeAck({ mountDurationMs: 50 }),
+        ]);
+        // Only finite values contribute to the aggregate.
+        expect(summary.meanMountDurationMs).toBe(40);
+        expect(summary.overBudgetCount).toBe(0);
     });
 });
 

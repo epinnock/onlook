@@ -138,20 +138,28 @@ export function MobileOverlayAckRow({ ack }: MobileOverlayAckRowProps) {
                 >
                     {shortHash(ack.overlayHash)}
                 </span>
-                {typeof ack.mountDurationMs === 'number' ? (
-                    <span
-                        data-testid="mobile-overlay-ack-mount-duration"
-                        className={cn(
-                            'shrink-0 tabular-nums',
-                            ack.mountDurationMs > EVAL_LATENCY_TARGET_MS
-                                ? 'text-amber-400'
-                                : 'text-neutral-500',
-                        )}
-                        title={`Phone-side mountOverlay() latency. ADR-0001 target is ≤ ${EVAL_LATENCY_TARGET_MS}ms on a 2-year-old iPhone.`}
-                    >
-                        {Math.round(ack.mountDurationMs)}ms
-                    </span>
-                ) : null}
+                {(() => {
+                    // Narrow through a local const — `Number.isFinite`
+                    // doesn't currently narrow `number | undefined` to
+                    // `number` in TS, so we capture into a typed var.
+                    const dur = ack.mountDurationMs;
+                    if (!Number.isFinite(dur)) return null;
+                    const finiteDur = dur as number;
+                    return (
+                        <span
+                            data-testid="mobile-overlay-ack-mount-duration"
+                            className={cn(
+                                'shrink-0 tabular-nums',
+                                finiteDur > EVAL_LATENCY_TARGET_MS
+                                    ? 'text-amber-400'
+                                    : 'text-neutral-500',
+                            )}
+                            title={`Phone-side mountOverlay() latency. ADR-0001 target is ≤ ${EVAL_LATENCY_TARGET_MS}ms on a 2-year-old iPhone.`}
+                        >
+                            {Math.round(finiteDur)}ms
+                        </span>
+                    );
+                })()}
                 <span
                     data-testid="mobile-overlay-ack-session"
                     className="ml-auto shrink-0 text-neutral-600"
@@ -203,9 +211,15 @@ export function summarizeAcks(
     for (const ack of acks) {
         if (ack.status === 'mounted') mountedCount += 1;
         else if (ack.status === 'failed') failedCount += 1;
-        if (typeof ack.mountDurationMs === 'number') {
-            durations.push(ack.mountDurationMs);
-            if (ack.mountDurationMs > evalTarget) overBudgetCount += 1;
+        // `Number.isFinite` rejects NaN + ±Infinity — otherwise a single
+        // ack with `mountDurationMs: Infinity` would poison the p95 + mean
+        // aggregates for the whole summary. Schema already rejects these,
+        // but `summarizeAcks` accepts an `OverlayAckMessage[]` which a
+        // caller could construct without running through safeParse.
+        if (Number.isFinite(ack.mountDurationMs)) {
+            const d = ack.mountDurationMs as number;
+            durations.push(d);
+            if (d > evalTarget) overBudgetCount += 1;
         }
     }
     if (durations.length === 0) {
