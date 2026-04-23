@@ -18,10 +18,15 @@ import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 
 import type { PerfGuardrailEvent } from '../perf-guardrails';
 import type { PushOverlayTelemetry } from '../push-overlay';
+import type { OverlayAckMessage } from '@onlook/mobile-client-protocol';
+
 import {
+    EVAL_LATENCY_TARGET_MS,
+    emitOverlayAckTelemetry,
     emitOverlayPerfGuardrail,
     emitOverlayPipelineMarker,
     emitOverlayPushTelemetry,
+    OVERLAY_ACK_EVENT,
     OVERLAY_PERF_EVENT,
     OVERLAY_PIPELINE_MARKER_EVENT,
     OVERLAY_PUSH_EVENT,
@@ -240,6 +245,87 @@ describe('emitOverlayPipelineMarker', () => {
                 kind: 'flag-flip',
                 pipeline: 'overlay-v1',
             }),
+        ).not.toThrow();
+    });
+});
+
+describe('emitOverlayAckTelemetry', () => {
+    const ackBase: OverlayAckMessage = {
+        type: 'onlook:overlayAck',
+        sessionId: 'sess-ack',
+        overlayHash: 'abc123',
+        status: 'mounted',
+        timestamp: 1_712_000_000_000,
+    };
+
+    test('captures onlook_overlay_ack event with pipeline=overlay-v1', () => {
+        const capture = installMockPostHog();
+        emitOverlayAckTelemetry({ ...ackBase, mountDurationMs: 42 });
+
+        const [eventName, props] = capture.mock.calls[0]!;
+        expect(eventName).toBe(OVERLAY_ACK_EVENT);
+        expect(props!.pipeline).toBe('overlay-v1');
+        expect(props!.sessionId).toBe('sess-ack');
+        expect(props!.overlayHash).toBe('abc123');
+        expect(props!.status).toBe('mounted');
+        expect(props!.mountDurationMs).toBe(42);
+        expect(props!.evalLatencyOverBudget).toBe(false);
+    });
+
+    test('flags evalLatencyOverBudget when > 100ms target', () => {
+        const capture = installMockPostHog();
+        emitOverlayAckTelemetry({
+            ...ackBase,
+            mountDurationMs: EVAL_LATENCY_TARGET_MS + 1,
+        });
+        expect(capture.mock.calls[0]![1]!.evalLatencyOverBudget).toBe(true);
+    });
+
+    test('evalLatencyOverBudget false when mountDurationMs is absent', () => {
+        const capture = installMockPostHog();
+        emitOverlayAckTelemetry(ackBase);
+        expect(capture.mock.calls[0]![1]!.evalLatencyOverBudget).toBe(false);
+        expect(capture.mock.calls[0]![1]!.mountDurationMs).toBeUndefined();
+    });
+
+    test('failure ack forwards errorKind + errorMessage', () => {
+        const capture = installMockPostHog();
+        emitOverlayAckTelemetry({
+            ...ackBase,
+            status: 'failed',
+            mountDurationMs: 150,
+            error: {
+                kind: 'overlay-runtime',
+                message: 'TypeError: x is not a function',
+            },
+        });
+        const props = capture.mock.calls[0]![1]!;
+        expect(props.status).toBe('failed');
+        expect(props.errorKind).toBe('overlay-runtime');
+        expect(props.errorMessage).toBe('TypeError: x is not a function');
+    });
+
+    test('logs info when under budget, warn when over budget', () => {
+        installMockPostHog();
+        emitOverlayAckTelemetry({ ...ackBase, mountDurationMs: 42 });
+        expect(console.info).toHaveBeenCalledTimes(1);
+        expect(console.warn).not.toHaveBeenCalled();
+
+        emitOverlayAckTelemetry({
+            ...ackBase,
+            mountDurationMs: EVAL_LATENCY_TARGET_MS + 50,
+        });
+        expect(console.warn).toHaveBeenCalledTimes(1);
+    });
+
+    test('swallows posthog throws (never-throw guarantee)', () => {
+        (globalThis as GlobalWithPostHog).posthog = {
+            capture: () => {
+                throw new Error('ack capture boom');
+            },
+        };
+        expect(() =>
+            emitOverlayAckTelemetry({ ...ackBase, mountDurationMs: 42 }),
         ).not.toThrow();
     });
 });

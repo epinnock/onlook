@@ -24,6 +24,8 @@
  *    files that `mock.module` the sink itself without touching posthog.
  */
 
+import type { OverlayAckMessage } from '@onlook/mobile-client-protocol';
+
 import type { PerfGuardrailEvent } from './perf-guardrails';
 import type { PushOverlayTelemetry } from './push-overlay';
 
@@ -33,6 +35,13 @@ export const OVERLAY_PUSH_EVENT = 'onlook_overlay_push';
 export const OVERLAY_PERF_EVENT = 'onlook_overlay_perf';
 /** Operator-emitted pivot marker. See `emitOverlayPipelineMarker`. */
 export const OVERLAY_PIPELINE_MARKER_EVENT = 'onlook_overlay_pipeline_marker';
+/**
+ * Phone → editor ack capture. Fires once per `onlook:overlayAck` message
+ * observed by `subscribeRelayEvents` (Phase 11b Q5b eval-latency signal).
+ */
+export const OVERLAY_ACK_EVENT = 'onlook_overlay_ack';
+/** ADR-0001 §"Performance envelope" eval-latency target (ms). */
+export const EVAL_LATENCY_TARGET_MS = 100;
 
 interface PostHogLike {
     capture: (event: string, props?: Record<string, unknown>) => void;
@@ -160,5 +169,42 @@ export function emitOverlayPipelineMarker(
         pipeline: marker.pipeline,
         note: marker.note,
         emittedAt: Date.now(),
+    });
+}
+
+/**
+ * Route an `OverlayAckMessage` (phone → editor) through PostHog AND the
+ * console sink. Fires the Phase 11b Q5b eval-latency signal when the
+ * phone populated `mountDurationMs`.
+ *
+ * Pipeline tag is ALWAYS 'overlay-v1' here — legacy overlays predate
+ * the ack channel entirely (`OverlayMessage` has no ack counterpart).
+ *
+ * Intended wire-in: `RelayWsClient`'s `handlers.onOverlayAck` callback,
+ * or any caller of `subscribeRelayEvents` that observes phone-side acks.
+ * Currently NOT wired into production — `RelayWsClient` isn't yet
+ * instantiated by any editor flow. See
+ * `plans/adr/phase-11b-soak-dashboard-playbook.md` Q5b for the
+ * dashboard consumer shape.
+ */
+export function emitOverlayAckTelemetry(ack: OverlayAckMessage): void {
+    const overBudget =
+        typeof ack.mountDurationMs === 'number' &&
+        ack.mountDurationMs > EVAL_LATENCY_TARGET_MS;
+    if (overBudget) {
+        console.warn('[onlook.overlay-ack]', { overBudget: true, ...ack });
+    } else {
+        console.info('[onlook.overlay-ack]', ack);
+    }
+    captureSafely(OVERLAY_ACK_EVENT, {
+        pipeline: 'overlay-v1' as OverlayPipelineTag,
+        sessionId: ack.sessionId,
+        overlayHash: ack.overlayHash,
+        status: ack.status,
+        mountDurationMs: ack.mountDurationMs,
+        evalLatencyOverBudget: overBudget,
+        errorKind: ack.error?.kind,
+        errorMessage: ack.error?.message,
+        timestamp: ack.timestamp,
     });
 }
