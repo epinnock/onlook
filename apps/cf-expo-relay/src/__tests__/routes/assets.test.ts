@@ -23,6 +23,9 @@ function makeBucket(entries: Record<string, MockAsset | undefined> = {}): R2Buck
         async get(key: string): Promise<MockAsset | null> {
             return entries[key] ?? null;
         },
+        async head(key: string): Promise<MockAsset | null> {
+            return entries[key] ?? null;
+        },
     } as R2Bucket;
 }
 
@@ -96,5 +99,65 @@ describe('handleBaseBundleAssetsRoute', () => {
 
         expect(response.status).toBe(400);
         expect(await response.text()).toBe('expo-relay: invalid base-bundle asset key');
+    });
+
+    // ─── HEAD method (asset-check protocol, task #65) ───────────────────────
+    test('HEAD on an existing asset returns 200 with headers + empty body', async () => {
+        const bucket = makeBucket({
+            'assets/logo.png': makeAsset('logo-bytes', 'image/png'),
+        });
+        const response = await handleBaseBundleAssetsRoute(
+            request('/base-bundle/assets/logo.png', 'HEAD'),
+            makeEnv(bucket),
+        );
+        expect(response.status).toBe(200);
+        expect(response.headers.get('Content-Type')).toBe('image/png');
+        expect(response.headers.get('Cache-Control')).toBe('public, max-age=31536000, immutable');
+        // Body should be empty for HEAD per HTTP spec.
+        expect(await response.text()).toBe('');
+    });
+
+    test('HEAD on a missing asset returns 404 with empty body', async () => {
+        const response = await handleBaseBundleAssetsRoute(
+            request('/base-bundle/assets/missing.js', 'HEAD'),
+            makeEnv(),
+        );
+        expect(response.status).toBe(404);
+        expect(await response.text()).toBe('');
+    });
+
+    test('HEAD on a traversal path returns 400', async () => {
+        const response = await handleBaseBundleAssetsRoute(
+            request('/base-bundle/assets/../secret.js', 'HEAD'),
+            makeEnv(),
+        );
+        expect(response.status).toBe(400);
+    });
+
+    test('rejects POST/PUT/DELETE with 405 + Allow: GET, HEAD', async () => {
+        for (const method of ['POST', 'PUT', 'DELETE', 'PATCH'] as const) {
+            const response = await handleBaseBundleAssetsRoute(
+                request('/base-bundle/assets/logo.png', method),
+                makeEnv(),
+            );
+            expect(response.status).toBe(405);
+            expect(response.headers.get('Allow')).toBe('GET, HEAD');
+        }
+    });
+
+    test('HEAD falls back to .get() when bucket binding lacks .head() (older R2 binding)', async () => {
+        // Construct a bucket without .head() — only .get() is available.
+        const bucketWithoutHead = {
+            async get(key: string): Promise<MockAsset | null> {
+                return key === 'assets/x.png' ? makeAsset('x', 'image/png') : null;
+            },
+        } as R2Bucket;
+        const response = await handleBaseBundleAssetsRoute(
+            request('/base-bundle/assets/x.png', 'HEAD'),
+            makeEnv(bucketWithoutHead),
+        );
+        expect(response.status).toBe(200);
+        expect(response.headers.get('Content-Type')).toBe('image/png');
+        expect(await response.text()).toBe('');
     });
 });
