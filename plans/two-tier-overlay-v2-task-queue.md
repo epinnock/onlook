@@ -447,3 +447,57 @@ provider && bun test` 102/0; critical package suites
 (browser-bundler 345, mobile-client 446, mobile-preview 104,
 mobile-client-protocol 97, base-bundle-builder 102, cf-expo-relay
 215) unchanged and green.
+
+### Phase 11b observability follow-on (2026-04-23 continuation, cont.)
+
+After the soak sink landed (1112a925) the session continued to fill
+in Phase 11b's observability holes across every signal named in
+ADR-0001 §"Performance envelope":
+
+- **Symmetric large-overlay + build-slow + retry guardrails** — both
+  pipeline branches now emit through the sink with pipeline tags;
+  previously the legacy branch had NO onTelemetry callback, so the
+  dashboard's v1-vs-legacy parity charts would have been blind to
+  half the population. Commits: `b44c09f1` (large-overlay),
+  `6c6efc41` (build-slow).
+
+- **Operator pivot markers** — `emitOverlayPipelineMarker({kind,
+  pipeline, note?})` lets operators draw vertical lines on the
+  timeline charts (flag-flip, binary-rollout) via a devtools paste.
+  Commit: `1930bcdd`.
+
+- **Eval-latency signal end-to-end** — schema extension
+  `OverlayAckMessage.mountDurationMs?` (commit `c695aada`),
+  phone-side `measureMountDuration` wrapping all three mount paths
+  (`19aded36`), editor sink emitter `emitOverlayAckTelemetry`
+  (`455e535a`), cf-expo-relay structured log `hmr.ack.v1` mirroring
+  `hmr.push.v1` (`6d7cb1b3`), dev-panel summary footer
+  (`84f789a5`) + tab-level over-budget amber badge (`f0cc30bc`),
+  single-sourced threshold constant `EVAL_LATENCY_TARGET_MS`
+  (`32d6f37e`). Playbook Q5b updated (`5c8f3a57`). Production
+  wire-in still waits on `RelayWsClient` instantiation (Phase 9
+  editor integration).
+
+- **Real runtime bug fix** — `wrapOverlayCode` accessed
+  `process.env.ONLOOK_SUPPRESS_LEGACY_WARN` without a `typeof
+  process` guard. Latent in Next.js (which polyfills) but would
+  throw ReferenceError in any pure-browser context (Vite worker,
+  test harness, bare ESM). Guarded, regression-locked with a test
+  that `delete globalThis.process` before calling. Commit:
+  `d52d2701`.
+
+- **Schema Infinity/NaN sanitization** — audited every
+  `z.number()` without `.int()` in `@onlook/mobile-client-protocol`
+  (zod's `.int()` implicitly rejects NaN+Infinity, plain `.number()`
+  does NOT). Added `.finite()` to `RectSchema` (inspector geometry),
+  `AssetDescriptor.image` width/height/scale, and
+  `NetworkMessage.durationMs` — a corrupt phone-side value would
+  have poisoned p95 aggregates or exploded layout math. Sink also
+  defensively guards with `Number.isFinite()` in case a caller skips
+  schema validation. Commits: `de08002f`, `926334b7`.
+
+Final result at tick close: web-client 589/0 (53 files), mobile-
+client 450/0 (42 files), cf-expo-relay 217/0, mobile-client-protocol
+115/1-skip/0 (11 files), packages total 1779/0. Typecheck clean
+across every filtered workspace. 26 commits this autonomous session
+(9e2c0345..926334b7).
