@@ -162,6 +162,126 @@ describe('OverlayDispatcher', () => {
         expect(kept).toHaveLength(2);
         expect(removed).toHaveLength(1);
     });
+
+    // ─── ABI v1 acceptance (Phase 11a bidirectional — required for Phase 11b) ─
+    test('accepts OverlayUpdateMessage (v1) and normalizes source → code for listeners', () => {
+        const { dispatcher, socket } = createDispatcher();
+        const received: OverlayMessage[] = [];
+        dispatcher.onOverlay((m) => received.push(m));
+        dispatcher.start();
+
+        const v1Message = {
+            type: 'overlayUpdate',
+            abi: 'v1',
+            sessionId: 'sess-v1',
+            source: 'module.exports = {};',
+            assets: { abi: 'v1', assets: {} },
+            meta: {
+                overlayHash: 'a'.repeat(64),
+                entryModule: 0,
+                buildDurationMs: 5,
+            },
+        };
+        socket.emit('message', JSON.stringify(v1Message));
+
+        expect(received).toHaveLength(1);
+        // Listener's `msg.code` gets the v1 `source` field verbatim.
+        expect(received[0]?.code).toBe('module.exports = {};');
+    });
+
+    test('v1 message preserves meta + assets + sessionId as optional extensions', () => {
+        const { dispatcher, socket } = createDispatcher();
+        const received: unknown[] = [];
+        dispatcher.onOverlay((m) => received.push(m));
+        dispatcher.start();
+
+        const v1Message = {
+            type: 'overlayUpdate',
+            abi: 'v1',
+            sessionId: 'sess-ext',
+            source: 'module.exports = {};',
+            assets: {
+                abi: 'v1',
+                assets: {
+                    'image/xyz': {
+                        kind: 'image',
+                        hash: 'xyz',
+                        mime: 'image/png',
+                        uri: 'https://r2/xyz',
+                    },
+                },
+            },
+            meta: {
+                overlayHash: 'b'.repeat(64),
+                entryModule: 0,
+                buildDurationMs: 12,
+            },
+        };
+        socket.emit('message', JSON.stringify(v1Message));
+
+        expect(received).toHaveLength(1);
+        const m = received[0] as {
+            abi?: string;
+            sessionId?: string;
+            meta?: { overlayHash?: string };
+            assets?: { assets?: Record<string, unknown> };
+        };
+        expect(m.abi).toBe('v1');
+        expect(m.sessionId).toBe('sess-ext');
+        expect(m.meta?.overlayHash).toBe('b'.repeat(64));
+        expect(m.assets?.assets?.['image/xyz']).toBeDefined();
+    });
+
+    test('malformed v1 message (wrong abi) falls through to legacy-shape check + protocolError', () => {
+        const errors: unknown[] = [];
+        const { dispatcher, socket } = createDispatcher({
+            onProtocolError: (reason, raw) => errors.push({ reason, raw }),
+        });
+        const received: OverlayMessage[] = [];
+        dispatcher.onOverlay((m) => received.push(m));
+        dispatcher.start();
+
+        // `abi: 'v2'` fails OverlayUpdateMessageSchema + isn't a legacy overlay
+        // either → protocol error fires, no listener dispatch.
+        socket.emit(
+            'message',
+            JSON.stringify({
+                type: 'overlayUpdate',
+                abi: 'v2',
+                sessionId: 's',
+                source: 'x',
+                assets: { abi: 'v1', assets: {} },
+                meta: { overlayHash: 'h'.repeat(64), entryModule: 0, buildDurationMs: 0 },
+            }),
+        );
+
+        expect(received).toHaveLength(0);
+        expect(errors).toHaveLength(1);
+    });
+
+    test('legacy + v1 messages can both drive the same listener (migration coexistence)', () => {
+        const { dispatcher, socket } = createDispatcher();
+        const received: OverlayMessage[] = [];
+        dispatcher.onOverlay((m) => received.push(m));
+        dispatcher.start();
+
+        socket.emit('message', JSON.stringify(VALID_OVERLAY));
+        socket.emit(
+            'message',
+            JSON.stringify({
+                type: 'overlayUpdate',
+                abi: 'v1',
+                sessionId: 'sess',
+                source: 'v1-code',
+                assets: { abi: 'v1', assets: {} },
+                meta: { overlayHash: 'c'.repeat(64), entryModule: 0, buildDurationMs: 1 },
+            }),
+        );
+
+        expect(received).toHaveLength(2);
+        expect(received[0]?.code).toBe(VALID_OVERLAY.code);
+        expect(received[1]?.code).toBe('v1-code');
+    });
 });
 
 describe('resolveHmrSessionUrl', () => {

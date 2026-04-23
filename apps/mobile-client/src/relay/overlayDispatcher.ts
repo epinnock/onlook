@@ -1,5 +1,11 @@
-import type { OverlayMessage } from '@onlook/mobile-client-protocol';
-import { isOverlayMessage } from '@onlook/mobile-client-protocol';
+import type {
+    OverlayMessage,
+    OverlayUpdateMessage,
+} from '@onlook/mobile-client-protocol';
+import {
+    isOverlayMessage,
+    OverlayUpdateMessageSchema,
+} from '@onlook/mobile-client-protocol';
 
 /**
  * Overlay dispatcher — consumes the two-tier HmrSession `/hmr/:sessionId`
@@ -14,9 +20,26 @@ import { isOverlayMessage } from '@onlook/mobile-client-protocol';
  * The dispatcher does NOT call into OnlookRuntime directly. Native overlay
  * mount is wired at the app level via `onOverlay` listeners once the iOS
  * runtime bridge lands (blocked on Xcode 16.1; see plans/onlook-mobile-client-plan.md).
+ *
+ * Accepts BOTH wire shapes during the Phase 11 migration:
+ *   - Legacy `OverlayMessage` {type:'overlay', code, sourceMap?}
+ *   - ABI v1 `OverlayUpdateMessage` {type:'overlayUpdate', abi, source, assets, meta, ...}
+ *
+ * Listeners receive `OverlayMessage` — the dispatcher normalizes v1 messages
+ * by copying `source` into `code` so existing mount code that reads `msg.code`
+ * works against both shapes. The raw v1 fields are preserved on the message
+ * object for consumers that need them (cast to OverlayUpdateMessage to access
+ * `abi`, `sessionId`, `assets`, `meta`).
  */
 
 export type OverlayListener = (message: OverlayMessage) => void;
+
+/**
+ * Widened type a listener receives when an OverlayUpdateMessage arrives.
+ * The `code` field is synthesized from `source` for backward compatibility.
+ */
+export type NormalizedOverlayMessage = OverlayMessage &
+    Partial<Omit<OverlayUpdateMessage, 'type'>>;
 
 export interface OverlayDispatcherOptions {
     /**
@@ -128,6 +151,26 @@ export class OverlayDispatcher {
             parsed = JSON.parse(raw);
         } catch {
             this.onProtocolError('WS payload was not JSON', raw);
+            return;
+        }
+        // Phase 11a — accept both legacy and v1 shapes. Try v1 first since
+        // its schema is stricter (more fields).
+        const v1Parse = OverlayUpdateMessageSchema.safeParse(parsed);
+        if (v1Parse.success) {
+            // Normalize v1 → legacy-compatible shape by copying source → code.
+            // Existing listeners that read `msg.code` work unchanged.
+            const normalized: NormalizedOverlayMessage = {
+                type: 'overlay',
+                code: v1Parse.data.source,
+                // Preserve v1 fields as optional extensions.
+                abi: v1Parse.data.abi,
+                sessionId: v1Parse.data.sessionId,
+                assets: v1Parse.data.assets,
+                meta: v1Parse.data.meta,
+            };
+            for (const listener of this.listeners) {
+                listener(normalized);
+            }
             return;
         }
         if (!isOverlayMessage(parsed)) {
