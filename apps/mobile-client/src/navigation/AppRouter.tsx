@@ -160,6 +160,38 @@ import {
 const AUTO_RUN_URL =
     'exp://192.168.0.14:8787/manifest/dc8ead785627ac182bd9f331f2eee7a73afbd48d72fc585d8d1fccfa9c439bf6';
 
+/**
+ * Derive `{relayHost, relayPort}` from the deep-link's parsed `relay=`
+ * URL. Matches the shape qrToMount + twoTierBootstrap pass to
+ * `OnlookRuntime.mountOverlay` so initial URL-submit / QR-scan / hot-
+ * reload mount paths all agree on props.
+ *
+ * Falls back to `192.168.0.17:8788` (the default LAN layout from the
+ * port-allocation table) on unparseable URLs — same defaults the legacy
+ * regex-based code used, so no behavior change on malformed inputs.
+ */
+export function extractRelayHostPort(
+    relayUrl: string,
+): { relayHost: string; relayPort: number } {
+    try {
+        const parsed = new URL(relayUrl);
+        const relayHost = parsed.hostname || '192.168.0.17';
+        let relayPort: number;
+        if (parsed.port !== '') {
+            const p = Number.parseInt(parsed.port, 10);
+            relayPort = Number.isFinite(p) ? p : 8788;
+        } else {
+            relayPort =
+                parsed.protocol === 'https:' || parsed.protocol === 'wss:'
+                    ? 443
+                    : 80;
+        }
+        return { relayHost, relayPort };
+    } catch {
+        return { relayHost: '192.168.0.17', relayPort: 8788 };
+    }
+}
+
 function buildUrlPipelineRunner(actions: NavActions) {
     return (data: string) => {
         const log: string[] = [];
@@ -275,12 +307,18 @@ function buildUrlPipelineRunner(actions: NavActions) {
             // `RCTDeviceEventEmitter` via `RN$registerCallableModule`, which
             // breaks further RN fetch calls — by this point the only fetches
             // are done, so that's OK.
-            const hostMatch2 = data.match(/^(?:exp|https?):\/\/([^:\/]+)/i);
-            const relayHost = hostMatch2?.[1] || '192.168.0.17';
+            // Use the parsed relay URL (from the deep-link's `relay=` param)
+            // to derive relayHost + relayPort. Previously this regex-matched
+            // against `data` (the deep-link itself), which fails for the
+            // `onlook://` scheme that most deep-links use and silently
+            // defaulted relayHost to `192.168.0.17` + relayPort to 8788.
+            // That shipped wrong props on every initial mount when the relay
+            // ran on a non-default port or a different IP.
+            const { relayHost, relayPort } = extractRelayHostPort(parsed.relay);
             const mountResult = mountOverlayBundle(bundleSource, {
                 sessionId: parsed.sessionId,
                 relayHost,
-                relayPort: 8788,
+                relayPort,
             });
             if (mountResult.kind === 'failed') {
                 show(mountResult.title, mountResult.message);
@@ -288,13 +326,13 @@ function buildUrlPipelineRunner(actions: NavActions) {
             }
             if (mountResult.kind === 'overlay-abi-v1') {
                 log.push('mounted via OnlookRuntime.mountOverlay');
-                log.push(`mount ok relayHost=${relayHost} (abi=v1)`);
+                log.push(`mount ok relayHost=${relayHost}:${relayPort} (abi=v1)`);
             } else {
                 log.push(
                     'OnlookRuntime.mountOverlay unavailable — falling back to eval+onlookMount',
                 );
                 log.push('bundle eval OK');
-                log.push(`mount ok relayHost=${relayHost} rootTag=11`);
+                log.push(`mount ok relayHost=${relayHost}:${relayPort} rootTag=11`);
             }
 
             // Open the live-update WebSocket using RN's built-in WebSocket
@@ -313,7 +351,10 @@ function buildUrlPipelineRunner(actions: NavActions) {
             }) | undefined;
             if (typeof WSCtor === 'function') {
                 try {
-                    const wsUrl = `ws://${relayHost}:8788`;
+                    // Use the parsed relayPort (default 8788) so non-default
+                    // port setups work. Previously hardcoded 8788 would miss
+                    // a LAN relay on 18999 or any slot other than 0.
+                    const wsUrl = `ws://${relayHost}:${relayPort}`;
                     slog('ws (native): connecting to ' + wsUrl);
                     const ws = new WSCtor(wsUrl);
                     ws.onopen = () => {
