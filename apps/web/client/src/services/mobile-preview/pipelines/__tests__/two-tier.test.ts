@@ -447,4 +447,97 @@ describe('TwoTierMobilePreviewPipeline.sync', () => {
             resetPipelineFlag();
         }
     });
+
+    test('v1 branch: surfaces a clear error when the relay returns 5xx', async () => {
+        pipelineFlagState.v1Enabled = true;
+        // Spin up a fake relay that always 500s.
+        const server = http.createServer((req, res) => {
+            if (req.method === 'POST' && req.url?.startsWith('/push/')) {
+                // Drain the body then fail the request.
+                req.on('data', () => {});
+                req.on('end', () => {
+                    res.writeHead(500);
+                    res.end();
+                });
+                return;
+            }
+            res.writeHead(404);
+            res.end();
+        });
+        await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+        const port = (server.address() as AddressInfo).port;
+        try {
+            const statuses: Array<{ kind: string; message?: string }> = [];
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: `http://127.0.0.1:${port}`,
+                },
+                { esbuildService: makeEsbuildService().service, createSessionId: () => 'v1-err' },
+            );
+            await expect(
+                pipeline.sync({
+                    fileSystem: makeVfs(FILES),
+                    onStatus: (s) => statuses.push(s),
+                }),
+            ).rejects.toThrow(/push failed/);
+            expect(statuses.some((s) => s.kind === 'error')).toBe(true);
+        } finally {
+            await new Promise<void>((r, j) => server.close((e) => (e ? j(e) : r())));
+            resetPipelineFlag();
+        }
+    });
+
+    test('v1 branch: meta.buildDurationMs is a non-negative number', async () => {
+        pipelineFlagState.v1Enabled = true;
+        const relay = await startFakeRelay();
+        try {
+            const { service } = makeEsbuildService('module.exports = {};');
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                { esbuildService: service, createSessionId: () => 'v1-time' },
+            );
+            await pipeline.sync({ fileSystem: makeVfs(FILES) });
+            const pushed = JSON.parse(relay.pushes[0]!.body) as {
+                meta: { buildDurationMs: number };
+            };
+            expect(pushed.meta.buildDurationMs).toBeGreaterThanOrEqual(0);
+            expect(Number.isFinite(pushed.meta.buildDurationMs)).toBe(true);
+        } finally {
+            await relay.close();
+            resetPipelineFlag();
+        }
+    });
+
+    test('v1 branch: message parses against OverlayUpdateMessageSchema', async () => {
+        pipelineFlagState.v1Enabled = true;
+        const relay = await startFakeRelay();
+        try {
+            const { service } = makeEsbuildService('module.exports = {};');
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                { esbuildService: service, createSessionId: () => 'v1-schema' },
+            );
+            await pipeline.sync({ fileSystem: makeVfs(FILES) });
+            const { OverlayUpdateMessageSchema } = await import(
+                '@onlook/mobile-client-protocol'
+            );
+            const parse = OverlayUpdateMessageSchema.safeParse(
+                JSON.parse(relay.pushes[0]!.body),
+            );
+            expect(parse.success).toBe(true);
+        } finally {
+            await relay.close();
+            resetPipelineFlag();
+        }
+    });
 });
