@@ -32,7 +32,11 @@ export const feedbacksRelations = relations(feedbacks, ({ one }) => ({
 
 const attachmentSchema = z.object({
     name: z.string(),
-    size: z.number().min(0),
+    // File size in bytes — must be an integer ≥ 0 and within a
+    // reasonable upper bound (256 MiB) to prevent a caller from
+    // submitting absurd values. `.int()` rejects NaN/Infinity/
+    // fractional which would be meaningless for a byte count.
+    size: z.number().int().min(0).max(256 * 1024 * 1024),
     type: z.string(),
     url: z.string().url(),
     uploadedAt: z.string(),
