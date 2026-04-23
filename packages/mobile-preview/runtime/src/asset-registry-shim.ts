@@ -90,3 +90,89 @@ function mimeSubtype(mime: string): string {
     if (idx < 0) return 'bin';
     return mime.slice(idx + 1).split('+')[0] ?? 'bin';
 }
+
+// ─── Registry installation (task #67) ────────────────────────────────────────
+
+/**
+ * Metro-compatible AssetRegistry. Mirrors the API surface
+ * `@react-native/assets-registry/registry` ships:
+ *
+ *   registerAsset(asset) → id (1-based)
+ *   getAssetByID(id)     → asset | undefined
+ *
+ * RN libraries that read assets via Metro's mechanism import that module and
+ * expect those two methods. Our `installAssetRegistry()` exposes this same
+ * shape so overlay code can `OnlookRuntime.require('@react-native/assets-registry/registry')`
+ * (when the base bundle aliases it) and get a working registry.
+ */
+export interface MetroAssetRegistry {
+    registerAsset(asset: MetroAssetRegistryEntry): number;
+    getAssetByID(id: number): MetroAssetRegistryEntry | undefined;
+    /** Number of assets registered (test helper). */
+    readonly size: number;
+}
+
+export function createAssetRegistry(): MetroAssetRegistry {
+    const assets: MetroAssetRegistryEntry[] = [];
+    return {
+        registerAsset(asset) {
+            assets.push(asset);
+            return assets.length; // 1-based id (Metro convention)
+        },
+        getAssetByID(id) {
+            // Metro uses 1-based ids; index = id - 1.
+            if (id < 1 || id > assets.length) return undefined;
+            return assets[id - 1];
+        },
+        get size() {
+            return assets.length;
+        },
+    };
+}
+
+/**
+ * Pre-populate a fresh registry from an `OverlayAssetManifest`-like input.
+ * Returns the registry plus a mapping from each manifest assetId to its
+ * Metro-allocated id, so callers can rewrite `OnlookRuntime.resolveAsset`
+ * stub modules to `getAssetByID(<numeric>)` references when they need to
+ * interop with Metro-style consumers.
+ */
+export interface SeedAssetRegistryInput {
+    /**
+     * Map from overlay assetId (e.g. `image/<sha256>`) to a Metro-shape
+     * registry entry. Caller produces the entries via `toMetroAssetRegistryEntry`.
+     */
+    readonly entries: Readonly<Record<string, MetroAssetRegistryEntry>>;
+}
+
+export interface SeededAssetRegistry {
+    readonly registry: MetroAssetRegistry;
+    readonly idByAssetId: Readonly<Record<string, number>>;
+}
+
+export function seedAssetRegistry(input: SeedAssetRegistryInput): SeededAssetRegistry {
+    const registry = createAssetRegistry();
+    const idByAssetId: Record<string, number> = {};
+    // Iterate in insertion order — preserves overlay manifest ordering for
+    // reproducible Metro ids across builds with the same manifest.
+    for (const [assetId, entry] of Object.entries(input.entries)) {
+        idByAssetId[assetId] = registry.registerAsset(entry);
+    }
+    return { registry, idByAssetId };
+}
+
+/**
+ * Install the registry on a globalThis-like object so `OnlookRuntime.require`
+ * can return it via the alias chain. Idempotent: re-installing replaces the
+ * previous registry (overlay re-mount semantics).
+ */
+export interface AssetRegistryGlobals {
+    __onlookAssetRegistry?: MetroAssetRegistry;
+}
+
+export function installAssetRegistry(
+    globals: AssetRegistryGlobals,
+    registry: MetroAssetRegistry,
+): void {
+    globals.__onlookAssetRegistry = registry;
+}
