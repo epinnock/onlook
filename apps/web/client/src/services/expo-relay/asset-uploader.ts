@@ -31,7 +31,10 @@ export type UploadAssetResult =
 export async function sha256HexOfBytes(bytes: Uint8Array): Promise<string> {
     const subtle = (globalThis as { crypto?: { subtle?: SubtleCrypto } }).crypto?.subtle;
     if (subtle) {
-        const digest = await subtle.digest('SHA-256', bytes);
+        // Cast to BufferSource — SubtleCrypto.digest's type params shifted
+        // under recent lib.dom.d.ts (`Uint8Array<ArrayBufferLike>` vs
+        // `BufferSource`). Runtime behavior is identical.
+        const digest = await subtle.digest('SHA-256', bytes as unknown as BufferSource);
         return Array.from(new Uint8Array(digest))
             .map((b) => b.toString(16).padStart(2, '0'))
             .join('');

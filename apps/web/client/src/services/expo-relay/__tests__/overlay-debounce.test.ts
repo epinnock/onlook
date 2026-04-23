@@ -62,7 +62,9 @@ describe('overlay-debounce', () => {
         const d = createOverlayDebouncer<string>({
             delayMs: 100,
             clock,
-            invoke: (v) => invocations.push(v),
+            invoke: (v) => {
+                invocations.push(v);
+            },
         });
         d.schedule('a');
         clock.advance(50);
@@ -79,7 +81,9 @@ describe('overlay-debounce', () => {
         const d = createOverlayDebouncer<string>({
             delayMs: 100,
             clock,
-            invoke: (v) => invocations.push(v),
+            invoke: (v) => {
+                invocations.push(v);
+            },
         });
         d.schedule('a');
         d.cancel();

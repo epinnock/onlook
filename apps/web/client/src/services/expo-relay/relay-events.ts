@@ -94,7 +94,12 @@ export function subscribeRelayEvents(
         }
 
         const msg = parseResult.data;
-        options.handlers.onAny?.(msg);
+        // onAny is semantically "any onlook:* phone→editor message" — exclude
+        // bundleUpdate (editor→phone) from the fan-out so the callback's type
+        // signature stays narrow to phone-originated messages.
+        if (msg.type !== 'bundleUpdate') {
+            options.handlers.onAny?.(msg);
+        }
 
         switch (msg.type) {
             case 'onlook:console':
