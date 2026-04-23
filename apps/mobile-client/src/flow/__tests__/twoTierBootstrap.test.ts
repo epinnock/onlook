@@ -214,7 +214,10 @@ describe('startTwoTierBootstrap', () => {
             });
             expect(mountCalls).toHaveLength(1);
             expect(mountCalls[0]?.source).toBe('envelope-v1-source');
-            expect(mountCalls[0]?.props).toEqual({ sessionId: 'sess' });
+            // props include sessionId + relayHost/relayPort extracted from
+            // `ws://relay` — dedicated test below asserts the shape exactly.
+            const props = mountCalls[0]?.props as Record<string, unknown>;
+            expect(props.sessionId).toBe('sess');
             expect(mountCalls[0]?.assets).toEqual({ abi: 'v1', assets: {} });
         } finally {
             globalThis.OnlookRuntime = priorRuntime;
@@ -325,6 +328,86 @@ describe('startTwoTierBootstrap', () => {
         expect(ack.overlayHash).toBe(realHash);
         expect(ack.status).toBe('failed');
         expect(ack.error?.message).toContain('mount kaboom');
+    });
+
+    test('v1 mountOverlay props match AppRouter initial-mount shape {sessionId, relayHost, relayPort}', () => {
+        const fake = new FakeDispatcher();
+        const mountCalls: Array<{ source: string; props: unknown; assets: unknown }> = [];
+        const priorRuntime = globalThis.OnlookRuntime;
+        globalThis.OnlookRuntime = {
+            abi: 'v1',
+            mountOverlay: (source: string, props?: Record<string, unknown>, assets?: unknown) =>
+                mountCalls.push({ source, props, assets }),
+        };
+        try {
+            startTwoTierBootstrap({
+                sessionId: 'sess-probe',
+                relayUrl: 'ws://relay.example.com:8890',
+                enabled: true,
+                createDispatcher: () => fake as unknown as OverlayDispatcher,
+            });
+            fake.emitV1('v1-source', {
+                assets: { abi: 'v1', assets: {} },
+            });
+            expect(mountCalls).toHaveLength(1);
+            expect(mountCalls[0]?.props).toEqual({
+                sessionId: 'sess-probe',
+                relayHost: 'relay.example.com',
+                relayPort: 8890,
+            });
+        } finally {
+            globalThis.OnlookRuntime = priorRuntime;
+        }
+    });
+
+    test('v1 mountOverlay props: wss:// default port 443 when port is omitted', () => {
+        const fake = new FakeDispatcher();
+        const mountCalls: Array<{ props: unknown }> = [];
+        const priorRuntime = globalThis.OnlookRuntime;
+        globalThis.OnlookRuntime = {
+            abi: 'v1',
+            mountOverlay: (_source: string, props?: Record<string, unknown>) =>
+                mountCalls.push({ props }),
+        };
+        try {
+            startTwoTierBootstrap({
+                sessionId: 'sess',
+                relayUrl: 'wss://relay.onlook.com',
+                enabled: true,
+                createDispatcher: () => fake as unknown as OverlayDispatcher,
+            });
+            fake.emitV1('v1-src');
+            expect(mountCalls[0]?.props).toEqual({
+                sessionId: 'sess',
+                relayHost: 'relay.onlook.com',
+                relayPort: 443,
+            });
+        } finally {
+            globalThis.OnlookRuntime = priorRuntime;
+        }
+    });
+
+    test('parseRelayUrlForProps: invalid URL returns empty object (props fall back to sessionId-only)', () => {
+        const fake = new FakeDispatcher();
+        const mountCalls: Array<{ props: unknown }> = [];
+        const priorRuntime = globalThis.OnlookRuntime;
+        globalThis.OnlookRuntime = {
+            abi: 'v1',
+            mountOverlay: (_source: string, props?: Record<string, unknown>) =>
+                mountCalls.push({ props }),
+        };
+        try {
+            startTwoTierBootstrap({
+                sessionId: 'sess',
+                relayUrl: 'not-a-url',
+                enabled: true,
+                createDispatcher: () => fake as unknown as OverlayDispatcher,
+            });
+            fake.emitV1('v1-src');
+            expect(mountCalls[0]?.props).toEqual({ sessionId: 'sess' });
+        } finally {
+            globalThis.OnlookRuntime = priorRuntime;
+        }
     });
 
     test('sends onlook:overlayAck with status=mounted after successful explicit mount', () => {

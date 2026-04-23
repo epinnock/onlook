@@ -158,12 +158,18 @@ export function startTwoTierBootstrap(options: TwoTierBootstrapOptions): TwoTier
         const isV1 = (msg as { abi?: string }).abi === 'v1';
         if (isV1 && runtime?.abi === 'v1' && typeof runtime.mountOverlay === 'function') {
             try {
-                const props = {
+                // Match the props shape AppRouter.tsx's mountOverlayBundle
+                // passes on initial deep-link mount: {sessionId, relayHost,
+                // relayPort}. Extracts relayHost/port from the WS URL so
+                // initial-mount and subsequent-edit paths are symmetric —
+                // overlays that depend on these props work identically.
+                const { relayHost, relayPort } = parseRelayUrlForProps(
+                    options.relayUrl,
+                );
+                const props: Record<string, unknown> = {
                     sessionId: options.sessionId,
-                    // Extract relayHost + port from the WS URL if the caller
-                    // provides them as manifest-style fields downstream. For
-                    // now the bootstrap hands the raw session id; full props
-                    // plumbing lives with Phase 9 editor work.
+                    ...(relayHost !== undefined ? { relayHost } : {}),
+                    ...(relayPort !== undefined ? { relayPort } : {}),
                 };
                 const assets = (msg as { assets?: unknown }).assets;
                 runtime.mountOverlay(msg.code, props, assets);
@@ -247,4 +253,31 @@ export function startTwoTierBootstrap(options: TwoTierBootstrapOptions): TwoTier
             return !stopped;
         },
     };
+}
+
+/**
+ * Extract `{relayHost, relayPort}` from the ws(s):// relay URL so
+ * `OnlookRuntime.mountOverlay` receives the same props shape AppRouter's
+ * initial-mount path uses. Returns `undefined` for either field when the
+ * URL can't be parsed — mountOverlay tolerates missing props.
+ */
+export function parseRelayUrlForProps(
+    relayUrl: string,
+): { relayHost?: string; relayPort?: number } {
+    try {
+        // URL supports ws:// + wss:// in Node + Hermes + browsers.
+        const parsed = new URL(relayUrl);
+        const host = parsed.hostname || undefined;
+        // Default ports by scheme — browsers report '' for these.
+        const defaultPort =
+            parsed.protocol === 'wss:' || parsed.protocol === 'https:' ? 443 : 80;
+        const port =
+            parsed.port !== '' ? Number.parseInt(parsed.port, 10) : defaultPort;
+        return {
+            ...(host !== undefined ? { relayHost: host } : {}),
+            ...(Number.isFinite(port) ? { relayPort: port } : {}),
+        };
+    } catch {
+        return {};
+    }
 }
