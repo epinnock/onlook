@@ -133,9 +133,12 @@ export function startTwoTierBootstrap(options: TwoTierBootstrapOptions): TwoTier
         // whenever we measured a wall-clock duration around the mount call
         // (not synthesized — only real measurements flow here). The editor's
         // `OverlayAckMessageSchema` accepts the field as optional + non-
-        // negative; omitted when undefined so legacy relay / schema paths
-        // stay backward-compatible.
-        if (typeof mountDurationMs === 'number' && mountDurationMs >= 0) {
+        // negative + finite; omitted when undefined so legacy relay /
+        // schema paths stay backward-compatible. `Number.isFinite` also
+        // rejects Infinity — the schema rejects it too, but dropping at
+        // the boundary means the ack isn't rejected at validation when
+        // the whole payload is otherwise valid.
+        if (Number.isFinite(mountDurationMs) && (mountDurationMs as number) >= 0) {
             ack.mountDurationMs = mountDurationMs;
         }
         if (errorMessage !== undefined) {
