@@ -137,6 +137,10 @@ export class HmrSession extends DurableObject<Env> {
                     sourceBytes,
                     sockets: this.sockets.size,
                     overlayHash: v1Parse.data.meta.overlayHash,
+                    // Editor-reported build duration — included so Phase 11b
+                    // soak telemetry can join push-side latency with on-
+                    // device mount latency via overlayHash correlation.
+                    buildDurationMs: v1Parse.data.meta.buildDurationMs,
                     ...(exceedsSoftCap ? { softCapExceeded: true } : {}),
                 }),
             );

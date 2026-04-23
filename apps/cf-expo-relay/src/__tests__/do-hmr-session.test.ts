@@ -694,10 +694,17 @@ describe('HmrSession overlayUpdate (v1) — multi-client + disconnect (task #76)
             event: string;
             sourceBytes: number;
             softCapExceeded?: boolean;
+            buildDurationMs: number;
+            overlayHash: string;
         };
         expect(parsed.event).toBe('hmr.push.v1');
         expect(parsed.sourceBytes).toBe(1024);
         expect(parsed.softCapExceeded).toBeUndefined();
+        // Phase 11b soak telemetry: buildDurationMs from meta is echoed
+        // into the log so edit latency can be correlated against
+        // server-observed bytes/delivery.
+        expect(parsed.buildDurationMs).toBe(5);
+        expect(parsed.overlayHash).toBe('b'.repeat(64));
     });
 
     test('over soft cap: hmr.push.v1 log adds softCapExceeded + emits hmr.push.v1.softcap warn', async () => {
