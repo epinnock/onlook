@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 
+import { extractImageDimensions } from '../image-dimensions';
+
 /**
  * assets-resolve plugin — task #66 of two-tier-overlay-v2.
  *
@@ -307,12 +309,14 @@ function buildDescriptor(input: {
         case 'image': {
             if (input.mime === undefined) return undefined;
             const scale = parseScaleSuffix(input.path);
+            const dims = extractImageDimensions(input.bytes);
             const descriptor: ImageAssetDescriptor = {
                 kind: 'image',
                 hash: input.hash,
                 mime: input.mime,
                 uri: input.urlForKey({ path: input.path, hash: input.hash, contents: input.bytes }),
                 ...(scale !== undefined ? { scale } : {}),
+                ...(dims !== undefined ? { width: dims.width, height: dims.height } : {}),
             };
             return descriptor;
         }

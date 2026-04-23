@@ -412,3 +412,57 @@ describe('createAssetsResolvePlugin — image scale variants (task #54)', () => 
         expect(d.scale).toBeUndefined();
     });
 });
+
+// ─── Image dimension extraction (task #63) ───────────────────────────────────
+function makePng(width: number, height: number): Uint8Array {
+    const bytes = new Uint8Array(8 + 4 + 4 + 13 + 4);
+    bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
+    const dv = new DataView(bytes.buffer);
+    dv.setUint32(8, 13, false);
+    bytes.set([0x49, 0x48, 0x44, 0x52], 12);
+    dv.setUint32(16, width, false);
+    dv.setUint32(20, height, false);
+    return bytes;
+}
+
+describe('createAssetsResolvePlugin — image dimensions (task #63)', () => {
+    test('PNG: descriptor.width + descriptor.height populated from IHDR', () => {
+        const harness = createPluginHarness({
+            'assets/icon.png': makePng(48, 96),
+        });
+        harness.load('assets/icon.png');
+        const d = Object.values(harness.manifest.build().assets)[0] as Extract<
+            AssetDescriptor,
+            { kind: 'image' }
+        >;
+        expect(d.width).toBe(48);
+        expect(d.height).toBe(96);
+    });
+
+    test('non-image bytes leave width/height undefined (graceful fallback)', () => {
+        const harness = createPluginHarness({
+            'assets/blob.png': new Uint8Array([0, 0, 0, 0, 0, 0, 0, 0]),
+        });
+        harness.load('assets/blob.png');
+        const d = Object.values(harness.manifest.build().assets)[0] as Extract<
+            AssetDescriptor,
+            { kind: 'image' }
+        >;
+        expect(d.width).toBeUndefined();
+        expect(d.height).toBeUndefined();
+    });
+
+    test('PNG @2x carries both scale + dimensions', () => {
+        const harness = createPluginHarness({
+            'assets/icon@2x.png': makePng(96, 96),
+        });
+        harness.load('assets/icon@2x.png');
+        const d = Object.values(harness.manifest.build().assets)[0] as Extract<
+            AssetDescriptor,
+            { kind: 'image' }
+        >;
+        expect(d.scale).toBe(2);
+        expect(d.width).toBe(96);
+        expect(d.height).toBe(96);
+    });
+});
