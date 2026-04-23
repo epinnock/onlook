@@ -10,6 +10,10 @@ import {
 
 import { pushOverlay, pushOverlayV1 } from '@/services/expo-relay/push-overlay';
 import { evaluatePushTelemetry } from '@/services/expo-relay/perf-guardrails';
+import {
+    emitOverlayPerfGuardrail,
+    emitOverlayPushTelemetry,
+} from '@/services/expo-relay/overlay-telemetry-sink';
 
 import { isMobilePreviewOverlayV1PipelineEnabled } from '../pipeline-flag';
 
@@ -250,20 +254,36 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
                       // Phase 7 asset wiring lands in Phase 9 editor work —
                       // for Phase 11a the v1 branch just proves the wire shape
                       // round-trips end-to-end.
-                      // Perf guardrails: every v1 push flows through the ADR-
-                      // 0001 §"Performance envelope" thresholds (push-slow >
-                      // 500ms, push-retried > 1 attempt, large-overlay >
-                      // soft cap). The default sink is console.warn/info —
-                      // the relay's own soft-cap log is a server-side mirror
-                      // of this.
+                      // Telemetry: every v1 push lands in the Phase 11b soak
+                      // sink (posthog + console) AND every perf-guardrail
+                      // threshold crossing (push-slow > 500ms, push-retried >
+                      // 1, large-overlay > soft cap) lands there too.
+                      // ADR-0009 §"Open questions" prerequisite. The relay's
+                      // own soft-cap log is a server-side mirror of this.
                       onTelemetry: (event) => {
-                          evaluatePushTelemetry(event);
+                          emitOverlayPushTelemetry('overlay-v1', event);
+                          evaluatePushTelemetry(event, (perfEvent) =>
+                              emitOverlayPerfGuardrail('overlay-v1', perfEvent),
+                          );
                       },
                   })
                 : await pushOverlay({
                       relayBaseUrl,
                       sessionId,
                       overlay: { code: wrapped.code, sourceMap: result.sourceMap },
+                      // Phase 11b soak parity: legacy pushes get the same sink
+                      // so the dashboard can diff v1-vs-legacy populations
+                      // (push success rate, duration distribution, retry
+                      // rate). Without this the legacy branch is invisible.
+                      onTelemetry: (event) => {
+                          emitOverlayPushTelemetry('overlay-legacy', event);
+                          evaluatePushTelemetry(event, (perfEvent) =>
+                              emitOverlayPerfGuardrail(
+                                  'overlay-legacy',
+                                  perfEvent,
+                              ),
+                          );
+                      },
                   });
 
             if (!pushResult.ok) {

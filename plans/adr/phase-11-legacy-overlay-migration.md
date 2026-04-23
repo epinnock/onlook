@@ -59,7 +59,7 @@ Phase 11 removal ships as a **flag-gated parallel v1 path inside `two-tier.ts`**
 
 ## Open questions
 
-- **Who owns Phase 11b's soak period?** Needs a 7-day canary with metrics. Current telemetry sinks (`pushOverlay`'s `onTelemetry` callback) are `console.info` by default — promoting to a real sink is prerequisite work.
+- **Who owns Phase 11b's soak period?** Needs a 7-day canary with metrics. ~~Current telemetry sinks (`pushOverlay`'s `onTelemetry` callback) are `console.info` by default — promoting to a real sink is prerequisite work.~~ **Soak sink shipped 2026-04-23** — `apps/web/client/src/services/expo-relay/overlay-telemetry-sink.ts` routes every push (legacy + v1) and every perf-guardrail crossing (push-slow, push-retried, large-overlay) through `posthog.capture` with `pipeline` tag `'overlay-v1' | 'overlay-legacy'`. Two-tier.ts wires both branches. PostHog-absent contexts (SSR, test harness) fall back to console.info/warn so dev visibility is preserved. Dashboard still needs to be built (sits on PostHog side); codebase side is done. 9 unit tests cover pipeline segmentation, payload shape, console fallback, never-throw.
 - **Does `cf-expo-relay` need a kill-switch for the legacy WS overlay message type during Phase 11c → 11d?** Probably yes. The HmrSession's `isOverlayMessage` predicate should return `false` once Phase 11c ships so stale clients can't push legacy overlays.
 
 ## References
