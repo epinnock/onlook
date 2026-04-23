@@ -173,6 +173,27 @@ describe('assets r2 plugin', () => {
         });
     });
 
+    // ─── Audio + video coverage (task #59) ──────────────────────────────────
+    test('filter matches audio + video extensions', () => {
+        const harness = createPluginHarness({}, 0);
+        for (const ext of ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac', 'mp4', 'mov', 'webm', 'm4v']) {
+            expect(harness.filter.test(`media.${ext}`)).toBe(true);
+        }
+    });
+
+    test('large audio/video rewrites to an R2 URL module (same code path as images)', () => {
+        const result = createR2AssetModule({
+            contents: new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
+            path: 'clips/intro.mp4',
+            baseAssetUrl: 'https://cdn.example.com/assets/',
+            maxInlineBytes: 3,
+            assetKey: ({ path }) => `k/${path}`,
+        });
+        expect(result?.contents).toBe(
+            'export default "https://cdn.example.com/assets/k/clips/intro.mp4";',
+        );
+    });
+
     // ─── R2 module size boundary (task #68) ─────────────────────────────────
     test('exact-threshold bytes are NOT uploaded (plugin prefers inline handoff)', () => {
         // byteLength === maxInlineBytes should return undefined so that

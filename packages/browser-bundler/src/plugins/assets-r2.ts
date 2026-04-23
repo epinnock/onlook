@@ -38,7 +38,8 @@ export interface CreateAssetsR2PluginOptions {
 
 const DEFAULT_MAX_INLINE_BYTES = 8 * 1024;
 
-const ASSET_FILTER = /\.(?:avif|bmp|gif|ico|jpeg|jpg|otf|png|svg|ttf|webp|woff|woff2)$/i;
+const ASSET_FILTER =
+    /\.(?:avif|bmp|gif|ico|jpeg|jpg|otf|png|svg|ttf|webp|woff|woff2|mp3|wav|m4a|aac|ogg|flac|mp4|mov|webm|m4v)$/i;
 
 const textEncoder = new TextEncoder();
 

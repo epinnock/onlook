@@ -128,8 +128,8 @@ describe('assets inline plugin', () => {
 
     test('MIME inference returns undefined for unregistered extensions', () => {
         expect(inferAssetMimeType('readme.txt')).toBeUndefined();
-        expect(inferAssetMimeType('audio.mp3')).toBeUndefined();
         expect(inferAssetMimeType('data.json')).toBeUndefined();
+        expect(inferAssetMimeType('data.yml')).toBeUndefined();
         expect(inferAssetMimeType('noext')).toBeUndefined();
     });
 
@@ -177,5 +177,33 @@ describe('assets inline plugin', () => {
         // byteLength (3) === maxInlineBytes (3) → still inlines (uses `>` check).
         expect(result).not.toBeUndefined();
         expect(result!.contents).toContain('data:image/png;base64,');
+    });
+
+    // ─── Audio + video MIME coverage (task #59) ─────────────────────────────
+    test('infers audio MIME types', () => {
+        expect(inferAssetMimeType('track.mp3')).toBe('audio/mpeg');
+        expect(inferAssetMimeType('loop.wav')).toBe('audio/wav');
+        expect(inferAssetMimeType('podcast.m4a')).toBe('audio/mp4');
+        expect(inferAssetMimeType('bell.aac')).toBe('audio/aac');
+        expect(inferAssetMimeType('amb.ogg')).toBe('audio/ogg');
+        expect(inferAssetMimeType('archive.flac')).toBe('audio/flac');
+    });
+
+    test('infers video MIME types', () => {
+        expect(inferAssetMimeType('clip.mp4')).toBe('video/mp4');
+        expect(inferAssetMimeType('clip.m4v')).toBe('video/mp4');
+        expect(inferAssetMimeType('record.mov')).toBe('video/quicktime');
+        expect(inferAssetMimeType('stream.webm')).toBe('video/webm');
+    });
+
+    test('small audio/video assets still inline as data URLs (same code path as images)', () => {
+        const result = createInlineAssetModule({
+            contents: new Uint8Array([0, 1, 2]),
+            path: 'sfx/ping.mp3',
+            maxInlineBytes: 16,
+        });
+        expect(result?.contents).toBe(
+            'export default "data:audio/mpeg;base64,AAEC";',
+        );
     });
 });

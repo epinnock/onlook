@@ -48,9 +48,22 @@ const ASSET_MIME_TYPES: Readonly<Record<string, string>> = {
     '.webp': 'image/webp',
     '.woff': 'font/woff',
     '.woff2': 'font/woff2',
+    // Audio (task #59)
+    '.mp3': 'audio/mpeg',
+    '.wav': 'audio/wav',
+    '.m4a': 'audio/mp4',
+    '.aac': 'audio/aac',
+    '.ogg': 'audio/ogg',
+    '.flac': 'audio/flac',
+    // Video (task #59)
+    '.mp4': 'video/mp4',
+    '.mov': 'video/quicktime',
+    '.webm': 'video/webm',
+    '.m4v': 'video/mp4',
 };
 
-const ASSET_FILTER = /\.(?:avif|bmp|gif|ico|jpeg|jpg|otf|png|svg|ttf|webp|woff|woff2)$/i;
+const ASSET_FILTER =
+    /\.(?:avif|bmp|gif|ico|jpeg|jpg|otf|png|svg|ttf|webp|woff|woff2|mp3|wav|m4a|aac|ogg|flac|mp4|mov|webm|m4v)$/i;
 
 const textEncoder = new TextEncoder();
 
