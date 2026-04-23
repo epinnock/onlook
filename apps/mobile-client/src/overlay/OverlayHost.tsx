@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View } from 'react-native';
 
 import type { OverlayGlobals } from './overlayHostSubscription';
@@ -11,6 +11,39 @@ import {
 
 export type { OverlayGlobals };
 export { OVERLAY_FRAME_POINTER_EVENTS, OVERLAY_FRAME_STYLE, subscribeOverlayPull };
+
+/**
+ * Route React error-boundary catches through `OnlookRuntime.reportError` when
+ * the runtime is installed. Closes the observability gap where an overlay
+ * that MOUNTED successfully but later crashed in a React lifecycle would
+ * leave the phone silent — the editor's ack tracker would see 'mounted' and
+ * never transition to 'error'.
+ *
+ * Exported for testing; the default OverlayHost wires it as the error
+ * boundary's onError handler.
+ */
+export function reportOverlayBoundaryError(error: Error): void {
+    const rt = (globalThis as {
+        OnlookRuntime?: {
+            reportError?: (err: {
+                kind: string;
+                message: string;
+                stack?: string;
+            }) => void;
+        };
+    }).OnlookRuntime;
+    if (rt && typeof rt.reportError === 'function') {
+        try {
+            rt.reportError({
+                kind: 'overlay-react',
+                message: error.message,
+                stack: error.stack,
+            });
+        } catch {
+            // reportError sinks must not take down the host app; swallow.
+        }
+    }
+}
 
 /**
  * OverlayHost — single React surface the two-tier v2 mount pipeline uses to
@@ -37,13 +70,16 @@ export function OverlayHost(): React.ReactElement | null {
             setElement(gt._onlookOverlayElement ?? null);
         });
     }, []);
+    const onBoundaryError = useCallback(reportOverlayBoundaryError, []);
     if (element === null || element === undefined) return null;
     return (
         <View
             pointerEvents={OVERLAY_FRAME_POINTER_EVENTS}
             style={OVERLAY_FRAME_STYLE}
         >
-            <OverlayErrorBoundary>{element as React.ReactElement}</OverlayErrorBoundary>
+            <OverlayErrorBoundary onError={onBoundaryError}>
+                {element as React.ReactElement}
+            </OverlayErrorBoundary>
         </View>
     );
 }
