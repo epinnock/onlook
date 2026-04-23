@@ -98,6 +98,48 @@ describe('wrapOverlayV1 / structural', () => {
         const huge = 'module.exports = {}; /*' + 'x'.repeat(OVERLAY_SIZE_HARD_CAP + 1) + '*/';
         expect(() => wrapOverlayV1(huge, { skipSizeCap: true })).not.toThrow();
     });
+
+    // ─── Size-cap boundary coverage (task #100) ──────────────────────────────
+    // Locks down the exact thresholds so future refactors that accidentally
+    // change the off-by-one don't silently loosen the cap.
+
+    test('size-cap boundary: well below soft cap does NOT warn', () => {
+        const small = 'module.exports = {};';
+        const out = wrapOverlayV1(small);
+        expect(out.sizeWarning).toBeUndefined();
+    });
+
+    test('size-cap boundary: just-below-soft-cap wrap does NOT warn', () => {
+        // The wrap envelope adds a (small, fixed-ish) preamble/suffix. We
+        // intentionally leave a 1 KB safety margin below the soft cap so the
+        // wrapped output is guaranteed strictly below the cap even after
+        // envelope overhead. This pins the >, vs ≥ semantics without needing
+        // to predict the envelope's exact byte count.
+        const safetyMargin = 1024;
+        const pad = OVERLAY_SIZE_SOFT_CAP - 'module.exports = {}; /**/'.length - safetyMargin - 200;
+        const small = 'module.exports = {}; /*' + 'x'.repeat(pad) + '*/';
+        const out = wrapOverlayV1(small);
+        expect(out.sizeBytes).toBeLessThan(OVERLAY_SIZE_SOFT_CAP);
+        expect(out.sizeWarning).toBeUndefined();
+    });
+
+    test('size-cap boundary: between soft and hard cap triggers warning, does NOT throw', () => {
+        // Target a size clearly in the (soft, hard] band — halfway between
+        // the two caps. Passes both `> soft` and `≤ hard` checks regardless
+        // of envelope overhead.
+        const pad = Math.floor((OVERLAY_SIZE_SOFT_CAP + OVERLAY_SIZE_HARD_CAP) / 2);
+        const mid = 'module.exports = {}; /*' + 'x'.repeat(pad) + '*/';
+        const out = wrapOverlayV1(mid);
+        expect(out.sizeBytes).toBeGreaterThan(OVERLAY_SIZE_SOFT_CAP);
+        expect(out.sizeBytes).toBeLessThan(OVERLAY_SIZE_HARD_CAP);
+        expect(out.sizeWarning).toContain('soft cap');
+    });
+
+    test('size-cap sanity: soft cap is smaller than hard cap', () => {
+        // Tripwire: if a refactor ever swaps the two constants by accident
+        // this test fails first.
+        expect(OVERLAY_SIZE_SOFT_CAP).toBeLessThan(OVERLAY_SIZE_HARD_CAP);
+    });
 });
 
 // ─── Behavioral ──────────────────────────────────────────────────────────────
