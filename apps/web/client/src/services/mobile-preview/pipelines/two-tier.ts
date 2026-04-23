@@ -9,6 +9,7 @@ import {
 } from '../../../../../../../packages/browser-bundler/src';
 
 import { pushOverlay, pushOverlayV1 } from '@/services/expo-relay/push-overlay';
+import { evaluatePushTelemetry } from '@/services/expo-relay/perf-guardrails';
 
 import { isMobilePreviewOverlayV1PipelineEnabled } from '../pipeline-flag';
 
@@ -249,6 +250,15 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
                       // Phase 7 asset wiring lands in Phase 9 editor work —
                       // for Phase 11a the v1 branch just proves the wire shape
                       // round-trips end-to-end.
+                      // Perf guardrails: every v1 push flows through the ADR-
+                      // 0001 §"Performance envelope" thresholds (push-slow >
+                      // 500ms, push-retried > 1 attempt, large-overlay >
+                      // soft cap). The default sink is console.warn/info —
+                      // the relay's own soft-cap log is a server-side mirror
+                      // of this.
+                      onTelemetry: (event) => {
+                          evaluatePushTelemetry(event);
+                      },
                   })
                 : await pushOverlay({
                       relayBaseUrl,
