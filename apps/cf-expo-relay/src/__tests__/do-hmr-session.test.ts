@@ -389,6 +389,176 @@ describe('HmrSession durable storage persistence', () => {
         const pair = await openSocket(freshInstance);
         expect(pair.server.sent).toEqual([JSON.stringify(payload)]);
     });
+
+    test('v1 push invalidates prior legacy payload — replay gets the fresh v1', async () => {
+        const storage = new Map<string, unknown>();
+        const fakeStorage = {
+            async get(key: string): Promise<unknown> {
+                return storage.get(key) ?? null;
+            },
+            async put(key: string, value: unknown): Promise<void> {
+                storage.set(key, value);
+            },
+            async delete(key: string): Promise<boolean> {
+                return storage.delete(key);
+            },
+        };
+        const state = {
+            id: { name: 'x', toString: () => 'x' } as DurableObjectId,
+            storage: fakeStorage,
+        } as unknown as DurableObjectState;
+        const session = new HmrSession(state, {});
+
+        // 1. Legacy push first.
+        await session.fetch(
+            new Request('https://x/push', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: 'overlay', code: 'legacy-v1' }),
+            }),
+        );
+        await new Promise((r) => setTimeout(r, 0));
+        expect(storage.has('last-overlay')).toBe(true);
+        expect(storage.has('last-overlay-v1')).toBe(false);
+
+        // 2. V1 push — should invalidate the legacy payload.
+        const v1Payload = {
+            type: 'overlayUpdate',
+            abi: 'v1',
+            sessionId: 'sess',
+            source: 'v1-source',
+            assets: { abi: 'v1', assets: {} },
+            meta: {
+                overlayHash: 'h'.repeat(64),
+                entryModule: 0,
+                buildDurationMs: 5,
+            },
+        };
+        await session.fetch(
+            new Request('https://x/push', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(v1Payload),
+            }),
+        );
+        await new Promise((r) => setTimeout(r, 0));
+        expect(storage.has('last-overlay-v1')).toBe(true);
+        // Legacy key was DELETED — no stale replay risk.
+        expect(storage.has('last-overlay')).toBe(false);
+
+        // 3. Fresh reconnect should replay v1 (the newer one).
+        const freshSession = new HmrSession(state, {});
+        const pair = await openSocket(freshSession);
+        expect(pair.server.sent).toHaveLength(1);
+        const sent = JSON.parse(pair.server.sent[0] as string) as { type: string };
+        expect(sent.type).toBe('overlayUpdate');
+    });
+
+    test('legacy push after v1 invalidates the stale v1 payload — replay gets the fresh legacy', async () => {
+        const storage = new Map<string, unknown>();
+        const fakeStorage = {
+            async get(key: string): Promise<unknown> {
+                return storage.get(key) ?? null;
+            },
+            async put(key: string, value: unknown): Promise<void> {
+                storage.set(key, value);
+            },
+            async delete(key: string): Promise<boolean> {
+                return storage.delete(key);
+            },
+        };
+        const state = {
+            id: { name: 'x', toString: () => 'x' } as DurableObjectId,
+            storage: fakeStorage,
+        } as unknown as DurableObjectState;
+        const session = new HmrSession(state, {});
+
+        // 1. V1 push first.
+        await session.fetch(
+            new Request('https://x/push', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    type: 'overlayUpdate',
+                    abi: 'v1',
+                    sessionId: 'sess',
+                    source: 'v1-first',
+                    assets: { abi: 'v1', assets: {} },
+                    meta: {
+                        overlayHash: 'a'.repeat(64),
+                        entryModule: 0,
+                        buildDurationMs: 5,
+                    },
+                }),
+            }),
+        );
+        await new Promise((r) => setTimeout(r, 0));
+        expect(storage.has('last-overlay-v1')).toBe(true);
+
+        // 2. Legacy push — should invalidate the v1 payload.
+        await session.fetch(
+            new Request('https://x/push', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: 'overlay', code: 'legacy-after-v1' }),
+            }),
+        );
+        await new Promise((r) => setTimeout(r, 0));
+        expect(storage.has('last-overlay')).toBe(true);
+        expect(storage.has('last-overlay-v1')).toBe(false); // stale v1 cleared
+
+        // 3. Fresh reconnect replays legacy (the newer one).
+        const freshSession = new HmrSession(state, {});
+        const pair = await openSocket(freshSession);
+        expect(pair.server.sent).toHaveLength(1);
+        const sent = JSON.parse(pair.server.sent[0] as string) as {
+            type: string;
+            code?: string;
+        };
+        expect(sent.type).toBe('overlay');
+        expect(sent.code).toBe('legacy-after-v1');
+    });
+
+    test('storage binding without .delete() — saves still work (backward compat)', async () => {
+        const storagePuts: Array<[string, unknown]> = [];
+        const fakeStorage = {
+            async get() {
+                return null;
+            },
+            async put(key: string, value: unknown): Promise<void> {
+                storagePuts.push([key, value]);
+            },
+            // NO .delete() — older mock shape.
+        };
+        const state = {
+            id: { name: 'x', toString: () => 'x' } as DurableObjectId,
+            storage: fakeStorage,
+        } as unknown as DurableObjectState;
+        const session = new HmrSession(state, {});
+
+        // V1 push against a storage without .delete() — must not throw.
+        const resp = await session.fetch(
+            new Request('https://x/push', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    type: 'overlayUpdate',
+                    abi: 'v1',
+                    sessionId: 'sess',
+                    source: 'src',
+                    assets: { abi: 'v1', assets: {} },
+                    meta: {
+                        overlayHash: 'b'.repeat(64),
+                        entryModule: 0,
+                        buildDurationMs: 0,
+                    },
+                }),
+            }),
+        );
+        expect(resp.status).toBe(202);
+        await new Promise((r) => setTimeout(r, 0));
+        expect(storagePuts.some(([k]) => k === 'last-overlay-v1')).toBe(true);
+    });
 });
 
 describe('HmrSession overlayUpdate (v1) — multi-client + disconnect (task #76)', () => {

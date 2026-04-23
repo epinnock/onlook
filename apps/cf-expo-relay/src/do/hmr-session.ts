@@ -39,7 +39,8 @@ const OVERLAY_SOFT_CAP_BYTES = 512 * 1024;
 
 interface Env {}
 
-type HmrSessionStorage = Pick<DurableObjectStorage, 'get' | 'put'>;
+type HmrSessionStorage = Pick<DurableObjectStorage, 'get' | 'put'> &
+    Partial<Pick<DurableObjectStorage, 'delete'>>;
 
 export class HmrSession extends DurableObject<Env> {
     private readonly sockets = new Set<WebSocket>();
@@ -113,12 +114,7 @@ export class HmrSession extends DurableObject<Env> {
         const v1Parse = OverlayUpdateMessageSchema.safeParse(parsed);
         if (v1Parse.success) {
             const payload = JSON.stringify(v1Parse.data satisfies OverlayUpdateMessage);
-            this.lastOverlayV1Payload = payload;
-            if (this.storage !== null) {
-                void this.storage.put('last-overlay-v1', payload).catch((err) => {
-                    console.error('hmr-relay v1 storage write error', err);
-                });
-            }
+            this.saveLastOverlayV1Payload(payload);
             let delivered = 0;
             for (const socket of this.sockets) {
                 if (socket.readyState !== WebSocket.OPEN) continue;
@@ -263,13 +259,46 @@ export class HmrSession extends DurableObject<Env> {
 
     private saveLastOverlayPayload(payload: string): void {
         this.lastOverlayPayload = payload;
+        // A legacy push supersedes any prior v1 payload for replay purposes —
+        // clear both the in-memory slot and the durable key so reconnecting
+        // clients get the FRESH legacy overlay, not a stale v1 envelope left
+        // over from earlier in the session (e.g. mid-session flag flip).
+        this.lastOverlayV1Payload = null;
         if (this.storage === null) {
             return;
         }
-
         void this.storage.put('last-overlay', payload).catch((err) => {
             console.error('hmr-relay storage write error', err);
         });
+        // `delete` is optional on the storage binding — older mocks + tests
+        // may not implement it. Skip cleanly when absent.
+        if (typeof this.storage.delete === 'function') {
+            void this.storage.delete('last-overlay-v1').catch((err) => {
+                console.error('hmr-relay v1 storage clear error', err);
+            });
+        }
+    }
+
+    /**
+     * Store a v1 OverlayUpdateMessage payload and invalidate any stale
+     * legacy payload. Same last-write-wins semantics as
+     * {@link saveLastOverlayPayload} but for the v1 wire shape.
+     */
+    private saveLastOverlayV1Payload(payload: string): void {
+        this.lastOverlayV1Payload = payload;
+        // A v1 push supersedes any prior legacy payload.
+        this.lastOverlayPayload = null;
+        if (this.storage === null) {
+            return;
+        }
+        void this.storage.put('last-overlay-v1', payload).catch((err) => {
+            console.error('hmr-relay v1 storage write error', err);
+        });
+        if (typeof this.storage.delete === 'function') {
+            void this.storage.delete('last-overlay').catch((err) => {
+                console.error('hmr-relay legacy storage clear error', err);
+            });
+        }
     }
 
     private async onMessage(sender: WebSocket, event: MessageEvent): Promise<void> {
@@ -323,12 +352,7 @@ export class HmrSession extends DurableObject<Env> {
         const v1Parse = OverlayUpdateMessageSchema.safeParse(parsed);
         if (v1Parse.success) {
             const payload = JSON.stringify(v1Parse.data satisfies OverlayUpdateMessage);
-            this.lastOverlayV1Payload = payload;
-            if (this.storage !== null) {
-                void this.storage.put('last-overlay-v1', payload).catch((err) => {
-                    console.error('hmr-relay v1 storage write error', err);
-                });
-            }
+            this.saveLastOverlayV1Payload(payload);
             for (const socket of this.sockets) {
                 if (socket === sender || socket.readyState !== WebSocket.OPEN) {
                     continue;
