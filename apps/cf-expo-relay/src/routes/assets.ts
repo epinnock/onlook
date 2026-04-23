@@ -24,6 +24,8 @@ export function parseBaseBundleAssetsRoute(
     return null;
 }
 
+const MAX_ASSET_PUT_BYTES = 10 * 1024 * 1024; // 10 MB cap matches the OverlayUpdate hard cap class.
+
 export async function handleBaseBundleAssetsRoute(
     request: Request,
     env: Env,
@@ -31,10 +33,16 @@ export async function handleBaseBundleAssetsRoute(
     // Task #65 — HEAD support so the editor can ask "do you already have this
     // asset?" before re-uploading. Returns the same status codes as GET (200
     // hit / 404 miss / 400 invalid) with no body.
-    if (request.method !== 'GET' && request.method !== 'HEAD') {
+    // Task #74 — PUT support so the editor can upload asset bytes for durable
+    // R2 storage. Returns 201 (created) or 200 (overwritten).
+    if (
+        request.method !== 'GET' &&
+        request.method !== 'HEAD' &&
+        request.method !== 'PUT'
+    ) {
         return new Response('expo-relay: method not allowed', {
             status: 405,
-            headers: { Allow: 'GET, HEAD' },
+            headers: { Allow: 'GET, HEAD, PUT' },
         });
     }
 
@@ -50,6 +58,10 @@ export async function handleBaseBundleAssetsRoute(
 
     if (request.method === 'HEAD') {
         return handleHead(env, route.assetKey);
+    }
+
+    if (request.method === 'PUT') {
+        return handlePut(env, route.assetKey, request);
     }
 
     const asset = await env.BASE_BUNDLES.get(route.assetKey);
@@ -72,6 +84,63 @@ export async function handleBaseBundleAssetsRoute(
     return new Response(typedAsset.body, {
         status: 200,
         headers,
+    });
+}
+
+async function handlePut(
+    env: Env,
+    assetKey: string,
+    request: Request,
+): Promise<Response> {
+    // Read the body into a buffer so we can enforce a hard size cap before
+    // writing to R2 (R2's `put` doesn't surface progress and a runaway
+    // upload would silently chew through bandwidth).
+    const buf = await request.arrayBuffer();
+    if (buf.byteLength === 0) {
+        return new Response('expo-relay: empty asset body', {
+            status: 400,
+            headers: { 'Cache-Control': 'no-store' },
+        });
+    }
+    if (buf.byteLength > MAX_ASSET_PUT_BYTES) {
+        return new Response('expo-relay: asset body exceeds 10 MB cap', {
+            status: 413,
+            headers: { 'Cache-Control': 'no-store' },
+        });
+    }
+
+    const bucket = env.BASE_BUNDLES as R2Bucket & {
+        head?: (key: string) => Promise<R2Object | null>;
+        put: (
+            key: string,
+            value: ArrayBuffer | Uint8Array | string,
+            options?: { httpMetadata?: { contentType?: string } },
+        ) => Promise<R2Object | null>;
+    };
+
+    // Detect overwrite vs first-write so callers know if they raced.
+    const existed = bucket.head ? (await bucket.head(assetKey)) !== null : false;
+
+    const contentType =
+        request.headers.get('Content-Type') ?? 'application/octet-stream';
+
+    try {
+        await bucket.put(assetKey, buf, {
+            httpMetadata: { contentType },
+        });
+    } catch (err) {
+        return new Response(
+            `expo-relay: asset put failed — ${err instanceof Error ? err.message : 'unknown'}`,
+            { status: 502, headers: { 'Cache-Control': 'no-store' } },
+        );
+    }
+
+    return new Response(null, {
+        status: existed ? 200 : 201,
+        headers: {
+            'Cache-Control': 'no-store',
+            'Content-Length': '0',
+        },
     });
 }
 
