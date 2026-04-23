@@ -200,6 +200,20 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
                 const wrappedV1 = wrapOverlayV1(result.code, { sourceMap: result.sourceMap });
                 const sizeCheck = checkOverlaySize(wrappedV1.code);
                 if (sizeCheck.status === 'fail-hard') {
+                    // Phase 11b soak: also emit a large-overlay guardrail
+                    // event before throwing so the dashboard sees the
+                    // hard-cap hit with pipeline=overlay-v1. Symmetric
+                    // with the legacy branch below.
+                    emitOverlayPerfGuardrail('overlay-v1', {
+                        category: 'large-overlay',
+                        severity: 'warn',
+                        message: sizeCheck.message,
+                        detail: {
+                            bytes: sizeCheck.bytes,
+                            softCap: sizeCheck.softCap,
+                            hardCap: sizeCheck.hardCap,
+                        },
+                    });
                     throw new Error(
                         `two-tier pipeline (v1): ${sizeCheck.message}`,
                     );
@@ -218,6 +232,16 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
                             hardCap: sizeCheck.hardCap,
                         }),
                     );
+                    emitOverlayPerfGuardrail('overlay-v1', {
+                        category: 'large-overlay',
+                        severity: 'info',
+                        message: sizeCheck.message,
+                        detail: {
+                            bytes: sizeCheck.bytes,
+                            softCap: sizeCheck.softCap,
+                            hardCap: sizeCheck.hardCap,
+                        },
+                    });
                 }
                 // sizeCheck.status === 'ok' → no action.
                 if (wrappedV1.sizeWarning !== undefined) {
@@ -229,6 +253,39 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
                 wrapped = wrappedV1;
             } else {
                 wrapped = wrapOverlayCode(result.code, { sourceMap: result.sourceMap });
+                // Phase 11b soak parity: observe the legacy wrapped size
+                // through the same size gate the v1 branch uses. Does NOT
+                // throw on fail-hard here — legacy is the baseline branch
+                // we're trying to retire, so we preserve its behavior
+                // (reach the relay, let the 413 decide) while still
+                // emitting the `large-overlay` perf-guardrail event so
+                // Phase 11b Q4 (soft-cap rate by pipeline) has symmetric
+                // data for legacy vs v1. Soft-cap crossings emit an info
+                // event (severity=info), hard-cap crossings emit a warn.
+                const legacySizeCheck = checkOverlaySize(wrapped.code);
+                if (legacySizeCheck.status === 'warn-soft') {
+                    emitOverlayPerfGuardrail('overlay-legacy', {
+                        category: 'large-overlay',
+                        severity: 'info',
+                        message: legacySizeCheck.message,
+                        detail: {
+                            bytes: legacySizeCheck.bytes,
+                            softCap: legacySizeCheck.softCap,
+                            hardCap: legacySizeCheck.hardCap,
+                        },
+                    });
+                } else if (legacySizeCheck.status === 'fail-hard') {
+                    emitOverlayPerfGuardrail('overlay-legacy', {
+                        category: 'large-overlay',
+                        severity: 'warn',
+                        message: legacySizeCheck.message,
+                        detail: {
+                            bytes: legacySizeCheck.bytes,
+                            softCap: legacySizeCheck.softCap,
+                            hardCap: legacySizeCheck.hardCap,
+                        },
+                    });
+                }
             }
 
             emitStatus(input.onStatus, { kind: 'pushing' });

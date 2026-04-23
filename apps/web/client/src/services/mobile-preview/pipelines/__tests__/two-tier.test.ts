@@ -700,4 +700,86 @@ describe('TwoTierMobilePreviewPipeline.sync', () => {
             resetPipelineFlag();
         }
     });
+
+    // Phase 11b soak Q4 (large-overlay frequency) parity. Prior to
+    // commit TBD, only v1 pushes emitted the `large-overlay` guardrail
+    // event — the legacy branch had no size check, so Q4 would show a
+    // false 0% for the legacy baseline. These tests lock in symmetric
+    // emission across both branches for over-soft-cap bundles.
+    test('legacy branch emits a large-overlay info guardrail when over soft cap', async () => {
+        pipelineFlagState.v1Enabled = false;
+        const captures = installPostHogStub();
+        const relay = await startFakeRelay();
+        try {
+            // Construct a wrapped-size > OVERLAY_SIZE_SOFT_CAP (512 KiB).
+            // Building a bundle of this size via esbuild is overkill; we
+            // stub the esbuild output directly with a large text blob.
+            const largeBundle = 'x'.repeat(600 * 1024);
+            const { service } = makeEsbuildService(largeBundle);
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                {
+                    esbuildService: service,
+                    createSessionId: () => 'legacy-large',
+                },
+            );
+            await pipeline.sync({ fileSystem: makeVfs(FILES) });
+
+            const perfCaptures = captures.filter(
+                (c) => c.event === 'onlook_overlay_perf',
+            );
+            const largeOverlayEvents = perfCaptures.filter(
+                (c) => c.props!.category === 'large-overlay',
+            );
+            expect(largeOverlayEvents.length).toBeGreaterThan(0);
+            expect(largeOverlayEvents[0]!.props!.pipeline).toBe(
+                'overlay-legacy',
+            );
+            expect(largeOverlayEvents[0]!.props!.severity).toBe('info');
+        } finally {
+            await relay.close();
+            uninstallPostHogStub();
+            resetPipelineFlag();
+        }
+    });
+
+    test('v1 branch emits a large-overlay info guardrail when over soft cap', async () => {
+        pipelineFlagState.v1Enabled = true;
+        const captures = installPostHogStub();
+        const relay = await startFakeRelay();
+        try {
+            const largeBundle = 'x'.repeat(600 * 1024);
+            const { service } = makeEsbuildService(largeBundle);
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                {
+                    esbuildService: service,
+                    createSessionId: () => 'v1-large',
+                },
+            );
+            await pipeline.sync({ fileSystem: makeVfs(FILES) });
+
+            const perfCaptures = captures.filter(
+                (c) => c.event === 'onlook_overlay_perf',
+            );
+            const largeOverlayEvents = perfCaptures.filter(
+                (c) => c.props!.category === 'large-overlay',
+            );
+            expect(largeOverlayEvents.length).toBeGreaterThan(0);
+            expect(largeOverlayEvents[0]!.props!.pipeline).toBe('overlay-v1');
+            expect(largeOverlayEvents[0]!.props!.severity).toBe('info');
+        } finally {
+            await relay.close();
+            uninstallPostHogStub();
+            resetPipelineFlag();
+        }
+    });
 });
