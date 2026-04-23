@@ -572,4 +572,132 @@ describe('TwoTierMobilePreviewPipeline.sync', () => {
             resetPipelineFlag();
         }
     });
+
+    // Phase 11b soak wiring (ADR-0009 prerequisite). The
+    // `overlay-telemetry-sink` unit suite covers the sink itself; these
+    // integration tests confirm `two-tier.ts` actually calls the sink
+    // from both pipeline branches with the correct pipeline tag, via
+    // the real `pushOverlay` / `pushOverlayV1` code path hitting our
+    // fake relay. The sink resolves posthog through `globalThis.posthog`
+    // so installing a stub there is enough to intercept every capture.
+    type PostHogStub = {
+        capture: (event: string, props?: Record<string, unknown>) => void;
+    };
+    type TelemetryGlobal = typeof globalThis & { posthog?: PostHogStub };
+    function installPostHogStub(): Array<{
+        event: string;
+        props?: Record<string, unknown>;
+    }> {
+        const calls: Array<{ event: string; props?: Record<string, unknown> }> = [];
+        (globalThis as TelemetryGlobal).posthog = {
+            capture(event, props) {
+                calls.push({ event, props });
+            },
+        };
+        return calls;
+    }
+    function uninstallPostHogStub(): void {
+        delete (globalThis as TelemetryGlobal).posthog;
+    }
+
+    test('legacy branch routes pushes through the soak sink with pipeline=overlay-legacy', async () => {
+        pipelineFlagState.v1Enabled = false;
+        const captures = installPostHogStub();
+        const relay = await startFakeRelay();
+        try {
+            const { service } = makeEsbuildService();
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                { esbuildService: service, createSessionId: () => 'legacy-telem' },
+            );
+            await pipeline.sync({ fileSystem: makeVfs(FILES) });
+
+            const pushCaptures = captures.filter(
+                (c) => c.event === 'onlook_overlay_push',
+            );
+            expect(pushCaptures.length).toBe(1);
+            expect(pushCaptures[0]!.props!.pipeline).toBe('overlay-legacy');
+            expect(pushCaptures[0]!.props!.sessionId).toBe('legacy-telem');
+            expect(pushCaptures[0]!.props!.ok).toBe(true);
+            // delivered flows through from the fake relay's 202 body.
+            expect(pushCaptures[0]!.props!.delivered).toBe(1);
+        } finally {
+            await relay.close();
+            uninstallPostHogStub();
+            resetPipelineFlag();
+        }
+    });
+
+    test('v1 branch routes pushes through the soak sink with pipeline=overlay-v1', async () => {
+        pipelineFlagState.v1Enabled = true;
+        const captures = installPostHogStub();
+        const relay = await startFakeRelay();
+        try {
+            const { service } = makeEsbuildService();
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                { esbuildService: service, createSessionId: () => 'v1-telem' },
+            );
+            await pipeline.sync({ fileSystem: makeVfs(FILES) });
+
+            const pushCaptures = captures.filter(
+                (c) => c.event === 'onlook_overlay_push',
+            );
+            expect(pushCaptures.length).toBe(1);
+            expect(pushCaptures[0]!.props!.pipeline).toBe('overlay-v1');
+            expect(pushCaptures[0]!.props!.sessionId).toBe('v1-telem');
+            expect(pushCaptures[0]!.props!.ok).toBe(true);
+            // bytes is >0 for a real bundled envelope — locks in that the
+            // telemetry reflects the v1 wrapped payload, not an empty push.
+            expect(
+                typeof pushCaptures[0]!.props!.bytes === 'number' &&
+                    (pushCaptures[0]!.props!.bytes as number) > 0,
+            ).toBe(true);
+        } finally {
+            await relay.close();
+            uninstallPostHogStub();
+            resetPipelineFlag();
+        }
+    });
+
+    test('sink throws do NOT break the push (never-throw guarantee at the integration layer)', async () => {
+        pipelineFlagState.v1Enabled = true;
+        (globalThis as TelemetryGlobal).posthog = {
+            capture() {
+                throw new Error('posthog soak-sink simulated failure');
+            },
+        };
+        const relay = await startFakeRelay();
+        try {
+            const { service } = makeEsbuildService();
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                {
+                    esbuildService: service,
+                    createSessionId: () => 'v1-sink-boom',
+                },
+            );
+            // The sync must complete — posthog capture throws are swallowed
+            // by the sink so control flow on the overlay push is unaffected.
+            const result = await pipeline.sync({ fileSystem: makeVfs(FILES) });
+            expect(result.type).toBe('bundle-publish');
+            expect(relay.pushes.length).toBe(1);
+        } finally {
+            await relay.close();
+            uninstallPostHogStub();
+            resetPipelineFlag();
+        }
+    });
 });
