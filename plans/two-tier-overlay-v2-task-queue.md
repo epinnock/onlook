@@ -225,13 +225,13 @@ first via #14)**.
 | 73 | done | `last-overlay-v1` DO storage key; replay on WS connect when no v1 payload, falls back to legacy `last-overlay`. |
 | 74 | pending | Durable asset fallback — deferred with Phase 7. |
 | 75 | done | `AbiV1WsMessageSchema.safeParse` gates every push body + WS message. 7 new tests. |
-| 76 | partial | 7 overlay-update-v1 tests exercise routing, rejection, storage; disconnect/multi-client still to add. |
+| 76 | done | 6 new fan-out/disconnect tests added 2026-04-23 (`do-hmr-session.test.ts`): multi-client delivery counter, close-event removal, error-event removal, readyState-flip skipping, late-joiner replay, newer-overlay overwrite. cf-expo-relay suite: 184 → 190 pass. |
 | 77 | partial | `onlook-client-v2` target not built yet — browser-bundler + wrap-overlay-v1 cover the preview path. |
 | 78 | done | `pushOverlayV1` sends OverlayUpdateMessage shape. Validates via `OverlayUpdateMessageSchema` before sending. Computes sha256 overlayHash. 8 new tests (20 total in push-overlay suite). |
 | 79 | done | `overlay-debounce.ts` — 150ms trailing debounce with injectable clock. 7 tests. |
 | 80 | done | `overlay-status.ts` — `OverlayStatusMachine` with idle/building/uploading-assets/sent/mounted/error states + enforced transitions. 7 tests. |
 | 81 | partial | Preflight `classifyImport` catches unsupported imports before build. Editor UI integration pending. |
-| 82 | pending | Replay on phone reconnect — relay replays last-overlay-v1 already; editor-side pair not yet. |
+| 82 | done | Editor-side `RelayWsClient` (`apps/web/client/src/services/expo-relay/relay-ws-client.ts`, shipped 2026-04-23) auto-reconnects with exponential backoff and ingests the HmrSession replay payload on the fresh socket verbatim — the replay flows through `subscribeRelayEvents` and accumulates via `snapshot().acks`. 2 reconnect-replay tests validate the full cycle + stale-socket message drop. |
 | 83 | pending | Keep iframe preview separate from native overlay — browser-metro remains independent. |
 | 84–88 | pending | Phase 10 inspector + debug integration. |
 | 89–94 | partial | Deprecation warnings added to `wrapOverlayCode` + `pushOverlay` (task #16). Feature flag `overlay-v1` shipped (task #15). Removal of legacy paths deferred to migration-cleanup wave. |
