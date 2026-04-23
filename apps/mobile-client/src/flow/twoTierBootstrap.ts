@@ -1,5 +1,11 @@
+import type { RelayEvent } from '@onlook/mobile-preview';
+
 import type { OverlayListener } from '../relay/overlayDispatcher';
 import { OverlayDispatcher, resolveHmrSessionUrl } from '../relay/overlayDispatcher';
+import {
+    startOverlayAckPoll,
+    type OverlayAckPollHandle,
+} from '../relay/overlayAckPoll';
 import { isTwoTierPipelineEnabled } from './featureFlags';
 
 /**
@@ -43,6 +49,16 @@ export interface TwoTierBootstrapOptions {
     readonly mountOverlay?: (code: string) => void;
     /** Side-channel logger used for diagnostics. */
     readonly log?: (message: string) => void;
+    /**
+     * Test override for the overlay-ack poll starter. Defaults to
+     * `startOverlayAckPoll` from `src/relay/overlayAckPoll`. When omitted
+     * and `OnlookRuntime.httpGet` is installed, the bootstrap starts a
+     * poll against the relay's `/events` endpoint to receive OverlayAck
+     * and any other phone→editor event. MCG.10 step 4.
+     */
+    readonly startOverlayAckPoll?: typeof startOverlayAckPoll;
+    /** Called for every relay event received via the ack-poll channel. */
+    readonly onRelayEvent?: (event: RelayEvent) => void;
 }
 
 export interface TwoTierBootstrapHandle {
@@ -109,6 +125,37 @@ export function startTwoTierBootstrap(options: TwoTierBootstrapOptions): TwoTier
     const unsubscribe = dispatcher.onOverlay(mount);
     dispatcher.start();
 
+    // Start the overlay-ack poll channel. Gracefully returns an
+    // `installed:false` handle if `OnlookRuntime.httpGet` isn't available
+    // (Spike-B / harness contexts), so nothing below needs to branch.
+    const pollStarter = options.startOverlayAckPoll ?? startOverlayAckPoll;
+    let ackPollHandle: OverlayAckPollHandle | undefined;
+    try {
+        ackPollHandle = pollStarter({
+            relayHost: options.relayUrl,
+            sessionId: options.sessionId,
+            onEvent: (event) => {
+                try {
+                    options.onRelayEvent?.(event);
+                } catch (err) {
+                    log(
+                        `onRelayEvent threw: ${err instanceof Error ? err.message : String(err)}`,
+                    );
+                }
+            },
+            onError: (err) => {
+                log(`overlayAckPoll error: ${err.message}`);
+            },
+        });
+        if (ackPollHandle.installed) {
+            log(`overlayAckPoll started sessionId=${options.sessionId}`);
+        }
+    } catch (err) {
+        log(
+            `overlayAckPoll start threw: ${err instanceof Error ? err.message : String(err)}`,
+        );
+    }
+
     let stopped = false;
     return {
         stop(): void {
@@ -116,6 +163,13 @@ export function startTwoTierBootstrap(options: TwoTierBootstrapOptions): TwoTier
             stopped = true;
             unsubscribe();
             dispatcher.stop();
+            try {
+                ackPollHandle?.stop();
+            } catch (err) {
+                log(
+                    `overlayAckPoll stop threw: ${err instanceof Error ? err.message : String(err)}`,
+                );
+            }
             log(`stopped sessionId=${options.sessionId}`);
         },
         get active(): boolean {

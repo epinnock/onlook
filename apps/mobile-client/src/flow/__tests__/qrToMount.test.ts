@@ -383,7 +383,44 @@ describe('qrToMount', () => {
         expect(mountOverlay).toHaveBeenCalledTimes(1);
         const call = mountOverlay.mock.calls[0] ?? [];
         expect(call[0]).toBe(OK_BUNDLE.source);
-        expect(call[1]).toEqual({ sessionId: OK_PARSE.sessionId, relayHost: OK_PARSE.relay });
+        // `relay` is a full URL; shell.js's _tryConnectWebSocket expects a
+        // bare hostname, so qrToMount extracts `URL.hostname` before passing
+        // it through as `relayHost`.
+        expect(call[1]).toEqual({ sessionId: OK_PARSE.sessionId, relayHost: 'localhost' });
+    });
+
+    test('ABI v1: relayHost extracts hostname from a full URL with scheme/port/path', async () => {
+        const mountOverlay = mock(() => {});
+        (globalThis as GlobalWithRuntime).OnlookRuntime = {
+            abi: 'v1',
+            mountOverlay,
+        };
+        parseReturn = {
+            action: 'launch',
+            sessionId: 'sess-lan',
+            relay: 'http://192.168.0.17:18999/manifest/' + 'a'.repeat(64),
+        };
+
+        await qrToMount(VALID_BARCODE);
+        const call = mountOverlay.mock.calls[0] ?? [];
+        expect((call[1] as { relayHost: string }).relayHost).toBe('192.168.0.17');
+    });
+
+    test('ABI v1: relayHost passes through unchanged when relay is not a parseable URL', async () => {
+        const mountOverlay = mock(() => {});
+        (globalThis as GlobalWithRuntime).OnlookRuntime = {
+            abi: 'v1',
+            mountOverlay,
+        };
+        parseReturn = {
+            action: 'launch',
+            sessionId: 'sess-raw',
+            relay: 'not-a-url',
+        };
+
+        await qrToMount(VALID_BARCODE);
+        const call = mountOverlay.mock.calls[0] ?? [];
+        expect((call[1] as { relayHost: string }).relayHost).toBe('not-a-url');
     });
 
     test('ABI v1: subsequent scans also route through mountOverlay — no runApplication/reloadBundle dance', async () => {

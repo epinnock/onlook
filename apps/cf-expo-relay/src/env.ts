@@ -1,5 +1,6 @@
 import type { ExpoSession } from './session';
 import type { HmrSession } from './do/hmr-session';
+import type { EventsSession } from './do/events-session';
 
 /** Minimal shape of a Worker service binding (ESM_CACHE) for typing only. */
 export interface ServiceBinding {
@@ -11,6 +12,7 @@ export interface Env {
     BASE_BUNDLES?: R2Bucket;
     EXPO_SESSION: DurableObjectNamespace<ExpoSession>;
     HMR_SESSION?: DurableObjectNamespace<HmrSession>;
+    EVENTS_SESSION?: DurableObjectNamespace<EventsSession>;
     ESM_CACHE?: ServiceBinding;
     ESM_CACHE_URL: string;
     /**

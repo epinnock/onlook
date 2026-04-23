@@ -1,6 +1,7 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, mock, test } from 'bun:test';
 
 import type { OverlayDispatcher, OverlayListener } from '../../relay/overlayDispatcher';
+import type { OverlayAckPollHandle } from '../../relay/overlayAckPoll';
 import { startTwoTierBootstrap } from '../twoTierBootstrap';
 
 class FakeDispatcher {
@@ -162,5 +163,116 @@ describe('startTwoTierBootstrap', () => {
         } finally {
             globalThis.OnlookRuntime = priorRuntime;
         }
+    });
+
+    test('starts overlay-ack poll with the same session / relay', () => {
+        const fake = new FakeDispatcher();
+        const pollStart = mock(
+            (): OverlayAckPollHandle => ({
+                installed: true,
+                stop: () => {},
+                getCursor: () => undefined,
+                getSeenCount: () => 0,
+            }),
+        );
+        startTwoTierBootstrap({
+            sessionId: 'sess-ack',
+            relayUrl: 'http://relay/manifest/x',
+            enabled: true,
+            createDispatcher: () => fake as unknown as OverlayDispatcher,
+            startOverlayAckPoll: pollStart as unknown as typeof startTwoTierBootstrap extends (
+                opts: infer T,
+            ) => unknown
+                ? T extends { startOverlayAckPoll?: infer P }
+                    ? P
+                    : never
+                : never,
+        });
+        expect(pollStart).toHaveBeenCalledTimes(1);
+        const call = pollStart.mock.calls[0]?.[0] as {
+            sessionId: string;
+            relayHost: string;
+        };
+        expect(call.sessionId).toBe('sess-ack');
+        expect(call.relayHost).toBe('http://relay/manifest/x');
+    });
+
+    test('stop() tears down both the dispatcher and the ack poll', () => {
+        const fake = new FakeDispatcher();
+        const pollStop = mock(() => {});
+        const pollStart = mock(
+            (): OverlayAckPollHandle => ({
+                installed: true,
+                stop: pollStop,
+                getCursor: () => undefined,
+                getSeenCount: () => 0,
+            }),
+        );
+        const handle = startTwoTierBootstrap({
+            sessionId: 'sess',
+            relayUrl: 'http://relay',
+            enabled: true,
+            createDispatcher: () => fake as unknown as OverlayDispatcher,
+            startOverlayAckPoll: pollStart as unknown as Parameters<
+                typeof startTwoTierBootstrap
+            >[0]['startOverlayAckPoll'],
+        });
+        handle.stop();
+        expect(pollStop).toHaveBeenCalledTimes(1);
+        expect(fake.stopped).toBe(1);
+    });
+
+    test('forwards relay events to onRelayEvent', () => {
+        const fake = new FakeDispatcher();
+        const received: unknown[] = [];
+        let capturedOnEvent:
+            | ((e: { id: string; type: string; data: unknown }) => void)
+            | undefined;
+        const pollStart = mock(
+            (opts: {
+                onEvent: (e: { id: string; type: string; data: unknown }) => void;
+            }): OverlayAckPollHandle => {
+                capturedOnEvent = opts.onEvent;
+                return {
+                    installed: true,
+                    stop: () => {},
+                    getCursor: () => undefined,
+                    getSeenCount: () => 0,
+                };
+            },
+        );
+        startTwoTierBootstrap({
+            sessionId: 'sess',
+            relayUrl: 'http://relay',
+            enabled: true,
+            createDispatcher: () => fake as unknown as OverlayDispatcher,
+            startOverlayAckPoll: pollStart as unknown as Parameters<
+                typeof startTwoTierBootstrap
+            >[0]['startOverlayAckPoll'],
+            onRelayEvent: (e) => received.push(e),
+        });
+        expect(typeof capturedOnEvent).toBe('function');
+        capturedOnEvent?.({ id: 'e1', type: 'ack', data: { ok: true } });
+        expect(received).toEqual([{ id: 'e1', type: 'ack', data: { ok: true } }]);
+    });
+
+    test('disabled flag still skips ack-poll start', () => {
+        const pollStart = mock(() => ({
+            installed: false,
+            stop: () => {},
+            getCursor: () => undefined,
+            getSeenCount: () => 0,
+        }));
+        const fake = new FakeDispatcher();
+        startTwoTierBootstrap({
+            sessionId: 'sess',
+            relayUrl: 'http://relay',
+            enabled: false,
+            createDispatcher: () => fake as unknown as OverlayDispatcher,
+            startOverlayAckPoll: pollStart as unknown as Parameters<
+                typeof startTwoTierBootstrap
+            >[0]['startOverlayAckPoll'],
+        });
+        expect(pollStart).toHaveBeenCalledTimes(0);
     });
 });

@@ -1,0 +1,45 @@
+import React, { useEffect, useState } from 'react';
+import { View } from 'react-native';
+
+import type { OverlayGlobals } from './overlayHostSubscription';
+import { OverlayErrorBoundary } from './OverlayErrorBoundary';
+import { subscribeOverlayPull } from './overlayHostSubscription';
+
+export type { OverlayGlobals };
+export { subscribeOverlayPull };
+
+/**
+ * OverlayHost — single React surface the two-tier v2 mount pipeline uses to
+ * render the latest overlay element.
+ *
+ * `apps/mobile-client/index.js`'s subscribable `renderApp` pushes the element
+ * via `globalThis._onlookOverlayElement` and notifies subscribers via
+ * `globalThis._onlookOverlaySubscribers`; `OverlayHost` is one such subscriber.
+ * It lives inside `App.tsx`'s root fragment as a sibling of `<AppRouter />`
+ * rather than being driven by `AppRegistry.runApplication('OnlookOverlay',
+ * {rootTag: 1})` because the latter silently no-ops in bridgeless+new-arch
+ * (ADR finding #6) and the old-arch fallback relies on `UIManager.createView`
+ * which is absent in new-arch (ADR finding #5).
+ *
+ * Extracted from inline in `App.tsx` so it is unit-testable. The behavioural
+ * contract is identical to the previous inline version.
+ */
+
+export function OverlayHost(): React.ReactElement | null {
+    const [element, setElement] = useState<React.ReactNode>(null);
+    useEffect(() => {
+        const gt = globalThis as unknown as OverlayGlobals;
+        return subscribeOverlayPull(gt, () => {
+            setElement(gt._onlookOverlayElement ?? null);
+        });
+    }, []);
+    if (element === null || element === undefined) return null;
+    return (
+        <View
+            pointerEvents="box-none"
+            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+        >
+            <OverlayErrorBoundary>{element as React.ReactElement}</OverlayErrorBoundary>
+        </View>
+    );
+}

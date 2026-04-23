@@ -22,6 +22,7 @@ import {
     CrashScreen,
     ErrorScreen,
     LauncherScreen,
+    ProgressScreen,
     ScanScreen,
     ScreensGalleryScreen,
     SettingsScreen,
@@ -448,6 +449,16 @@ function renderScreen(
         case 'settings':
             return <SettingsScreen onGoBack={() => actions.goBack()} />;
 
+        case 'progress':
+            return (
+                <ProgressScreen
+                    title={params?.progressTitle ?? 'Working…'}
+                    log={params?.progressLog}
+                    showSpinner={params?.progressShowSpinner ?? true}
+                    onCancel={params?.onCancel}
+                />
+            );
+
         case 'error':
             return (
                 <ErrorScreen
@@ -491,6 +502,10 @@ function renderScreen(
         case 'gallery':
             return <ScreensGalleryScreen />;
     }
+    // Exhaustiveness guard: every Screen case returns above; if a new value
+    // is added to the union, TS surfaces the `never` mismatch here.
+    const _exhaustive: never = screen;
+    throw new Error(`renderScreen: unknown screen ${String(_exhaustive)}`);
 }
 
 const styles = StyleSheet.create({

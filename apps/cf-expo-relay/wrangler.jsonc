@@ -34,6 +34,10 @@
             {
                 "name": "HMR_SESSION",
                 "class_name": "HmrSession"
+            },
+            {
+                "name": "EVENTS_SESSION",
+                "class_name": "EventsSession"
             }
         ]
     },
@@ -45,6 +49,10 @@
         {
             "tag": "v2",
             "new_sqlite_classes": ["HmrSession"]
+        },
+        {
+            "tag": "v3",
+            "new_sqlite_classes": ["EventsSession"]
         }
     ],
     /**
@@ -95,6 +103,10 @@
                     {
                         "name": "HMR_SESSION",
                         "class_name": "HmrSession"
+                    },
+                    {
+                        "name": "EVENTS_SESSION",
+                        "class_name": "EventsSession"
                     }
                 ]
             },
@@ -106,6 +118,10 @@
                 {
                     "tag": "v2",
                     "new_sqlite_classes": ["HmrSession"]
+                },
+                {
+                    "tag": "v3",
+                    "new_sqlite_classes": ["EventsSession"]
                 }
             ],
             "vars": {

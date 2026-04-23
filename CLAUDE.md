@@ -228,6 +228,36 @@ Onlook is an open-source, visual-first code editor ("Cursor for Designers"). It 
 - Avoid `useMemo` to create MobX stores (risk of lost references); avoid
   synchronous cleanup on route change (race conditions).
 
+### Two-tier overlay v2 / mobile-client architecture (Phase G, shipped 2026-04-22)
+
+The pipeline that takes a component from the editor to the phone and updates it live. Photographic evidence in `plans/adr/assets/v2-pipeline/v2r-{hello,updated}.png`. Full ADR trail in `plans/adr/v2-pipeline-validation-findings.md` — read it if you're about to touch any of: `apps/mobile-client/`, `packages/mobile-preview/`, `apps/cf-expo-relay/`.
+
+**OverlayHost pattern** — `apps/mobile-client/src/overlay/OverlayHost.tsx` lives as a sibling of `<AppRouter />` inside `App.tsx`'s root fragment. It subscribes to `globalThis._onlookOverlaySubscribers` and re-renders whenever `globalThis.renderApp(element)` is invoked by an eval'd overlay bundle. Do NOT try to use `AppRegistry.runApplication('OnlookOverlay', {rootTag: 1})` — it silently no-ops on bridgeless+new-arch and the old-arch fallback triggers `UIManager.createView` RedBoxes. Overlay rendering contract is documented in `plans/adr/overlay-host-architecture.md`.
+
+**`globalThis.renderApp` is pinned** — `apps/mobile-client/index.js` installs it via `Object.defineProperty writable:false, configurable:false` so `packages/mobile-preview/runtime/runtime.js` cannot clobber it (ADR finding #3). The bridge filters trees containing raw native component strings (`RCTRawText`, `RCTText`, `RCTView`) before propagation (finding #4). Pure logic extracted at `apps/mobile-client/src/overlay/renderAppBridge.ts` for testability; `index.js` keeps an in-sync inline copy because Expo's `registerRootComponent` runs before the bundler processes TypeScript.
+
+**Bridgeless iOS 18.6 gotchas (RN 0.81.6, newArchEnabled)** — these are unfixable at the app layer, use the documented workarounds:
+- `fetch()` never dispatches response events to JS → use `globalThis.OnlookRuntime.httpGet(url, headers?)` (synchronous JSI → NSURLSession). Pattern in `apps/mobile-client/src/relay/manifestFetcher.ts:205` + `bundleFetcher.ts:55`.
+- `WebSocket.onopen` / `onmessage` never dispatch to JS → replaced with a poll-based event channel. Primitive: `packages/mobile-preview/runtime/src/relayEventPoll.ts`. Mobile-client wrapper: `apps/mobile-client/src/relay/overlayAckPoll.ts`. Typed event union: `packages/mobile-client-protocol/src/relay-events.ts`. Wire contract: `plans/adr/cf-expo-relay-events-channel.md`.
+- `UIManager.createView` absent in new-arch → `globalThis.__noOnlookRuntime = true` in `apps/mobile-client/index.js` gates `packages/mobile-preview/runtime/entry.js` from loading `runtime.js`.
+
+**Mobile-client bundle split** — `packages/mobile-preview/runtime/entry-client-only.js` + `server/build-runtime-client-only.ts` produce `bundle-client-only.js` (~9 KB, shell.js only) vs `bundle.js` (~258 KB, full runtime). mobile-client's `scripts/bundle-runtime.ts` defaults to the slim bundle; Expo Go / mobile-preview harness keeps the full bundle via `--source=`. Build via `bun --filter @onlook/mobile-preview build:runtime:client-only`.
+
+**cf-expo-relay local dev** — workerd's local mode blocks loopback fetches, so a plain HTTP server on `:8789` won't serve the `ESM_CACHE_URL` path. Run the fake cache as a sibling wrangler dev process so the service binding resolves inside workerd:
+```bash
+# Terminal A: cache stand-in (auto-synthesizes manifest-fields.json + bundle)
+bunx wrangler dev --config apps/cf-expo-relay/scripts/wrangler-local-esm-cache.jsonc \
+    --port 18789 --inspector-port 9331 --local
+
+# Terminal B: real cf-expo-relay (service-binds to the cache above)
+cd apps/cf-expo-relay && bunx wrangler dev --port 18788 --inspector-port 9330 --local
+
+# One-shot verification
+bash apps/cf-expo-relay/scripts/smoke-e2e.sh   # 11 assertions against live wranglers
+```
+
+**Mobile-client test isolation** — `bun run test` in `apps/mobile-client` runs `scripts/run-tests-isolated.ts` which spawns each `*.test.ts` in its own process. `mock.module()` is process-wide in Bun and pollutes sibling files (`flow/__tests__/qrToMount.test.ts` mocks `deepLink/parse` + `relay/manifestFetcher` which other tests import for real). Do NOT use plain `bun test` across the mobile-client src tree — use `bun run test`. `.tsx` test files are NOT walked by the runner; keep tests as `.ts` and use `React.createElement` instead of JSX when needed.
+
 ### Context Discipline (for Agents)
 
 - Search narrowly with ripgrep; open only files you need.
@@ -285,6 +315,18 @@ bun run start            # Start production server
 | `apps/web/client/src/server/api/root.ts` | tRPC router aggregation |
 | `apps/web/client/src/trpc/react.tsx` | tRPC React client |
 | `apps/web/client/src/app/layout.tsx` | Root layout with providers |
+| `apps/mobile-client/src/App.tsx` | Mobile-client root — `<AppRouter />` + `<OverlayHost />` siblings |
+| `apps/mobile-client/index.js` | Expo entry — pins `globalThis.renderApp`, sets `__noOnlookRuntime=true`, exposes `React` + `ReactNative` to overlay `__require` |
+| `apps/mobile-client/src/overlay/` | Subscribable renderApp + OverlayHost + bad-component filter + error boundary (Phase G) |
+| `apps/mobile-client/src/relay/overlayAckPoll.ts` | httpGet-based wrapper over `startRelayEventPoll` |
+| `apps/mobile-client/scripts/bundle-runtime.ts` | Copies slim `bundle-client-only.js` into iOS/Android assets at build time |
+| `packages/mobile-preview/runtime/src/relayEventPoll.ts` | Poll primitive for the bridgeless event channel |
+| `packages/mobile-preview/runtime/entry-client-only.js` | Slim mobile-client bundle entry (shell.js only) |
+| `packages/mobile-client-protocol/src/relay-events.ts` | `RelayEventSchema` discriminated union + `parseRelayEvent` |
+| `apps/cf-expo-relay/src/do/events-session.ts` | `EventsSession` DurableObject (ring buffer + cursor + keepAlive) |
+| `apps/cf-expo-relay/src/routes/events.ts` | `/events` poll + `/events/push` worker routes |
+| `apps/cf-expo-relay/scripts/smoke-e2e.sh` | 11-assertion full two-tier pipeline smoke against live wranglers |
+| `plans/adr/v2-pipeline-validation-findings.md` | 8 findings from simulator validation — read before touching the overlay pipeline |
 
 ### Resources
 

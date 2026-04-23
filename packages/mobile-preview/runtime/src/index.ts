@@ -19,3 +19,15 @@ export {
     type OnlookRuntimeError,
     type AbiVersion,
 } from './onlook-runtime-js.ts';
+
+export {
+    startRelayEventPoll,
+    type HttpGetFn,
+    type HttpGetResult,
+    type RelayEvent,
+    type RelayEventPollHandle,
+    type RelayEventPollOptions,
+    type RelayEventsResponse,
+} from './relayEventPoll.ts';
+
+export { stripWsHost } from './stripWsHost.ts';

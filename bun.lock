@@ -52,6 +52,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@onlook/mobile-client-protocol": "*",
+        "@onlook/mobile-preview": "*",
         "expo": "~54.0.33",
         "expo-camera": "~17.0.10",
         "expo-haptics": "~15.0.8",
@@ -523,6 +524,10 @@
         "react": "19.1.0",
         "react-reconciler": "0.32.0",
         "scheduler": "0.26.0",
+      },
+      "devDependencies": {
+        "@onlook/typescript": "*",
+        "typescript": "^5.5.4",
       },
     },
     "packages/models": {

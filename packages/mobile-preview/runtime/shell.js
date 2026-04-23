@@ -181,7 +181,17 @@ globalThis._tryConnectWebSocket = function(host, port) {
     try { globalThis.wsModule.addListener(events[i]); } catch(_) {}
   }
 
-  var url = 'ws://' + host + ':8788';
+  // Defensive: callers sometimes pass a full URL (editor pushed us the
+  // manifest endpoint as `relayHost`). Strip scheme + port + path so we
+  // always build a well-formed ws:// URL.
+  var bareHost = host;
+  try {
+    if (/^\w+:\/\//.test(host)) {
+      bareHost = host.replace(/^\w+:\/\//, '').split('/')[0].split(':')[0];
+    }
+  } catch(_) {}
+  var wsPort = (typeof port === 'number' && port > 0) ? port : 8788;
+  var url = 'ws://' + bareHost + ':' + wsPort;
   _log('B13 ws: connecting to ' + url);
   try {
     globalThis.wsModule.connect(url, [], {}, 42);

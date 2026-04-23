@@ -56,6 +56,7 @@ mock.module('../screens', () => ({
     CrashScreen: () => null,
     ErrorScreen: () => null,
     LauncherScreen: () => null,
+    ProgressScreen: () => null,
     ScanScreen: () => null,
     ScreensGalleryScreen: () => null,
     SettingsScreen: () => null,

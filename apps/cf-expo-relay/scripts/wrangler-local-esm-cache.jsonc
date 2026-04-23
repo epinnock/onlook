@@ -1,0 +1,6 @@
+{
+    "$schema": "../node_modules/wrangler/config-schema.json",
+    "name": "cf-esm-cache",
+    "main": "local-esm-cache-worker.ts",
+    "compatibility_date": "2025-12-01"
+}

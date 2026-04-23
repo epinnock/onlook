@@ -42,6 +42,7 @@ export interface OnlookRuntimeError {
     readonly message: string;
     readonly stack?: string;
     readonly specifier?: string;
+    readonly assetId?: string;
 }
 
 /**

@@ -32,7 +32,7 @@
         "db:reset": "cd apps/backend && bun run reset",
         "format": "bun --filter '*' format",
         "lint": "bun --filter '*' lint",
-        "typecheck": "bun --filter @onlook/web-client typecheck",
+        "typecheck": "bun --filter @onlook/web-client --filter @onlook/mobile-client --filter @onlook/mobile-preview typecheck",
         "clean": "git clean -xdf node_modules",
         "clean:workspaces": "bun --filter '*' clean",
         "setup:env": "cd packages/scripts && bun run start",

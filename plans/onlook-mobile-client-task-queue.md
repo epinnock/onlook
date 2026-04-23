@@ -936,6 +936,89 @@ Sequential. Runs with 1 agent after Wave 6 merges. This is where the source plan
 
 ---
 
+## Phase G — Two-tier v2 bridgeless validation + hardening (mixed; 1–2 agents)
+
+Phase G collects the follow-up work the 2026-04-22 simulator validation session surfaced. The ADR (`plans/adr/v2-pipeline-validation-findings.md`) documents the eight findings end-to-end; this section is the task-queue entry point. Wave G runs AFTER `feat/two-tier-bundle` lands on `feat/mobile-client`, so every task below assumes `feat/mobile-client` already carries the subscribable `renderApp`, `OverlayHost`, filter, and bundler fixes from the validation session.
+
+Architecture reference: `plans/adr/overlay-host-architecture.md` — the OverlayHost-in-App.tsx pattern + pinned renderApp + bad-component filter + error boundary.
+
+Photographic DoD for the whole phase: `plans/adr/assets/v2-pipeline/v2r-hello.png` + `v2r-updated.png` already satisfy "component loaded then edited and updated in the simulator" — Phase G tasks harden the path, they do not re-prove the mount.
+
+- **MCG.1** — Unit test: shell.js `_tryConnectWebSocket` URL-host stripping
+  - Files: `packages/mobile-preview/runtime/src/stripWsHost.ts` + `packages/mobile-preview/runtime/src/__tests__/stripWsHost.test.ts`
+  - Deps: —
+  - Validate: `cd packages/mobile-preview && bun test runtime/src/__tests__/stripWsHost.test.ts` (10 pass)
+  - Status: **shipped 2026-04-22** — extracted the inline `bareHost` regex from shell.js into `stripWsHost(host)` + 10 bun tests covering bare hostnames, http/https/ws/wss schemes, scheme + port, scheme + path, IPv4, trailing slash, non-string input.
+
+- **MCG.2** — Unit test: `qrToMount` relayHost hostname extraction
+  - Files: `apps/mobile-client/src/flow/__tests__/qrToMount.test.ts` (update the existing `ABI v1 mountOverlay` test + add 2 new cases)
+  - Deps: MCG.1 (test-helper proximity only, not ordering)
+  - Validate: `cd apps/mobile-client && bun test src/flow/__tests__/qrToMount.test.ts` (17 pass)
+  - Status: **shipped 2026-04-22** — fixed the stale fixture (expected full URL, now expects `'localhost'` hostname), added explicit cases for IPv4:port/manifest URL and non-parseable `relay` fallthrough.
+
+- **MCG.3** — Extract subscribable `renderApp` into `src/overlay/renderAppBridge.ts`
+  - Files: `apps/mobile-client/src/overlay/renderAppBridge.ts` + `__tests__/renderAppBridge.test.ts`
+  - Deps: —
+  - Validate: `cd apps/mobile-client && bun test src/overlay/__tests__/renderAppBridge.test.ts` (10 pass)
+  - Status: **shipped 2026-04-22** — `installRenderAppBridge(globals)` returns `{ renderApp, pinned }`; index.js keeps an inline copy (Expo entry-point constraint) that must stay in sync with this module. Tests cover subscriber notification, bad-component drop, multi-subscriber + throwing-subscriber resilience, `defineProperty` pin, plus two regression tests for the finding-#3 clobber path.
+
+- **MCG.4** — Unit tests: `OverlayErrorBoundary` + `badComponentFilter`
+  - Files: `apps/mobile-client/src/overlay/{OverlayErrorBoundary.tsx,badComponentFilter.ts}` + `__tests__/OverlayErrorBoundary.test.ts` + `__tests__/badComponentFilter.test.ts`
+  - Deps: —
+  - Validate: `cd apps/mobile-client && bun test src/overlay/__tests__/` (17 pass: 9 filter + 8 boundary)
+  - Status: **shipped 2026-04-22** — boundary tests avoid `react-test-renderer` by driving the lifecycle methods directly; filter tests walk nested trees plus edge cases (missing props, array children).
+
+- **MCG.5** — Integration test: fake OnlookRuntime + bundle-that-calls-renderApp
+  - Files: `apps/mobile-client/src/overlay/__tests__/fakeRuntime.integration.test.ts`
+  - Deps: MCG.3
+  - Validate: `cd apps/mobile-client && bun test src/overlay/__tests__/fakeRuntime.integration.test.ts` (4 pass)
+  - Status: **shipped 2026-04-22** — `mountBundleInFakeRuntime(globals, source)` wraps the source in a `Function('globalThis', source)` closure, mimicking JSI mountOverlay on a pure-JS bundle body. Covers single mount, bad-component drop, two sequential mounts (ordering), and post-renderApp-throw resilience.
+
+- **MCG.6** — ADR: OverlayHost architecture decision
+  - Files: `plans/adr/overlay-host-architecture.md`
+  - Deps: —
+  - Validate: review-only (doc)
+  - Status: **shipped 2026-04-22** — captures OverlayHost-in-App.tsx as chosen surface, documents the four rejected alternatives (second AppRegistry root, dedicated native surface, module-local subscribers Set), consequences, and open questions.
+
+- **MCG.7** — Verify OverlayHost coexists with every AppRouter screen
+  - Files: `apps/mobile-client/src/App.tsx` + new `src/__tests__/OverlayHost.render.test.tsx`
+  - Deps: MCG.3, MCG.4
+  - Validate: `bun test src/__tests__/OverlayHost.render.test.tsx` — launcher/scan/settings active with overlay pushed, assert overlay absolutely-positions, pointerEvents=box-none, and re-renders on subscriber notification.
+  - Risk: React Native's `Pressable` + `pointerEvents` interactions differ between Fabric-on-new-arch and legacy; the test must drive only the component tree, not the native layer.
+
+- **MCG.8** — Split `runtime.js` out of the mobile-client bundle
+  - Files: `packages/mobile-preview/runtime/entry-client-only.js` + `packages/mobile-preview/server/build-runtime-client-only.ts` + `packages/mobile-preview/package.json` (added `build:runtime:client-only` script) + `apps/mobile-client/scripts/bundle-runtime.ts` (default sourcePath swap)
+  - Deps: —
+  - Validate: `bun --filter @onlook/mobile-preview build:runtime:client-only` then `du -h packages/mobile-preview/runtime/bundle-client-only.js` — target <30 KB (actual: 8.8 KB)
+  - Status: **shipped 2026-04-22** — `bundle-client-only.js` is 8.8 KB vs `bundle.js` 257.6 KB = **96.6% reduction, 248.8 KB saved**. `entry-client-only.js` requires only `shell.js`; React + reconciler + scheduler no longer ship on mobile-client. `bundle-runtime.ts` now defaults to the slim bundle; Expo Go / mobile-preview harness keeps using `bundle.js` via `--source=` override. Existing 35 bundle-runtime tests still pass (path change only — same shape).
+
+- **MCG.9** — Build `OnlookRuntime.httpGet`-based poll channel for relay events
+  - Files: new `packages/mobile-preview/runtime/src/relayEventPoll.ts` + `apps/mobile-client/src/relay/overlayAckPoll.ts` + tests
+  - Deps: MCG.8 (not strictly, but avoids mixing two refactors of the mobile-preview runtime)
+  - Validate: `bun test packages/mobile-preview/runtime/src/__tests__/relayEventPoll.test.ts` — fake httpGet returns a queued event, poll loop dispatches to registered subscribers, stops on `close()`.
+  - Rationale: ADR finding #8 — bridgeless iOS 18.6 `WebSocket.onopen` doesn't dispatch to JS. `OnlookRuntime.httpGet` (synchronous JSI→NSURLSession) is the documented workaround and is already used for manifest/bundle fetches.
+
+- **MCG.10** — OverlayAck phone→editor round-trip
+  - Files: `apps/web/client/src/server/relay/overlayAck.ts` + `apps/mobile-client/src/relay/overlayAckPoll.ts` (consumes MCG.9) + `apps/cf-expo-relay/src/do/events-session.ts` + `apps/cf-expo-relay/src/routes/events.ts`
+  - Deps: MCG.9
+  - Validate: E2E — editor mounts overlay via relay, mobile-client's ackPoll picks up the ack, editor's `subscribeRelayEvents` listener fires.
+  - Rationale: closes the loop on ABI v1 bidirectional observability.
+  - Status: **steps 2 + 3 + 4 + schema + spec shipped 2026-04-22** — (step 3) `apps/mobile-client/src/relay/overlayAckPoll.ts` wraps `startRelayEventPoll` behind a `startOverlayAckPoll({relayHost, sessionId, onEvent, onError, validate})` helper, derives the `/events` URL from a manifest-style relayHost, resolves `OnlookRuntime.httpGet` lazily (returns `installed:false` no-op when the native binding is absent — Spike-B / harness contexts). 14 bun tests. (step 4) `twoTierBootstrap` now starts the ack poll after the dispatcher, surfaces received events via a new `onRelayEvent` callback option, logs errors through the existing `log` channel, and tears the poll down on `.stop()`. 4 new twoTierBootstrap tests (11 total, all green). (schema — MCG.10 step 2.5) `@onlook/mobile-client-protocol/src/relay-events.ts` ships a Zod-typed discriminated union (`overlayAck | bundleUpdate | overlayMounted | overlayError | keepAlive`) + `parseRelayEvent` safe parser + `RelayEventsResponseSchema` + `assertNeverRelayEvent` exhaustiveness helper — 18 bun tests. `overlayAckPoll` plumbs `parseRelayEvent` at the boundary (default `validate:true`): valid events dispatch typed, invalid shapes surface via `onError` and never reach `onEvent`. (spec) `plans/adr/cf-expo-relay-events-channel.md` freezes the wire contract: `GET /events?session&since`, cursor semantics, 100-event / 10 s retention, 15 s keepAlive, discriminated union kinds. `@onlook/mobile-preview` now re-exports `startRelayEventPoll` + `stripWsHost` via `runtime/src/index.ts`; added `main`/`module`/`types` fields to package.json so workspace consumers resolve without additional config. (step 2 — cf-expo-relay handler) `apps/cf-expo-relay/src/do/events-session.ts` ships `EventsSession` DurableObject with ring buffer (100 events), cursor counter, 10 s TTL pruning on every poll, 15 s keepAlive synthesized on-demand during idle polls. `apps/cf-expo-relay/src/routes/events.ts` wires the Worker route handlers: `GET /events?session&since` forwards to DO `/poll`, `POST /events/push?session` forwards to DO `/push`. `wrangler.jsonc` adds `EVENTS_SESSION` DO binding + `v3` migration (`new_sqlite_classes: ["EventsSession"]`) in both default and production env blocks. 25 new bun tests (13 DO behavioural: empty poll, cursor filter, server-assigned id, TTL prune, ring buffer cap, keepAlive synth + debounce, 400 / 404; 12 route wire-up: regex, binding-missing 503, method-check 405, invalid session 400, forward shape). cf-expo-relay total: 169 pass / 0 fail / 15 files, typecheck clean. Editor-side endpoint (step 1) + full E2E remain.
+
+- **MCG.11** — Replace mock relay with real `cf-expo-relay` + `browser-bundler` output
+  - Files: `apps/cf-expo-relay/scripts/smoke-events.sh` (events-channel smoke); cf-esm-cache local stand-in (tracked as #106)
+  - Deps: MCG.10 is nice-to-have but not strictly required
+  - Validate: `bun run mobile:validate:v2` — spins up cf-expo-relay locally, editor pushes a real browser-bundler-compiled overlay, mobile-client renders on a sim, screenshot diff against `v2r-*.png` within pixel tolerance.
+  - Status: **fully shipped 2026-04-22** — real cf-expo-relay wrangler dev replaces `/tmp/mock-relay.js` end-to-end. Two helper scripts ship under `apps/cf-expo-relay/scripts/`: `local-esm-cache-worker.ts` + `wrangler-local-esm-cache.jsonc` run the fake cf-esm-cache as a sibling wrangler dev process (service-binding avoids workerd's loopback-fetch restriction); `local-esm-cache.ts` is the standalone HTTP variant for non-workerd consumers; `smoke-events.sh` + `smoke-e2e.sh` exercise the full pipeline via curl against live wranglers. `smoke-e2e.sh` asserts 11 checkpoints: cache /status, relay /manifest (real Expo manifest body, 200), relay `/:hash.ios.bundle` proxy through cache, /events/push (202), /events?since cursor cycle. All green on live wrangler.
+
+- **MCG.12** — Commit Phase G deliverables to `feat/two-tier-bundle`
+  - Files: all files touched by MCG.1–MCG.6 (MCG.7–MCG.11 ship in follow-up commits)
+  - Deps: MCG.1, MCG.2, MCG.3, MCG.4, MCG.5, MCG.6
+  - Validate: `bun run test` green in both `apps/mobile-client` + `packages/mobile-preview`; `bun run typecheck` clean on both packages; git log shows one commit per MCG sub-task OR one bundled commit with a Conventional Commits scope.
+  - Note: human-gated (CLAUDE.md forbids unprompted commits).
+
+---
+
 ## Session of 2026-04-16 afternoon — first iPhone deploy + dual-React bug surfaces
 
 Origin advanced `bd3d3bb4` → `b16efccc` in this session. Eight commits landed, plus the first real-device install of the mobile client.

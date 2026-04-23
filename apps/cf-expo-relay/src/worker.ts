@@ -30,9 +30,16 @@ import {
     parseUserBundleRoute,
     USER_BUNDLE_ROUTE as USER_BUNDLE_ROUTE_RE,
 } from './routes/user-bundle';
+import {
+    EVENTS_POLL_ROUTE,
+    EVENTS_PUSH_ROUTE,
+    handleEventsPoll,
+    handleEventsPush,
+} from './routes/events';
 import type { Env } from './env';
 import { ExpoSession } from './session';
 export { HmrSession } from './do/hmr-session';
+export { EventsSession } from './do/events-session';
 
 export { ExpoSession };
 export type { Env } from './env';
@@ -200,6 +207,15 @@ export default {
 
         if (isBaseBundleRoute(url.pathname)) {
             return handleBaseBundleFamily(request, env);
+        }
+
+        // MCG.10 / ADR cf-expo-relay-events-channel: phone polls this,
+        // editor pushes to /events/push. Both forward to EventsSession DO.
+        if (EVENTS_PUSH_ROUTE.test(url.pathname)) {
+            return handleEventsPush(request, env);
+        }
+        if (EVENTS_POLL_ROUTE.test(url.pathname)) {
+            return handleEventsPoll(request, env);
         }
 
         // Sim fetches the user bundle via the launchAsset.url the

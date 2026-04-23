@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Platform, Linking } from 'react-native';
 
 import { AppRouter } from './navigation';
@@ -8,6 +8,7 @@ import {
     startTwoTierBootstrap,
     type TwoTierBootstrapHandle,
 } from './flow/twoTierBootstrap';
+import { OverlayHost } from './overlay/OverlayHost';
 
 export default function App() {
     useEffect(() => {
@@ -56,5 +57,10 @@ export default function App() {
         };
     }, []);
 
-    return <AppRouter />;
+    return (
+        <>
+            <AppRouter />
+            <OverlayHost />
+        </>
+    );
 }

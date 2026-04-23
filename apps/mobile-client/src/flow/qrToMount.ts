@@ -167,11 +167,21 @@ export async function qrToMount(barcodeData: string): Promise<QrMountResult> {
     // internally via React's root-scoped Fabric commit. We don't need the split
     // runApplication/reloadBundle dance at all in v1.
     if (runtime?.abi === 'v1' && typeof runtime.mountOverlay === 'function') {
+        // shell.js's `_tryConnectWebSocket(host, port)` takes a bare hostname and
+        // synthesizes `ws://<host>:8788`. `relay` here is a full URL (the
+        // manifest endpoint), so extract just the hostname before passing down.
+        let relayHost = relay;
+        try {
+            relayHost = new URL(relay).hostname || relay;
+        } catch {
+            // Leave as-is if `relay` wasn't a parseable URL; shell.js will log
+            // the connect failure either way.
+        }
         try {
             console.log(
-                `${LOG_PREFIX} stage=mount OnlookRuntime.mountOverlay() bytes=${bundleResult.source.length}`,
+                `${LOG_PREFIX} stage=mount OnlookRuntime.mountOverlay() bytes=${bundleResult.source.length} relayHost=${relayHost}`,
             );
-            runtime.mountOverlay(bundleResult.source, { sessionId, relayHost: relay });
+            runtime.mountOverlay(bundleResult.source, { sessionId, relayHost });
             console.log(`${LOG_PREFIX} stage=mount mountOverlay() returned`);
             hasMountedApplication = true;
         } catch (err: unknown) {
