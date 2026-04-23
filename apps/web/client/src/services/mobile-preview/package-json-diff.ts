@@ -111,6 +111,61 @@ export function diffPackageDependencies(
     return { added, removed, changed, unchanged };
 }
 
+/**
+ * Render a `DependencyDiff` as a short human-readable summary, e.g.
+ *   "Added 2: lodash, zod. Removed 1: old-pkg. Changed 1: react ^18→^19."
+ *
+ * Returns `null` when the diff is empty — the caller can use that to
+ * suppress UI noise (no banner / status-bar update needed when
+ * nothing changed).
+ *
+ * Limits — for a diff with >N changes, the message truncates with
+ * "…and K more" so a bulk package-manager sync doesn't blow the
+ * status line. Default `limit` is 5; pass 0 for unlimited.
+ */
+export function formatDependencyDiff(
+    diff: DependencyDiff,
+    options: { limit?: number } = {},
+): string | null {
+    if (isDependencyDiffEmpty(diff)) return null;
+    const limit = options.limit ?? 5;
+
+    const parts: string[] = [];
+    const addedKeys = Object.keys(diff.added).sort();
+    if (addedKeys.length > 0) {
+        parts.push(
+            `Added ${addedKeys.length}: ${truncList(addedKeys, limit)}`,
+        );
+    }
+    const removedKeys = Object.keys(diff.removed).sort();
+    if (removedKeys.length > 0) {
+        parts.push(
+            `Removed ${removedKeys.length}: ${truncList(removedKeys, limit)}`,
+        );
+    }
+    const changedKeys = Object.keys(diff.changed).sort();
+    if (changedKeys.length > 0) {
+        const shown = changedKeys.slice(0, limit > 0 ? limit : undefined);
+        const extra = limit > 0 && changedKeys.length > limit
+            ? `, …${changedKeys.length - limit} more`
+            : '';
+        const bumps = shown
+            .map((k) => {
+                const { from, to } = diff.changed[k]!;
+                return `${k} ${from}→${to}`;
+            })
+            .join(', ');
+        parts.push(`Changed ${changedKeys.length}: ${bumps}${extra}`);
+    }
+    return parts.join('. ') + '.';
+}
+
+function truncList(items: readonly string[], limit: number): string {
+    if (limit <= 0 || items.length <= limit) return items.join(', ');
+    const head = items.slice(0, limit).join(', ');
+    return `${head}, …${items.length - limit} more`;
+}
+
 function collectDeps(
     raw: string | null | undefined,
     fields: ReadonlyArray<DependencyField>,

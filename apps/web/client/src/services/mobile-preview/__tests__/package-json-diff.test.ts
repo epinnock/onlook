@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import {
     DEFAULT_DEPENDENCY_FIELDS,
     diffPackageDependencies,
+    formatDependencyDiff,
     isDependencyDiffEmpty,
     listChangedSpecifiers,
 } from '../package-json-diff';
@@ -150,5 +151,77 @@ describe('listChangedSpecifiers', () => {
             make({ lodash: '^1' }),
         );
         expect(listChangedSpecifiers(diff)).toEqual([]);
+    });
+});
+
+describe('formatDependencyDiff', () => {
+    test('empty diff → null (suppresses UI noise)', () => {
+        const diff = diffPackageDependencies(
+            make({ a: '^1' }),
+            make({ a: '^1' }),
+        );
+        expect(formatDependencyDiff(diff)).toBeNull();
+    });
+
+    test('added specifiers render sorted', () => {
+        const diff = diffPackageDependencies(
+            null,
+            make({ zod: '^3.22', lodash: '^4.17' }),
+        );
+        expect(formatDependencyDiff(diff)).toBe('Added 2: lodash, zod.');
+    });
+
+    test('all three kinds in one message', () => {
+        const diff = diffPackageDependencies(
+            make({ kept: '^1.0', bumped: '^1.0', removed: '^1.0' }),
+            make({ kept: '^1.0', bumped: '^2.0', added: '^1.0' }),
+        );
+        expect(formatDependencyDiff(diff)).toBe(
+            'Added 1: added. Removed 1: removed. Changed 1: bumped ^1.0→^2.0.',
+        );
+    });
+
+    test('truncates adds with "…N more" when over limit', () => {
+        const pkg = make(
+            Object.fromEntries(
+                ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((k) => [k, '^1.0']),
+            ),
+        );
+        const diff = diffPackageDependencies(null, pkg);
+        // Default limit is 5.
+        expect(formatDependencyDiff(diff)).toBe(
+            'Added 7: a, b, c, d, e, …2 more.',
+        );
+    });
+
+    test('truncates changed with "…N more"', () => {
+        const prev = make(
+            Object.fromEntries(
+                ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((k) => [k, '^1.0']),
+            ),
+        );
+        const next = make(
+            Object.fromEntries(
+                ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((k) => [k, '^2.0']),
+            ),
+        );
+        const diff = diffPackageDependencies(prev, next);
+        const msg = formatDependencyDiff(diff);
+        expect(msg).toContain('Changed 7:');
+        expect(msg).toContain(', …2 more');
+        // First 5 bumps are rendered with versions.
+        expect(msg).toContain('a ^1.0→^2.0');
+    });
+
+    test('limit:0 disables truncation (operator diagnostic mode)', () => {
+        const pkg = make(
+            Object.fromEntries(
+                ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((k) => [k, '^1.0']),
+            ),
+        );
+        const diff = diffPackageDependencies(null, pkg);
+        expect(formatDependencyDiff(diff, { limit: 0 })).toBe(
+            'Added 7: a, b, c, d, e, f, g.',
+        );
     });
 });
