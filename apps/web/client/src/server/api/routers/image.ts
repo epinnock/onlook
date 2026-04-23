@@ -12,14 +12,22 @@ export const imageRouter = createTRPCRouter({
             z.object({
                 imageData: z.string(), // base64 encoded image data
                 options: z.object({
-                    quality: z.number().optional(),
-                    width: z.number().optional(),
-                    height: z.number().optional(),
+                    // All numeric knobs tightened — the underlying sharp
+                    // library rejects absurd values but the tRPC boundary
+                    // should surface a clean zod error instead of a
+                    // library-side stack trace for obviously bad inputs.
+                    // Ranges mirror sharp's documented accepted domains.
+                    quality: z.number().int().min(1).max(100).optional(),
+                    width: z.number().int().positive().max(16_384).optional(),
+                    height: z.number().int().positive().max(16_384).optional(),
                     format: z.enum(['jpeg', 'png', 'webp', 'avif', 'auto']).optional(),
                     progressive: z.boolean().optional(),
                     mozjpeg: z.boolean().optional(),
-                    effort: z.number().optional(),
-                    compressionLevel: z.number().optional(),
+                    // sharp's `effort` is 0..10 for AVIF, 0..6 for WebP — use
+                    // the wider domain + non-negative guard for both.
+                    effort: z.number().int().min(0).max(10).optional(),
+                    // PNG zlib compression level is 0..9.
+                    compressionLevel: z.number().int().min(0).max(9).optional(),
                     keepAspectRatio: z.boolean().optional(),
                     withoutEnlargement: z.boolean().optional(),
                 }).optional(),
