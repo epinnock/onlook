@@ -64,6 +64,16 @@ export {
     type PureJsPackageArtifact,
 } from './pure-js-package';
 
+// Tasks #47 + #48 — editor-side remote + layered artifact cache.
+export {
+    createLayeredPureJsCache,
+    createRemotePureJsCache,
+    type LayeredCacheFast,
+    type LayeredCacheSlow,
+    type RemotePureJsCache,
+    type RemotePureJsCacheOptions,
+} from './remote-pure-js-cache';
+
 export {
     preflightUnsupportedImports,
     assertNoUnsupportedImports,
