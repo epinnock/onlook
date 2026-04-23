@@ -12,5 +12,6 @@ export * from './asset-check';
 export * from './asset-uploader';
 export * from './asset-metadata';
 export * from './relay-events';
+export * from './relay-ws-client';
 export * from './overlay-pipeline';
 export * from './perf-guardrails';
