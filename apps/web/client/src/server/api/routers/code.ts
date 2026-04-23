@@ -47,7 +47,9 @@ export const utilsRouter = createTRPCRouter({
             onlyMainContent: z.boolean().default(true),
             includeTags: z.array(z.string()).optional(),
             excludeTags: z.array(z.string()).optional(),
-            waitFor: z.number().min(0).optional(),
+            // `.int()` rejects NaN+Infinity+fractional; upper bound
+            // prevents a caller from wedging the scrape for hours.
+            waitFor: z.number().int().min(0).max(60_000).optional(),
         }))
         .mutation(async ({ input }): Promise<{ result: string | null, error: string | null }> => {
             try {
