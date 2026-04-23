@@ -268,8 +268,10 @@ first via #14)**.
 ## Session log — 2026-04-23 autonomous loop
 
 Single-day autonomous session ran on top of the Phase G simulator validation
-landing. ~35 commits pushed to `feat/two-tier-bundle`; every commit passes
-package-local `bun test` + `bun run typecheck`.
+landing. 38 commits pushed to `feat/two-tier-bundle`; every commit passes
+package-local `bun test` + `bun run typecheck`. Test footprint grew from the
+pre-session baseline to ~1,500 passing tests across ~148 files in the
+touched packages.
 
 ### Tasks closed (pending/partial → done)
 
@@ -323,3 +325,30 @@ guard, 14 bun tests). Full mobile-client isolated suite: 410/0 across 39 files.
 - `plans/adr/phase-11-legacy-overlay-migration.md` — 4-phase rollout sequence
   for removing `wrapOverlayCode` / `pushOverlay` / `onlookMount` / B13 eval
   handler without regressing Phase G's shipped simulator mount.
+
+### Post-Phase-11a observability + test hardening
+
+Once Phase 11a landed, extended coverage across critical editor-side modules
+to lock in the wire-shape contracts ahead of the Phase 11b default flip:
+
+- **overlay-status machine** (8 → 22 tests): recovery paths, hot-reload
+  cycles, illegal-transition guards, snapshot field propagation, subscriber
+  semantics, exhaustiveness property.
+- **overlay-pipeline composer** (5 → 10): hot-reload cycle, push-throws,
+  markMounted-from-idle no-op, error→retry, assets forwarding.
+- **reconnect-replayer** (5 → 10): multi-reconnect behavior, push-failure
+  resilience, per-session state isolation, default buildDurationMs.
+- **asset-pipeline integration** (2 → 6): empty hashes, all-novel uploads,
+  upload 5xx failure surfaces ok:false+status, empty-manifest default.
+- **preflight-formatter** (5 → 13): unknown-header title, guidance strings,
+  native-first line ordering, file-locality, plural/singular rules,
+  byKind always-complete.
+- **two-tier.ts Phase 11a** (3 → 16): dual-branch coverage, push-failure
+  surfaces, meta.buildDurationMs finite non-negative, OverlayUpdateMessage
+  schema round-trip, pre-push size-gate defense, soft-cap observability
+  log matching cf-expo-relay's `hmr.push.v1.softcap` shape.
+
+Plus 3 pre-existing typecheck cleanups in `apps/web/client/src/services/`:
+SubtleCrypto.digest BufferSource cast, `onAny` bundleUpdate narrowing,
+arrow-return void fix. And `use-mobile-preview-status.tsx` now forwards
+manifestUrl as onlookUrl for QrModalStatus compatibility.
