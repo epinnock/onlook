@@ -224,7 +224,13 @@ export const SelectProject = ({ externalSearchQuery }: { externalSearchQuery?: s
                 </div>
                 <div className="flex justify-center">
                     <Button
-                        onClick={handleStartBlankProject}
+                        // Arrow wrapper so React's MouseEvent isn't passed as
+                        // the `template` arg — see matching fix in
+                        // app/_components/hero/start-blank.tsx. Without this
+                        // SandboxTemplates[MouseEvent] → undefined and
+                        // forkSandbox crashes on this "Create blank project"
+                        // click.
+                        onClick={() => handleStartBlankProject()}
                         disabled={isCreatingProject}
                         variant="default"
                     >
@@ -299,7 +305,11 @@ export const SelectProject = ({ externalSearchQuery }: { externalSearchQuery?: s
                                         layout
                                     >
                                         <button
-                                            onClick={handleStartBlankProject}
+                                            // Arrow wrapper: React's
+                                            // MouseEvent must not be passed
+                                            // as `template` (see fix in
+                                            // hero/start-blank.tsx).
+                                            onClick={() => handleStartBlankProject()}
                                             disabled={isCreatingProject}
                                             className="border-border bg-secondary/40 hover:bg-secondary relative flex aspect-[4/2.8] w-full items-center justify-center rounded-lg border transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                         >

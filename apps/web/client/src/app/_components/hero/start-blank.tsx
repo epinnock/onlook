@@ -9,7 +9,12 @@ export function StartBlank() {
 
     return (
         <button
-            onClick={handleStartBlankProject}
+            // Arrow wrapper: React passes MouseEvent as the first arg, but
+            // `handleStartBlankProject(template?)` expects a Templates enum
+            // value (with a default). Without the wrapper the MouseEvent
+            // is used as `template` verbatim, SandboxTemplates[MouseEvent]
+            // returns undefined, and forkSandbox({sandbox: undefined}) fails.
+            onClick={() => handleStartBlankProject()}
             disabled={isCreatingProject}
             className="text-foreground-secondary hover:text-foreground disabled:hover:text-foreground-secondary flex items-center gap-2 text-sm transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-50"
         >
