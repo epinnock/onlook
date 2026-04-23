@@ -2,11 +2,14 @@ import {
     bundleBrowserProject,
     createIncrementalBundler,
     wrapOverlayCode,
+    wrapOverlayV1,
     type BrowserBundlerEsbuildService,
     type IncrementalBundler,
 } from '../../../../../../../packages/browser-bundler/src';
 
-import { pushOverlay } from '@/services/expo-relay/push-overlay';
+import { pushOverlay, pushOverlayV1 } from '@/services/expo-relay/push-overlay';
+
+import { isMobilePreviewOverlayV1PipelineEnabled } from '../pipeline-flag';
 
 import type {
     MobilePreviewPipeline,
@@ -159,6 +162,7 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
                 );
             }
 
+            const buildStartMs = Date.now();
             const { result, cached } = await this.incremental.build(
                 {
                     entryPoint,
@@ -169,19 +173,49 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
                 },
                 service,
             );
+            const buildDurationMs = Date.now() - buildStartMs;
 
-            const wrapped = wrapOverlayCode(result.code, { sourceMap: result.sourceMap });
+            // Task #89-#94 / ADR-0009 Phase 11a — flag-gated parallel v1 path.
+            // When `NEXT_PUBLIC_MOBILE_PREVIEW_PIPELINE=overlay-v1` is set, the
+            // editor emits a Hermes-safe ABI v1 envelope via wrapOverlayV1 and
+            // pushes via pushOverlayV1 (OverlayUpdateMessage shape). Defaults
+            // to the legacy path so Phase G's shipped simulator mount flow
+            // keeps working until the flag is flipped (ADR-0009 Phase 11b).
+            const useV1 = isMobilePreviewOverlayV1PipelineEnabled();
+
+            const wrapped = useV1
+                ? wrapOverlayV1(result.code, { sourceMap: result.sourceMap })
+                : wrapOverlayCode(result.code, { sourceMap: result.sourceMap });
 
             emitStatus(input.onStatus, { kind: 'pushing' });
 
             const sessionId = this.sessionId ?? this.createSessionId();
             this.sessionId = sessionId;
 
-            const pushResult = await pushOverlay({
-                relayBaseUrl,
-                sessionId,
-                overlay: { code: wrapped.code, sourceMap: result.sourceMap },
-            });
+            const pushResult = useV1
+                ? await pushOverlayV1({
+                      relayBaseUrl,
+                      sessionId,
+                      overlay: {
+                          code: wrapped.code,
+                          // sourceMap intentionally omitted on the v1 branch:
+                          // OverlayUpdateMessage's meta.sourceMapUrl is a URL
+                          // (fetched via fetchOverlaySourceMap on the editor
+                          // side when a runtime error arrives), not inline
+                          // source-map JSON. Uploading the map to R2 + passing
+                          // that URL lives with Phase 9 editor wiring.
+                          buildDurationMs,
+                      },
+                      // Empty asset manifest is valid per pushOverlayV1. Full
+                      // Phase 7 asset wiring lands in Phase 9 editor work —
+                      // for Phase 11a the v1 branch just proves the wire shape
+                      // round-trips end-to-end.
+                  })
+                : await pushOverlay({
+                      relayBaseUrl,
+                      sessionId,
+                      overlay: { code: wrapped.code, sourceMap: result.sourceMap },
+                  });
 
             if (!pushResult.ok) {
                 throw new Error(`two-tier pipeline: push failed — ${pushResult.error}`);

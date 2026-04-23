@@ -2,6 +2,23 @@ import { describe, expect, mock, test } from 'bun:test';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 
+// Mock the pipeline-flag module so tests can force either the legacy
+// (wrapOverlayCode + pushOverlay) or the v1 (wrapOverlayV1 + pushOverlayV1)
+// branch inside TwoTierMobilePreviewPipeline.sync — ADR-0009 Phase 11a.
+// Defaults to false so every existing test (written pre-flag) still
+// exercises the legacy path.
+// ADR-0009 Phase 11a — force the pipeline-flag by mocking @/env directly.
+// The flag-reader (`isMobilePreviewOverlayV1PipelineEnabled`) reads
+// `env.NEXT_PUBLIC_MOBILE_PREVIEW_PIPELINE` at call time via a default param,
+// so mutating this mockEnv between tests is picked up without re-importing.
+const pipelineFlagState = { v1Enabled: false };
+const mockEnv = {
+    get NEXT_PUBLIC_MOBILE_PREVIEW_PIPELINE(): string {
+        return pipelineFlagState.v1Enabled ? 'overlay-v1' : 'shim';
+    },
+} as Record<string, unknown>;
+mock.module('@/env', () => ({ env: mockEnv }));
+
 import type { BrowserBundlerEsbuildService } from '../../../../../../../../packages/browser-bundler/src';
 import { createTwoTierMobilePreviewPipeline } from '../two-tier';
 import type { MobilePreviewPipelineVfs } from '../types';
@@ -161,6 +178,12 @@ describe('TwoTierMobilePreviewPipeline.sync', () => {
     const FILES = {
         'App.tsx': "export default function App() { return null; }",
         'index.ts': "import App from './App'; export default App;",
+    };
+
+    // Reset the pipeline-flag before each test to legacy-branch behavior so
+    // the v1-branch tests below don't leak state into unrelated cases.
+    const resetPipelineFlag = (): void => {
+        pipelineFlagState.v1Enabled = false;
     };
 
     test('bundles the project and pushes an overlay to the relay /push/:sessionId', async () => {
@@ -324,6 +347,104 @@ describe('TwoTierMobilePreviewPipeline.sync', () => {
             expect(statuses.some((s) => s.kind === 'error')).toBe(true);
         } finally {
             await new Promise<void>((r, j) => server.close((e) => (e ? j(e) : r())));
+        }
+    });
+
+    // ─── Phase 11a dual-branch coverage (ADR-0009, tasks #89-#94) ───────────
+
+    test('legacy branch (flag off): pushes OverlayMessage shape {type:"overlay", code, sourceMap?}', async () => {
+        resetPipelineFlag();
+        const relay = await startFakeRelay();
+        try {
+            const { service } = makeEsbuildService('module.exports = {};');
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                { esbuildService: service, createSessionId: () => 'legacy-sess' },
+            );
+            await pipeline.sync({ fileSystem: makeVfs(FILES) });
+            expect(relay.pushes).toHaveLength(1);
+            const pushed = JSON.parse(relay.pushes[0]!.body) as {
+                type: string;
+                code?: string;
+                source?: string;
+            };
+            expect(pushed.type).toBe('overlay');
+            expect(pushed.code).toBeDefined();
+            expect(pushed.source).toBeUndefined();
+        } finally {
+            await relay.close();
+        }
+    });
+
+    test('v1 branch (flag on): pushes OverlayUpdateMessage shape with abi + source + assets + meta', async () => {
+        pipelineFlagState.v1Enabled = true;
+        const relay = await startFakeRelay();
+        try {
+            const { service } = makeEsbuildService('module.exports = {};');
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                { esbuildService: service, createSessionId: () => 'v1-sess' },
+            );
+            await pipeline.sync({ fileSystem: makeVfs(FILES) });
+            expect(relay.pushes).toHaveLength(1);
+            const pushed = JSON.parse(relay.pushes[0]!.body) as {
+                type: string;
+                abi?: string;
+                sessionId?: string;
+                source?: string;
+                assets?: { abi: string; assets: Record<string, unknown> };
+                meta?: { overlayHash: string; entryModule: number; buildDurationMs: number };
+            };
+            expect(pushed.type).toBe('overlayUpdate');
+            expect(pushed.abi).toBe('v1');
+            expect(pushed.sessionId).toBe('v1-sess');
+            expect(typeof pushed.source).toBe('string');
+            expect(pushed.source).toContain('OnlookRuntime');
+            expect(pushed.assets).toEqual({ abi: 'v1', assets: {} });
+            expect(pushed.meta?.overlayHash).toMatch(/^[0-9a-f]{64}$/);
+            expect(pushed.meta?.entryModule).toBe(0);
+            expect(typeof pushed.meta?.buildDurationMs).toBe('number');
+        } finally {
+            await relay.close();
+            resetPipelineFlag();
+        }
+    });
+
+    test('v1 branch: overlayHash stays stable across identical rebuilds (cache contract)', async () => {
+        pipelineFlagState.v1Enabled = true;
+        const relay = await startFakeRelay();
+        try {
+            const { service } = makeEsbuildService('module.exports = {answer: 42};');
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                { esbuildService: service, createSessionId: () => 'v1-stable' },
+            );
+            await pipeline.sync({ fileSystem: makeVfs(FILES) });
+            await pipeline.sync({ fileSystem: makeVfs(FILES) });
+            expect(relay.pushes).toHaveLength(2);
+            const a = JSON.parse(relay.pushes[0]!.body) as {
+                meta: { overlayHash: string };
+            };
+            const b = JSON.parse(relay.pushes[1]!.body) as {
+                meta: { overlayHash: string };
+            };
+            // Identical source bytes → identical sha256 → cacheable on phone.
+            expect(a.meta.overlayHash).toBe(b.meta.overlayHash);
+        } finally {
+            await relay.close();
+            resetPipelineFlag();
         }
     });
 });
