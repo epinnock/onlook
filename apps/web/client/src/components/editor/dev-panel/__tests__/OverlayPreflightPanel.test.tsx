@@ -14,14 +14,24 @@ function nativeIssue(
     spec: string,
     file = 'src/App.tsx',
 ): AbiV1PreflightIssue {
-    return { kind: 'unsupported-native', specifier: spec, filePath: file };
+    return {
+        kind: 'unsupported-native',
+        specifier: spec,
+        filePath: file,
+        message: `${spec} requires native code — rebuild the base bundle`,
+    };
 }
 
 function unknownIssue(
     spec: string,
     file = 'src/App.tsx',
 ): AbiV1PreflightIssue {
-    return { kind: 'unknown-specifier', specifier: spec, filePath: file };
+    return {
+        kind: 'unknown-specifier',
+        specifier: spec,
+        filePath: file,
+        message: `${spec} is not in the base alias map`,
+    };
 }
 
 describe('OverlayPreflightIssueRow', () => {
