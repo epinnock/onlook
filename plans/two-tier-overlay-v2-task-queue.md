@@ -213,7 +213,7 @@ first via #14)**.
 | 35 | partial | wrapOverlayV1 accepts a `sourceMap?: string` passthrough; editor uploads to R2 via sourceMapUrl in `OverlayMeta`. |
 | 36 | done | `isHermesSafeOverlay()` + 5 negative-case tests enforce no top-level ESM/import()/await in emitted envelopes. |
 | 37 | partial | Empty-input, size-exceeded, ABI-mismatch, missing-alias, and syntax-error cases covered. Circular-import case deferred to Phase 5 resolver work. |
-| 38–43 | pending | Phase 5 Metro-like resolver — not required for single-module overlays today. |
+| 38–43 | done (primitives) | `packages/browser-bundler/src/platform-resolver.ts` ships `resolvePlatformExt` (iOS/Android/native extension priority), `resolveDirectoryIndex` (index.{ext} lookup), `listPlatformResolverCandidates`. `packages/browser-bundler/src/package-resolver.ts` ships `resolvePackageEntry` handling react-native field (root + subpath map), exports field (with react-native/import/default/require priority), module, main. `browser` field intentionally NOT consulted (native runtime target). 26 tests total (13 platform-resolver + 13 package-resolver). Integration with multi-module overlay flow waits on #31 (today's overlays are single-module after esbuild flattening, so a composing `resolveSpecifier` helper isn't yet exercised in the hot path). |
 | 44 | done | `preflightAbiV1Imports()` + `assertAbiV1Imports()` classify every bare import against `baseAliases` + `disallowed`. Surfaces `unsupported-native` / `unknown-specifier` kinds matching ADR error surface. 7 new tests. |
 | 45–52 | pending | Phase 6 pure-JS package support — unblocked once resolver lands. |
 | 53 | done | `OverlayAssetManifest` + `AssetDescriptor` schema in abi-v1.ts. Image/font/svg/media/json/text/binary descriptors. |
@@ -221,7 +221,7 @@ first via #14)**.
 | 69 | done | Relay HmrSession accepts `overlayUpdate` (validated via abi-v1 Zod). Legacy `overlay` / `bundle` fallthrough preserved behind migration flag. Agent ae66f515 + in-band extensions. |
 | 70 | done | `WS /hmr/:sessionId` route preserved from pre-ABI work. |
 | 71 | done | `handlePush` fan-out routes overlayUpdate to every connected WS. Broadcast structured-log: `hmr.push.v1`. |
-| 72 | pending | Phone→editor routing of onlook:* messages — existing relay preserves this; just needs v1 Zod validation added. |
+| 72 | done | `apps/cf-expo-relay/src/do/hmr-session.ts` onMessage handler validates phone→editor routing through two schemas: `OverlayAckMessageSchema` (ABI v1-specific) for `onlook:overlayAck`, `WsMessageSchema` (ws-messages.ts union — shared between v1 and legacy since these shapes don't change between protocol versions) for `onlook:select`/`tap`/`console`/`network`/`error`. Malformed payloads are dropped silently rather than forwarded. Covered by the 6 multi-client + disconnect tests added for #76. |
 | 73 | done | `last-overlay-v1` DO storage key; replay on WS connect when no v1 payload, falls back to legacy `last-overlay`. |
 | 74 | pending | Durable asset fallback — deferred with Phase 7. |
 | 75 | done | `AbiV1WsMessageSchema.safeParse` gates every push body + WS message. 7 new tests. |
@@ -232,7 +232,7 @@ first via #14)**.
 | 80 | done | `overlay-status.ts` — `OverlayStatusMachine` with idle/building/uploading-assets/sent/mounted/error states + enforced transitions. 7 tests. |
 | 81 | partial | Preflight `classifyImport` catches unsupported imports before build. Editor UI integration pending. |
 | 82 | done | Editor-side `RelayWsClient` (`apps/web/client/src/services/expo-relay/relay-ws-client.ts`, shipped 2026-04-23) auto-reconnects with exponential backoff and ingests the HmrSession replay payload on the fresh socket verbatim — the replay flows through `subscribeRelayEvents` and accumulates via `snapshot().acks`. 2 reconnect-replay tests validate the full cycle + stale-socket message drop. |
-| 83 | pending | Keep iframe preview separate from native overlay — browser-metro remains independent. |
+| 83 | done | `packages/browser-metro` (iframe-preview path) and `packages/browser-bundler` (native overlay path) ship as independent packages with no cross-imports verified via grep. browser-metro targets web workers; browser-bundler emits Hermes-safe CJS for OnlookRuntime.mountOverlay. Separation encoded in package.json workspaces. |
 | 84–88 | pending | Phase 10 inspector + debug integration. |
 | 89–94 | partial | Deprecation warnings added to `wrapOverlayCode` + `pushOverlay` (task #16). Feature flag `overlay-v1` shipped (task #15). Removal of legacy paths deferred to migration-cleanup wave. |
 | 95 | partial | Unit tests green: ABI schemas, wrap-overlay, preflight, runtime. Resolver and package-resolver tests land with Phase 5/6. |
