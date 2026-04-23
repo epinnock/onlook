@@ -188,9 +188,14 @@ export function emitOverlayPipelineMarker(
  * dashboard consumer shape.
  */
 export function emitOverlayAckTelemetry(ack: OverlayAckMessage): void {
+    // `Number.isFinite` filters NaN + ±Infinity defensively — the schema
+    // already rejects these, but callers that skip schema validation
+    // (e.g. receive-then-capture without safeParse) still flow through
+    // here cleanly instead of polluting the `evalLatencyOverBudget`
+    // boolean or the posthog `mountDurationMs` column.
     const overBudget =
-        typeof ack.mountDurationMs === 'number' &&
-        ack.mountDurationMs > EVAL_LATENCY_TARGET_MS;
+        Number.isFinite(ack.mountDurationMs) &&
+        (ack.mountDurationMs as number) > EVAL_LATENCY_TARGET_MS;
     if (overBudget) {
         console.warn('[onlook.overlay-ack]', { overBudget: true, ...ack });
     } else {

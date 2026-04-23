@@ -287,6 +287,33 @@ describe('ABI v1 — OverlayAckMessage', () => {
         ).toBe(false);
     });
 
+    test('rejects NaN mountDurationMs', () => {
+        expect(
+            OverlayAckMessageSchema.safeParse({
+                ...validAck,
+                mountDurationMs: NaN,
+            }).success,
+        ).toBe(false);
+    });
+
+    test('rejects Infinity mountDurationMs (would poison p95 aggregates)', () => {
+        expect(
+            OverlayAckMessageSchema.safeParse({
+                ...validAck,
+                mountDurationMs: Infinity,
+            }).success,
+        ).toBe(false);
+    });
+
+    test('rejects -Infinity mountDurationMs', () => {
+        expect(
+            OverlayAckMessageSchema.safeParse({
+                ...validAck,
+                mountDurationMs: -Infinity,
+            }).success,
+        ).toBe(false);
+    });
+
     test('backward compat: legacy phone binaries (no mountDurationMs) still pass', () => {
         // This is the invariant that lets this field land before every
         // phone binary populates it. If this test ever fails, the field

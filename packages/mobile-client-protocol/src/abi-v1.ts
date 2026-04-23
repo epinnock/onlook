@@ -210,8 +210,14 @@ export const OverlayAckMessageSchema = z.object({
      * because legacy phone binaries don't populate it; new binaries measure
      * with `performance.now()` around the mount call and send the delta.
      * Editor-side: surfaces in Phase 11b soak as the eval-latency signal.
+     *
+     * `.finite()` guards against a misbehaving phone clock sending `Infinity`
+     * (which zod's `.number()` accepts by default). An `Infinity` value
+     * would silently poison p95 aggregates in the soak dashboard — safer to
+     * reject at the schema boundary so the editor marks the ack malformed
+     * and drops it instead of persisting a nonsense duration.
      */
-    mountDurationMs: z.number().nonnegative().optional(),
+    mountDurationMs: z.number().finite().nonnegative().optional(),
 });
 export type OverlayAckMessage = z.infer<typeof OverlayAckMessageSchema>;
 

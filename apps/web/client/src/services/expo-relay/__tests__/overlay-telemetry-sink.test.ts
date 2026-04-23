@@ -328,4 +328,26 @@ describe('emitOverlayAckTelemetry', () => {
             emitOverlayAckTelemetry({ ...ackBase, mountDurationMs: 42 }),
         ).not.toThrow();
     });
+
+    test('defensive: Infinity mountDurationMs → evalLatencyOverBudget=false', () => {
+        // Schema rejects Infinity, but if a caller skips safeParse and
+        // hands us a malformed ack the sink still degrades gracefully
+        // instead of setting overBudget=true (which would poison the
+        // dashboard's stop-gate alerts).
+        const capture = installMockPostHog();
+        emitOverlayAckTelemetry({
+            ...ackBase,
+            mountDurationMs: Infinity as unknown as number,
+        });
+        expect(capture.mock.calls[0]![1]!.evalLatencyOverBudget).toBe(false);
+    });
+
+    test('defensive: NaN mountDurationMs → evalLatencyOverBudget=false', () => {
+        const capture = installMockPostHog();
+        emitOverlayAckTelemetry({
+            ...ackBase,
+            mountDurationMs: NaN as unknown as number,
+        });
+        expect(capture.mock.calls[0]![1]!.evalLatencyOverBudget).toBe(false);
+    });
 });
