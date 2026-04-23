@@ -49,7 +49,17 @@ export function wrapOverlayCode(
     cjsCode: string,
     options: WrapOverlayOptions = {},
 ): WrappedOverlay {
-    if (!warnedAboutWrapOverlayCode && process.env.ONLOOK_SUPPRESS_LEGACY_WARN !== '1') {
+    // Guard `process` with `typeof` — this module is imported by the
+    // editor's two-tier.ts pipeline which runs in the browser. Without
+    // the guard, a pure browser / test context without a `process`
+    // polyfill would throw ReferenceError just from calling the
+    // function, breaking the legacy push branch. Mirrors the same
+    // guard pattern in `apps/web/client/src/services/expo-relay/
+    // push-overlay.ts::pushOverlay`.
+    const suppress =
+        typeof process !== 'undefined' &&
+        process.env?.ONLOOK_SUPPRESS_LEGACY_WARN === '1';
+    if (!warnedAboutWrapOverlayCode && !suppress) {
         warnedAboutWrapOverlayCode = true;
         // eslint-disable-next-line no-console
         console.warn(

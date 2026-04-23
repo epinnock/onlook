@@ -30,4 +30,21 @@ describe('wrapOverlayCode', () => {
         expect(wrapped.code).toContain('__onlookMountOverlay');
         expect(wrapped.code).toMatch(/^\s*\(function\(\)\s*\{/);
     });
+
+    test('tolerates a runtime where `process` is undefined (browser context)', () => {
+        // Reproduces the bug class we saw in commit TBD: the deprecation
+        // warning path accessed `process.env` without guarding, which
+        // throws ReferenceError in a pure browser (Next.js normally
+        // polyfills, but webpack SSR / Vite + worker contexts do not
+        // always inject one).
+        const originalProcess = (globalThis as { process?: unknown }).process;
+        try {
+            delete (globalThis as { process?: unknown }).process;
+            expect(() =>
+                wrapOverlayCode('module.exports = {};'),
+            ).not.toThrow();
+        } finally {
+            (globalThis as { process?: unknown }).process = originalProcess;
+        }
+    });
 });
