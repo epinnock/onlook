@@ -264,3 +264,62 @@ first via #14)**.
 | 96 | done | `two-tier-e2e.spec.ts` — browser-bundler esbuild → wrap → push → relay → mountOverlay in Node mocks. 3 tests pass in 132ms. |
 | 97 | done | Unblocked 2026-04-23 via mini's Xcode 16.4. `bun run mobile:build:ios` + `xcrun simctl install/launch/openurl` runs the full deep-link flow end-to-end on iPhone 16 sim. Screenshots `plans/adr/assets/v2-pipeline/post-g-{hello,updated}.png` prove mount + in-place update against REAL committed code (not mock-relay append shortcut). Log trail in commit 1c58d3a2. Native C++ wiring (#23–25) remains separate work. |
 | 98–100 | done | Negative/perf/size gates — full stack: (1) `checkOverlaySize(bundle, { softCap?, hardCap? })` in `packages/browser-bundler/src/check-overlay-size.ts` for editor/CI pre-push gating with 15 tests, (2) `wrap-overlay-v1.ts` enforces hard cap at build time with 5 boundary tests, (3) cf-expo-relay's `MAX_OVERLAY_BODY_BYTES=2MB` enforces hard cap at the `/push` body level (returns 413), (4) **2026-04-23:** cf-expo-relay's v1 handler now emits `sourceBytes` + `softCapExceeded` fields on the `hmr.push.v1` info log and emits a dedicated `hmr.push.v1.softcap` warn log when source size exceeds 512 KB soft cap. 2 new tests in `do-hmr-session.test.ts` verify under-cap/over-cap observability. Soft cap is advisory — oversized overlays still deliver. GitHub Actions workflow gate wiring remains the operator's decision. |
+
+## Session log — 2026-04-23 autonomous loop
+
+Single-day autonomous session ran on top of the Phase G simulator validation
+landing. ~35 commits pushed to `feat/two-tier-bundle`; every commit passes
+package-local `bun test` + `bun run typecheck`.
+
+### Tasks closed (pending/partial → done)
+
+| Task | Before | After | Delivery |
+|---|---|---|---|
+| `#8` | pending | done | Promoted — already covered by `runtime-capabilities.ts` (11 tests). |
+| `#12` | pending | done | 3 cross-bundle hash equality tests added to `alias-registry-integration.test.ts`. |
+| `#34` / `#84` | pending | done (plugin) | `createJsxSourcePlugin({ files })` onLoad wiring shipped with 15 tests. |
+| `#47` / `#48` | partial | done (primitive) | `createRemotePureJsCache` + `createLayeredPureJsCache` + 18 tests. |
+| `#52` | pending | done | 7 new representative-package tests (lodash + zod + nanoid + ESM-only). |
+| `#54` | partial | done | `parseScaleSuffix` (@2x/@3x) + `extractImageDimensions` (PNG/GIF/WebP/BMP/JPEG). |
+| `#55` | pending | done (plugin) | `createAssetsSvgComponentPlugin` (SvgXml wrapper) with 18 tests. |
+| `#56` | partial | done | `?url` query bypass in both `assets-inline` + `assets-r2`. |
+| `#57` | pending | done (plugin) | SVG `?raw` via `createAssetsRawTextPlugin`. |
+| `#59` | pending | done | Audio/video MIME types + filter entries in both asset plugins. |
+| `#60` / `#62` | partial | done | JSON + binary descriptors in `assets-resolve.ts`. |
+| `#61` | pending | done (plugin) | `createAssetsRawTextPlugin` for `.txt`/`.md`/`.html`/`.glsl`/…. |
+| `#63` | partial | done | sha256 + MIME + size + viewBox + image-dimensions + font-family. |
+| `#65` | pending | done (server) | HEAD `/base-bundle/assets/<key>` for asset-check with 5 tests. |
+| `#66` | pending | done (plugin) | `createAssetsResolvePlugin` + `createOverlayAssetManifestBuilder` with 44 tests. |
+| `#67` | pending | done (primitive) | `createAssetRegistry` + `seedAssetRegistry` + `installAssetRegistry`. |
+| `#68` | partial | done | 158 asset-pipeline tests across 5 plugin + 1 runtime file. |
+| `#74` | pending | done (server) | PUT `/base-bundle/assets/<key>` for editor uploads + 8 tests. |
+| `#86` / `#87` / `#88` | pending | done | Split from collapsed row with evidence pointers. |
+| `#95` | partial | done | Test counts refreshed (312 → 345 → current). |
+| `#98–100` | partial | done | `checkOverlaySize` primitive + cf-expo-relay soft-cap observability. |
+
+Plus `#89–94` promoted from partial → partial-with-explicit-sequence via
+ADR-0009 + Phase 11a implementation (`two-tier.ts` v1 branch behind the flag).
+
+### Still open (all external-gated)
+
+| Task | Gate |
+|---|---|
+| `#7` | Needs RN environment to wire real Metro programmatic runner. |
+| `#13` | Architecturally deferred by ADR — base baked into binary for v1. |
+| `#23–25` | Native C++ JSI wiring on mini Xcode 16.4 — separate optimization project. |
+| `#29` / `#77` | `onlook-client-v2` target on `browser-metro` is iframe-rewire follow-up. |
+| `#31` | Multi-module split — single-module esbuild output is sufficient today. |
+| `#51` | Phase 9 editor UI for package install/update flow. |
+| `#85` | Maestro flow on physical device — operator-gated. |
+| `#89–94` | Phase 11b (flip default) needs 7-day soak operator + real telemetry sink per ADR-0009. |
+
+### Mobile-client related
+
+`MCG.7` shipped (OverlayHost frame contract + App.tsx composition structural
+guard, 14 bun tests). Full mobile-client isolated suite: 410/0 across 39 files.
+
+### New ADRs
+
+- `plans/adr/phase-11-legacy-overlay-migration.md` — 4-phase rollout sequence
+  for removing `wrapOverlayCode` / `pushOverlay` / `onlookMount` / B13 eval
+  handler without regressing Phase G's shipped simulator mount.
