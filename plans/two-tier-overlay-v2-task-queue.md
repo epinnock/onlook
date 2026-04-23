@@ -609,10 +609,37 @@ landed the entire primitive + wire-in chain:
   flowing automatically the moment this ships.
 
 **Remaining Task A surface work** (editor-side, UI-only):
-- Render `MobileDevPanel` somewhere — recommend `terminal-area.tsx`
-  as a new tab (already uses React-19-compatible Radix Tabs).
-- Subscribe to `relayWsClient.snapshot()` via `requestAnimationFrame`
-  loop to push `{messages, acks}` into the panel's props.
+- Render `MobilePreviewDevPanelContainer` (drop-in composite shipped
+  in commit `43a16ea2`) somewhere in the editor layout. It composes
+  `useMobilePreviewStatus` + `useRelaySnapshot` + `MobileDevPanel`
+  into a single component with props `serverBaseUrl, fileSystem,
+  preflightSummary, defaultTab, className`.
+- The layout-slot decision is the only blocker — the composition +
+  subscription primitives are all shipped + tested.
 
-The render-surface decision is a UX call, not a protocol / schema /
-wire-level concern — the data plumbing is done.
+**Full Phase 9 Task A primitive chain (5 commits `5ab9a70c`..`43a16ea2`):**
+1. `parseManifestUrl()` + 11 tests (session id extraction)
+2. `useRelayWsClient()` hook + 8 tests (lifecycle wrapper)
+3. Wire into `useMobilePreviewStatus` (returns `relayWsClient`)
+4. `useRelaySnapshot()` rAF-throttled subscription
+5. `MobilePreviewDevPanelContainer` drop-in composite
+
+### Phase 9 Task B — in-flight Mac mini validation
+
+User enabled SSH access to the mini (`scry-farmer@192.168.0.17`).
+Verified:
+- Darwin 24.5.0 ARM64, Xcode 16.4 (Build 16F6)
+- Repo at `~/onlook`
+- Native C++ code and pbxproj registrations confirmed present
+
+Running `xcodebuild` directly (the `mobile:build:ios` wrapper's
+`expo export:embed` step was hanging after the bundle was written —
+see `pkill -9 -f "expo export:embed"` of multiple zombie processes
+with 20+ minute wall-times). Since the JS bundle
+`ios/OnlookMobileClient/Resources/main.jsbundle` is on disk (1.3 MB,
+written by the first Metro run), the xcodebuild invocation uses the
+baked bundle directly.
+
+Monitor watching `/tmp/xcode-build.log` for BUILD SUCCEEDED /
+FAILED / error / linker errors. Outcome will close Task B or
+surface specific compilation issues to address.
