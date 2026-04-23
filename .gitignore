@@ -61,3 +61,11 @@ packages/mobile-preview/runtime/bundle-client-only.js
 # Debug-iteration screenshots from v2 validation work. Canonical
 # evidence lives under plans/adr/assets/v2-pipeline/ which IS tracked.
 tmp-screenshots/
+
+# Ad-hoc backup files (e.g. shell.js.bak from a runtime hot-patch).
+# Keep the canonical source tracked; back up off-repo if needed.
+*.bak
+
+# Claude Code per-session artifacts (memory, project-local skills).
+# These are user-local state; they should never be committed.
+.claude/
