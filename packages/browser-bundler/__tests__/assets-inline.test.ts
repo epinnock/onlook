@@ -101,4 +101,81 @@ describe('assets inline plugin', () => {
 
         expect(harness.load('assets/font.woff2')).toBeUndefined();
     });
+
+    // ─── Extended MIME coverage (task #68) ──────────────────────────────────
+    test('infers all registered image MIME types', () => {
+        expect(inferAssetMimeType('pic.jpg')).toBe('image/jpeg');
+        expect(inferAssetMimeType('pic.jpeg')).toBe('image/jpeg');
+        expect(inferAssetMimeType('pic.webp')).toBe('image/webp');
+        expect(inferAssetMimeType('pic.gif')).toBe('image/gif');
+        expect(inferAssetMimeType('pic.avif')).toBe('image/avif');
+        expect(inferAssetMimeType('pic.bmp')).toBe('image/bmp');
+        expect(inferAssetMimeType('favicon.ico')).toBe('image/x-icon');
+    });
+
+    test('infers all registered font MIME types', () => {
+        expect(inferAssetMimeType('Inter.ttf')).toBe('font/ttf');
+        expect(inferAssetMimeType('Inter.otf')).toBe('font/otf');
+        expect(inferAssetMimeType('Inter.woff')).toBe('font/woff');
+        expect(inferAssetMimeType('Inter.woff2')).toBe('font/woff2');
+    });
+
+    test('MIME inference is case-insensitive on the extension', () => {
+        expect(inferAssetMimeType('LOGO.PNG')).toBe('image/png');
+        expect(inferAssetMimeType('image.JPG')).toBe('image/jpeg');
+        expect(inferAssetMimeType('Icon.WoFf2')).toBe('font/woff2');
+    });
+
+    test('MIME inference returns undefined for unregistered extensions', () => {
+        expect(inferAssetMimeType('readme.txt')).toBeUndefined();
+        expect(inferAssetMimeType('audio.mp3')).toBeUndefined();
+        expect(inferAssetMimeType('data.json')).toBeUndefined();
+        expect(inferAssetMimeType('noext')).toBeUndefined();
+    });
+
+    test('data URL is deterministic across repeated calls with same bytes', () => {
+        // Base64 encoding is pure, so the same bytes must always produce the
+        // same data-URL module output. Regression guard for any future hash-
+        // based nondeterminism creeping into the inline path.
+        const first = createInlineAssetModule({
+            contents: new Uint8Array([10, 20, 30, 40]),
+            path: 'a/b/icon.png',
+            maxInlineBytes: 16,
+        });
+        const second = createInlineAssetModule({
+            contents: new Uint8Array([10, 20, 30, 40]),
+            path: 'a/b/icon.png',
+            maxInlineBytes: 16,
+        });
+        expect(first).toEqual(second);
+    });
+
+    test('normalizes backslashes and leading slashes in asset paths', () => {
+        // The plugin's filter/key logic should treat '\\assets/foo.png',
+        // '/assets/foo.png', and 'assets/foo.png' as the same asset.
+        const harness = createPluginHarness(
+            { 'assets/icon.png': new Uint8Array([0, 1, 2]) },
+            16,
+        );
+        expect(harness.load('\\assets\\icon.png')).toEqual({
+            contents: 'export default "data:image/png;base64,AAEC";',
+            loader: 'js',
+        });
+        expect(harness.load('/assets/icon.png')).toEqual({
+            contents: 'export default "data:image/png;base64,AAEC";',
+            loader: 'js',
+        });
+    });
+
+    test('exact-threshold bytes are still inlined (boundary: length === maxInlineBytes)', () => {
+        const bytes = new Uint8Array([1, 2, 3]);
+        const result = createInlineAssetModule({
+            contents: bytes,
+            path: 'assets/x.png',
+            maxInlineBytes: 3,
+        });
+        // byteLength (3) === maxInlineBytes (3) → still inlines (uses `>` check).
+        expect(result).not.toBeUndefined();
+        expect(result!.contents).toContain('data:image/png;base64,');
+    });
 });
