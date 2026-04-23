@@ -11,7 +11,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import { RectSchema } from '../src/inspector';
-import { NetworkMessageSchema } from '../src/ws-messages';
+import { NetworkMessageSchema, TapMessageSchema } from '../src/ws-messages';
 
 describe('RectSchema — finite guards', () => {
     const validRect = { x: 0, y: 0, width: 100, height: 50 };
@@ -95,5 +95,45 @@ describe('NetworkMessageSchema — durationMs finite guard', () => {
             NetworkMessageSchema.safeParse({ ...valid, durationMs: NaN })
                 .success,
         ).toBe(false);
+    });
+});
+
+describe('TapMessageSchema — x/y finite guards', () => {
+    const validTap = {
+        type: 'onlook:tap' as const,
+        sessionId: 's',
+        timestamp: 1,
+        x: 100,
+        y: 200,
+    };
+
+    test('accepts finite coordinates', () => {
+        expect(TapMessageSchema.safeParse(validTap).success).toBe(true);
+    });
+
+    test('rejects Infinity on x/y (broken hit-test input)', () => {
+        for (const key of ['x', 'y'] as const) {
+            expect(
+                TapMessageSchema.safeParse({ ...validTap, [key]: Infinity })
+                    .success,
+            ).toBe(false);
+        }
+    });
+
+    test('rejects NaN on x/y', () => {
+        for (const key of ['x', 'y'] as const) {
+            expect(
+                TapMessageSchema.safeParse({ ...validTap, [key]: NaN }).success,
+            ).toBe(false);
+        }
+    });
+
+    test('rejects -Infinity on x/y (finite guard catches even though sign is unconstrained)', () => {
+        for (const key of ['x', 'y'] as const) {
+            expect(
+                TapMessageSchema.safeParse({ ...validTap, [key]: -Infinity })
+                    .success,
+            ).toBe(false);
+        }
     });
 });

@@ -51,8 +51,10 @@ export const TapMessageSchema = z.object({
     type: z.literal('onlook:tap'),
     sessionId: z.string().min(1),
     timestamp: z.number().int().nonnegative(),
-    x: z.number(),
-    y: z.number(),
+    // `.finite()` rejects NaN + ±Infinity — screen coordinates must be
+    // finite or the editor's tap-to-source hit-test would misbehave.
+    x: z.number().finite(),
+    y: z.number().finite(),
     /** Present when the inspector resolved a RN host component at the hit point. */
     reactTag: z.number().int().optional(),
 });
