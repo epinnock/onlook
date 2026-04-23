@@ -216,8 +216,15 @@ export async function pushOverlay(options: PushOverlayOptions): Promise<PushOver
                 let delivered = 0;
                 try {
                     const parsed = (await response.json()) as { delivered?: number };
-                    if (typeof parsed.delivered === 'number') {
-                        delivered = parsed.delivered;
+                    // `Number.isFinite` + `>= 0` rejects Infinity/NaN/negative
+                    // from a misbehaving relay body. Pre-existing `typeof
+                    // === 'number'` accepted Infinity which would poison
+                    // the push telemetry's `delivered` field downstream.
+                    if (
+                        Number.isFinite(parsed.delivered) &&
+                        (parsed.delivered as number) >= 0
+                    ) {
+                        delivered = parsed.delivered as number;
                     }
                 } catch {
                     // The relay currently returns `{ delivered: N }`; a
@@ -461,8 +468,13 @@ export async function pushOverlayV1(
                 let delivered = 0;
                 try {
                     const parsedResp = (await response.json()) as { delivered?: number };
-                    if (typeof parsedResp.delivered === 'number') {
-                        delivered = parsedResp.delivered;
+                    // Same defensive finite-check as the legacy branch —
+                    // rejects Infinity/NaN/negative from a misbehaving relay.
+                    if (
+                        Number.isFinite(parsedResp.delivered) &&
+                        (parsedResp.delivered as number) >= 0
+                    ) {
+                        delivered = parsedResp.delivered as number;
                     }
                 } catch {
                     // Body-less success is acceptable.
