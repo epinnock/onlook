@@ -31,9 +31,32 @@ export interface JsxSourceInjectorOptions {
     readonly skipExisting?: boolean;
 }
 
+export type JsxSourceContents = string | Uint8Array | ArrayBufferView;
+
+export type JsxSourceFileMap = Readonly<Record<string, JsxSourceContents>>;
+
+export interface EsbuildLoadArgs {
+    readonly path: string;
+    readonly namespace?: string;
+    readonly suffix?: string;
+}
+
+export interface EsbuildLoadResult {
+    readonly contents: string;
+    readonly loader: 'tsx' | 'jsx';
+    readonly resolveDir?: string;
+}
+
+export interface EsbuildLoadBuild {
+    onLoad(
+        options: { filter: RegExp; namespace?: string },
+        callback: (args: EsbuildLoadArgs) => EsbuildLoadResult | undefined | void,
+    ): void;
+}
+
 export interface EsbuildPluginShape {
     readonly name: string;
-    setup(build: { onLoad(filter: { filter: RegExp }, handler: unknown): void }): void;
+    setup(build: EsbuildLoadBuild): void;
 }
 
 /**
@@ -66,23 +89,66 @@ export function injectJsxSource(
     });
 }
 
-export function createJsxSourcePlugin(options: {
+export interface CreateJsxSourcePluginOptions {
     readonly filter?: RegExp;
-}): EsbuildPluginShape {
+    /**
+     * Virtual file map of TSX/JSX sources keyed by path. When provided, the
+     * plugin reads contents from this map, applies `injectJsxSource`, and
+     * returns the transformed output. When omitted, the plugin returns
+     * `undefined` so a downstream loader (usually the virtual-fs-load
+     * plugin) can claim the file.
+     */
+    readonly files?: JsxSourceFileMap;
+    /**
+     * Override the filename used in injected `__source.fileName` props.
+     * Defaults to the esbuild-reported path.
+     */
+    readonly filenameFor?: (path: string) => string;
+    readonly namespace?: string;
+}
+
+export function createJsxSourcePlugin(
+    options: CreateJsxSourcePluginOptions = {},
+): EsbuildPluginShape {
     const filter = options.filter ?? /\.(tsx|jsx)$/;
     return {
         name: 'onlook-jsx-source',
         setup(build) {
-            build.onLoad(
-                { filter },
-                // The actual esbuild `onLoad` callback takes `{ path, namespace }`
-                // and must return `{ contents, loader }`. This stub accepts the
-                // handler without calling it — the real wiring ships with the
-                // full esbuild integration in Phase 10.
-                (() => undefined) as unknown,
-            );
+            build.onLoad({ filter, namespace: options.namespace }, (args) => {
+                if (options.files === undefined) {
+                    return undefined;
+                }
+                const normalized = normalizeJsxPath(args.path);
+                const raw = options.files[normalized] ?? options.files[args.path];
+                if (raw === undefined) {
+                    return undefined;
+                }
+                const source = toText(raw);
+                const filename = options.filenameFor
+                    ? options.filenameFor(args.path)
+                    : args.path;
+                const transformed = injectJsxSource(source, { filename });
+                return {
+                    contents: transformed,
+                    loader: args.path.endsWith('.tsx') ? 'tsx' : 'jsx',
+                };
+            });
         },
     };
+}
+
+const textDecoder = new TextDecoder('utf-8');
+
+function toText(contents: JsxSourceContents): string {
+    if (typeof contents === 'string') return contents;
+    if (contents instanceof Uint8Array) return textDecoder.decode(contents);
+    return textDecoder.decode(
+        new Uint8Array(contents.buffer, contents.byteOffset, contents.byteLength),
+    );
+}
+
+function normalizeJsxPath(path: string): string {
+    return path.replace(/\\/g, '/').replace(/^\/+/, '');
 }
 
 function resolveLineColumn(source: string, offset: number): { line: number; column: number } {
