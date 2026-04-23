@@ -502,4 +502,70 @@ describe('HmrSession overlayUpdate (v1) — multi-client + disconnect (task #76)
         const late = await openSocket(session);
         expect(late.server.sent).toEqual([JSON.stringify(second)]);
     });
+
+    // ─── Soft-cap observability (tasks #98-100) ─────────────────────────────
+    test('under soft cap: hmr.push.v1 log has sourceBytes but no softCapExceeded flag', async () => {
+        const session = makeSession();
+        await openSocket(session);
+        const smallSource = 'x'.repeat(1024); // 1 KB — well under 512 KB soft cap
+        const infoLogs: string[] = [];
+        const origInfo = console.info;
+        console.info = ((msg: string) => {
+            if (typeof msg === 'string') infoLogs.push(msg);
+        }) as typeof console.info;
+        try {
+            await postOverlayV1(session, makeValidOverlayUpdate(smallSource));
+        } finally {
+            console.info = origInfo;
+        }
+        const pushLog = infoLogs.find((l) => l.includes('hmr.push.v1'));
+        expect(pushLog).toBeDefined();
+        const parsed = JSON.parse(pushLog!) as {
+            event: string;
+            sourceBytes: number;
+            softCapExceeded?: boolean;
+        };
+        expect(parsed.event).toBe('hmr.push.v1');
+        expect(parsed.sourceBytes).toBe(1024);
+        expect(parsed.softCapExceeded).toBeUndefined();
+    });
+
+    test('over soft cap: hmr.push.v1 log adds softCapExceeded + emits hmr.push.v1.softcap warn', async () => {
+        const session = makeSession();
+        await openSocket(session);
+        // 600 KB — above 512 KB soft cap but under 2 MB hard cap.
+        const oversized = 'y'.repeat(600 * 1024);
+        const infoLogs: string[] = [];
+        const warnLogs: string[] = [];
+        const origInfo = console.info;
+        const origWarn = console.warn;
+        console.info = ((msg: string) => {
+            if (typeof msg === 'string') infoLogs.push(msg);
+        }) as typeof console.info;
+        console.warn = ((msg: string) => {
+            if (typeof msg === 'string') warnLogs.push(msg);
+        }) as typeof console.warn;
+        try {
+            const resp = await postOverlayV1(session, makeValidOverlayUpdate(oversized));
+            expect(resp.status).toBe(202); // still delivers — soft cap is advisory
+        } finally {
+            console.info = origInfo;
+            console.warn = origWarn;
+        }
+        const pushLog = infoLogs.find((l) => l.includes('hmr.push.v1'));
+        expect(pushLog).toBeDefined();
+        const parsedPush = JSON.parse(pushLog!) as { softCapExceeded?: boolean };
+        expect(parsedPush.softCapExceeded).toBe(true);
+
+        const softcapLog = warnLogs.find((l) => l.includes('hmr.push.v1.softcap'));
+        expect(softcapLog).toBeDefined();
+        const parsedWarn = JSON.parse(softcapLog!) as {
+            event: string;
+            sourceBytes: number;
+            softCap: number;
+        };
+        expect(parsedWarn.event).toBe('hmr.push.v1.softcap');
+        expect(parsedWarn.sourceBytes).toBe(600 * 1024);
+        expect(parsedWarn.softCap).toBe(512 * 1024);
+    });
 });

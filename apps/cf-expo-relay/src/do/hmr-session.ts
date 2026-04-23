@@ -30,6 +30,12 @@ function isOnlookObservabilityType(value: unknown): boolean {
  * reject obvious abuse before the runtime does.
  */
 const MAX_OVERLAY_BODY_BYTES = 2 * 1024 * 1024;
+// Soft-cap matches OVERLAY_SIZE_SOFT_CAP in @onlook/browser-bundler —
+// duplicated inline so the relay doesn't gain a cross-package dep in
+// the workerd-compiled bundle. Overlays > this size still pass through
+// (hard cap is MAX_OVERLAY_BODY_BYTES) but emit a warning log so
+// observability pipelines can surface creeping bundle bloat.
+const OVERLAY_SOFT_CAP_BYTES = 512 * 1024;
 
 interface Env {}
 
@@ -119,15 +125,35 @@ export class HmrSession extends DurableObject<Env> {
                 socket.send(payload);
                 delivered += 1;
             }
+            const sourceBytes = (() => {
+                try {
+                    return new TextEncoder().encode(v1Parse.data.source).byteLength;
+                } catch {
+                    return v1Parse.data.source.length;
+                }
+            })();
+            const exceedsSoftCap = sourceBytes > OVERLAY_SOFT_CAP_BYTES;
             console.info(
                 JSON.stringify({
                     event: 'hmr.push.v1',
                     delivered,
                     bytes: payload.length,
+                    sourceBytes,
                     sockets: this.sockets.size,
                     overlayHash: v1Parse.data.meta.overlayHash,
+                    ...(exceedsSoftCap ? { softCapExceeded: true } : {}),
                 }),
             );
+            if (exceedsSoftCap) {
+                console.warn(
+                    JSON.stringify({
+                        event: 'hmr.push.v1.softcap',
+                        sourceBytes,
+                        softCap: OVERLAY_SOFT_CAP_BYTES,
+                        overlayHash: v1Parse.data.meta.overlayHash,
+                    }),
+                );
+            }
             return new Response(JSON.stringify({ delivered }), {
                 status: 202,
                 headers: { 'Content-Type': 'application/json' },
