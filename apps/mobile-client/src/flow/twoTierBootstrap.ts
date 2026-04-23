@@ -108,7 +108,7 @@ export function startTwoTierBootstrap(options: TwoTierBootstrapOptions): TwoTier
     // Bridgeless iOS 18.6's WS receive-side is dead (ADR finding #8); send-
     // side TCP write works, so this is the supported ack path from device.
     const sendAck = (
-        msg: { code: string; meta?: { overlayHash?: string } },
+        msg: Parameters<OverlayListener>[0],
         status: 'mounted' | 'failed',
         errorMessage?: string,
     ): void => {
@@ -155,7 +155,7 @@ export function startTwoTierBootstrap(options: TwoTierBootstrapOptions): TwoTier
         // because the v1 envelope doesn't self-call renderApp — it only
         // publishes to __pendingEntry.
         const runtime = globalThis.OnlookRuntime;
-        const isV1 = (msg as { abi?: string }).abi === 'v1';
+        const isV1 = msg.abi === 'v1';
         if (isV1 && runtime?.abi === 'v1' && typeof runtime.mountOverlay === 'function') {
             try {
                 // Match the props shape AppRouter.tsx's mountOverlayBundle
@@ -171,8 +171,7 @@ export function startTwoTierBootstrap(options: TwoTierBootstrapOptions): TwoTier
                     ...(relayHost !== undefined ? { relayHost } : {}),
                     ...(relayPort !== undefined ? { relayPort } : {}),
                 };
-                const assets = (msg as { assets?: unknown }).assets;
-                runtime.mountOverlay(msg.code, props, assets);
+                runtime.mountOverlay(msg.code, props, msg.assets);
                 sendAck(msg, 'mounted');
             } catch (err) {
                 const message = err instanceof Error ? err.message : String(err);

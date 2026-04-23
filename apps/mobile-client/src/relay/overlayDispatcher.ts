@@ -32,14 +32,14 @@ import {
  * `abi`, `sessionId`, `assets`, `meta`).
  */
 
-export type OverlayListener = (message: OverlayMessage) => void;
-
 /**
  * Widened type a listener receives when an OverlayUpdateMessage arrives.
  * The `code` field is synthesized from `source` for backward compatibility.
  */
 export type NormalizedOverlayMessage = OverlayMessage &
     Partial<Omit<OverlayUpdateMessage, 'type'>>;
+
+export type OverlayListener = (message: NormalizedOverlayMessage) => void;
 
 export interface OverlayDispatcherOptions {
     /**
