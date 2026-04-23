@@ -237,5 +237,5 @@ first via #14)**.
 | 89–94 | partial | Deprecation warnings added to `wrapOverlayCode` + `pushOverlay` (task #16). Feature flag `overlay-v1` shipped (task #15). Removal of legacy paths deferred to migration-cleanup wave. |
 | 95 | partial | Unit tests green: ABI schemas, wrap-overlay, preflight, runtime. Resolver and package-resolver tests land with Phase 5/6. |
 | 96 | done | `two-tier-e2e.spec.ts` — browser-bundler esbuild → wrap → push → relay → mountOverlay in Node mocks. 3 tests pass in 132ms. |
-| 97 | pending | iOS simulator smoke test gated on Xcode 16.1 unblock. |
+| 97 | done | Unblocked 2026-04-23 via mini's Xcode 16.4. `bun run mobile:build:ios` + `xcrun simctl install/launch/openurl` runs the full deep-link flow end-to-end on iPhone 16 sim. Screenshots `plans/adr/assets/v2-pipeline/post-g-{hello,updated}.png` prove mount + in-place update against REAL committed code (not mock-relay append shortcut). Log trail in commit 1c58d3a2. Native C++ wiring (#23–25) remains separate work. |
 | 98–100 | pending | Negative/perf/size gates — instrumentation added (e.g. `sizeWarning` in wrapOverlayV1) but not yet CI-enforced. |
