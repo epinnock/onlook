@@ -18,6 +18,7 @@ import { formatPreflightSummary } from '@/services/expo-relay/preflight-formatte
 
 import {
     deriveAckCount,
+    deriveAckOverBudgetCount,
     derivePreflightIssueCount,
 } from '../MobileDevPanel';
 
@@ -90,5 +91,42 @@ describe('derivePreflightIssueCount', () => {
             { kind: 'unsupported-native', specifier: 'a', filePath: 'f', message: 'native a' },
         ]);
         expect(derivePreflightIssueCount(summary)).toBe(1);
+    });
+});
+
+describe('deriveAckOverBudgetCount', () => {
+    test('returns 0 when no ack has mountDurationMs', () => {
+        expect(
+            deriveAckOverBudgetCount([], [makeAck(), makeAck()]),
+        ).toBe(0);
+    });
+
+    test('counts acks whose mountDurationMs > 100ms', () => {
+        const acks = [
+            makeAck({ mountDurationMs: 50 }),
+            makeAck({ mountDurationMs: 150 }),
+            makeAck({ mountDurationMs: 200 }),
+            makeAck(),
+        ];
+        expect(deriveAckOverBudgetCount([], acks)).toBe(2);
+    });
+
+    test('respects sessionId filter', () => {
+        const acks = [
+            makeAck({ sessionId: 'sess-1', mountDurationMs: 150 }),
+            makeAck({ sessionId: 'sess-2', mountDurationMs: 250 }),
+        ];
+        expect(deriveAckOverBudgetCount([], acks, 'sess-1')).toBe(1);
+        expect(deriveAckOverBudgetCount([], acks, 'sess-2')).toBe(1);
+        expect(deriveAckOverBudgetCount([], acks)).toBe(2);
+    });
+
+    test('derives from messages stream when acks buffer is omitted', () => {
+        const stream: WsMessage[] = [
+            makeConsole(),
+            makeAck({ mountDurationMs: 200 }) as unknown as WsMessage,
+            makeAck({ mountDurationMs: 50 }) as unknown as WsMessage,
+        ];
+        expect(deriveAckOverBudgetCount(stream, undefined)).toBe(1);
     });
 });

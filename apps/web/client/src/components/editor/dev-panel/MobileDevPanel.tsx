@@ -40,7 +40,11 @@ import type { PreflightSummary } from '@/services/expo-relay/preflight-formatter
 
 import { MobileConsoleTab } from './MobileConsoleTab';
 import { MobileNetworkTab } from './MobileNetworkTab';
-import { MobileOverlayAckTab, filterOverlayAcks } from './MobileOverlayAckTab';
+import {
+    MobileOverlayAckTab,
+    filterOverlayAcks,
+    summarizeAcks,
+} from './MobileOverlayAckTab';
 import { OverlayPreflightPanel } from './OverlayPreflightPanel';
 
 export type MobileDevPanelTabKey =
@@ -81,6 +85,25 @@ export function deriveAckCount(
     return filterOverlayAcks(messages, sessionId).length;
 }
 
+/**
+ * Count acks whose `mountDurationMs` exceeded ADR-0001's ≤100ms target.
+ * Surfaces in the tab header as an amber badge so the operator notices
+ * eval-latency regressions without drilling into the ack tab — Phase 11b
+ * Q5b local-dev fallback.
+ */
+export function deriveAckOverBudgetCount(
+    messages: WsMessage[],
+    acks: OverlayAckMessage[] | undefined,
+    sessionId?: string,
+): number {
+    const filtered = acks
+        ? sessionId
+            ? acks.filter((a) => a.sessionId === sessionId)
+            : acks
+        : filterOverlayAcks(messages, sessionId);
+    return summarizeAcks(filtered).overBudgetCount;
+}
+
 export function derivePreflightIssueCount(summary: PreflightSummary | null): number {
     if (summary === null) return 0;
     return summary.byKind['unsupported-native'].length + summary.byKind['unknown-specifier'].length;
@@ -96,6 +119,11 @@ export function MobileDevPanel({
     panelClassName,
 }: MobileDevPanelProps) {
     const ackCount = deriveAckCount(messages, acks, sessionId);
+    const ackOverBudgetCount = deriveAckOverBudgetCount(
+        messages,
+        acks,
+        sessionId,
+    );
     const preflightCount = derivePreflightIssueCount(preflightSummary);
 
     const ackItems = acks ?? messages;
@@ -124,6 +152,15 @@ export function MobileDevPanel({
                             className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500/25 px-1 text-[10px] tabular-nums text-emerald-300"
                         >
                             {ackCount}
+                        </span>
+                    ) : null}
+                    {ackOverBudgetCount > 0 ? (
+                        <span
+                            data-testid="mobile-dev-panel-acks-over-budget-badge"
+                            title="Acks with mountDurationMs > 100ms (ADR-0001 eval-latency budget)."
+                            className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500/25 px-1 text-[10px] tabular-nums text-amber-300"
+                        >
+                            {ackOverBudgetCount}
                         </span>
                     ) : null}
                 </TabsTrigger>
