@@ -24,7 +24,6 @@ import {
 } from '@/services/expo-relay/perf-guardrails';
 import { pushOverlay, pushOverlayV1 } from '@/services/expo-relay/push-overlay';
 import {
-    bundleBrowserProject,
     checkOverlaySize,
     createIncrementalBundler,
     wrapOverlayCode,
@@ -119,7 +118,11 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
     async prepare(input: MobilePreviewPrepareInput): Promise<MobilePreviewLaunchTarget> {
         try {
             throwIfAborted(input.signal);
-            const { builderBaseUrl, relayBaseUrl } = this.requireConfig();
+            // `requireConfig()` validates BOTH builderBaseUrl and relayBaseUrl
+            // are present and throws on either missing; we only need the
+            // relay URL from here on, so destructure just that. Keeping the
+            // validation call preserves the builderBaseUrl-required contract.
+            const { relayBaseUrl } = this.requireConfig();
             emitStatus(input.onStatus, { kind: 'preparing' });
 
             const sessionId = this.sessionId ?? this.createSessionId();
