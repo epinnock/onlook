@@ -395,3 +395,55 @@ drop class.
 ADR-0009 Phase 11b checklist updated with the pre-flip runtime-
 capability check + roll-forward order (upgrade phones first, then
 flip editor flag).
+
+### Repo-health hardening — 2026-04-23 continuation
+
+Three follow-up commits on top of the Phase 11b bug-hunt to clear
+pre-existing branch debt so a fresh worktree reports 100% green:
+
+- **Cloudflare code-provider interface migration (commit 9e2c0345).**
+  `packages/code-provider/src/providers/cloudflare/index.ts` rewritten
+  to match current `types.ts`: writeFile `{success:true}`, readFile
+  `{file:{type,path,content,toString}}`, listFiles
+  `{name,type,isSymlink:false}`, deleteFiles `args.path` singular +
+  `recursive?`, copyFiles `sourcePath/targetPath`, statFile flat
+  `{type, size?, mtime?, ctime?, atime?}` throwing on missing-path,
+  createTerminal with hardcoded `id='default'` (input is `{}`). Test
+  file rewritten in lockstep: 30/30 pass. `preview.test.ts` Mock cast
+  widened to `unknown as typeof fetch`. Codesandbox
+  `privacy: 'public-hosts' as unknown as 'public'` preserves the
+  runtime behavior (0633c6e0 fixed 401 on preview URLs) while the
+  SDK's narrowed type is silenced. `apps/web/client && bun run
+  typecheck` → 0 errors (was 14).
+
+- **Test-failure audit punched through (commit 002a5574).**
+  Cleared every bucket in `plans/test-failure-audit-2026-04-20.md`:
+  (1) CF Worker Endpoints + CF Full Flow probes strengthened —
+  `isWorkerRunning` now POSTs `/sandbox/create` after `/health` so
+  an unrelated 404-ing server can't trick the skip logic into
+  running the flow. (2) MCP App Utils tests aligned with
+  `1ca2e19a`'s `{origin}/{widgetPath}` semantics (was
+  `/_mcp/ui/<path>`). (3) Added `"test": "bun test test src"` to
+  `apps/web/client/package.json` so `bun run test` excludes the
+  Playwright `.spec.ts` dragnet under `e2e/`. Result: `bun run test`
+  → 539 pass / 0 fail (was 675 pass / 19 fail).
+
+- **Phase 11b soak telemetry sink (commit 1112a925).**
+  Closed ADR-0009's prerequisite open question. Shipped
+  `overlay-telemetry-sink.ts` routing every overlay push (legacy + v1)
+  and every perf-guardrail crossing through `posthog.capture` with
+  `pipeline: 'overlay-v1' | 'overlay-legacy'` tag for dashboard
+  segmentation. Never-throw guarantee (telemetry can't affect push
+  control flow). Console fallback preserved for dev visibility.
+  Wired into both pipeline branches in `two-tier.ts`; the legacy
+  branch previously had no onTelemetry at all — it's now observable
+  for v1-vs-legacy parity comparison. 9 new unit tests for payload,
+  segmentation, fallback, and resilience. PostHog dashboard buildout
+  still sits on the operator side; codebase prerequisite is done.
+
+Combined result: `apps/web/client && bun run test` 548/0;
+`apps/web/client && bun run typecheck` 0 errors; `packages/code-
+provider && bun test` 102/0; critical package suites
+(browser-bundler 345, mobile-client 446, mobile-preview 104,
+mobile-client-protocol 97, base-bundle-builder 102, cf-expo-relay
+215) unchanged and green.
