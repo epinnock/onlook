@@ -167,7 +167,7 @@ export class CloudflareSandboxProvider extends Provider {
             path: input.args.path,
             content: input.args.content,
         });
-        return {};
+        return { success: true };
     }
 
     async readFile(input: ReadFileInput): Promise<ReadFileOutput> {
@@ -175,7 +175,18 @@ export class CloudflareSandboxProvider extends Provider {
             sandboxId: this.sandboxId,
             path: input.args.path,
         });
-        return { content };
+        // Wrap the worker's plain-string response as the typed
+        // `ReadFileOutputFile` (SandboxFile + .toString()). The worker
+        // returns text today — binary support would need a base64 → Uint8Array
+        // path, tracked with the cloudflare provider's binary-file work.
+        return {
+            file: {
+                type: 'text',
+                path: input.args.path,
+                content,
+                toString: () => content,
+            },
+        };
     }
 
     async listFiles(input: ListFilesInput): Promise<ListFilesOutput> {
@@ -183,18 +194,24 @@ export class CloudflareSandboxProvider extends Provider {
             this.workerUrl, '/sandbox/file/list',
             { sandboxId: this.sandboxId, path: input.args.path },
         );
+        // ListFilesOutputFile is {name, type, isSymlink}. The cloudflare
+        // worker's /list endpoint doesn't surface symlink info today, so
+        // default isSymlink to false — correct for every non-symlink entry,
+        // non-load-bearing for consumers that haven't started relying on it.
         return {
-            files: entries.map(e => ({
-                path: `${input.args.path}/${e.name}`,
+            files: entries.map((e) => ({
+                name: e.name,
                 type: e.type as 'file' | 'directory',
+                isSymlink: false,
             })),
         };
     }
 
     async deleteFiles(input: DeleteFilesInput): Promise<DeleteFilesOutput> {
-        for (const p of input.args.paths) {
-            await this.exec(`rm -rf ${JSON.stringify(p)}`);
-        }
+        // Interface is single-path per call; caller loops if they need batch.
+        await this.exec(
+            `rm ${input.args.recursive ? '-r' : ''} -f ${JSON.stringify(input.args.path)}`,
+        );
         return {};
     }
 
@@ -204,20 +221,23 @@ export class CloudflareSandboxProvider extends Provider {
     }
 
     async copyFiles(input: CopyFilesInput): Promise<CopyFileOutput> {
-        await this.exec(`cp -r ${JSON.stringify(input.args.src)} ${JSON.stringify(input.args.dest)}`);
+        // Interface uses `sourcePath/targetPath` (matches the fs-copyFile
+        // terminology); `src/dest` was the pre-rename shape.
+        const flags = input.args.recursive ? '-r' : '';
+        await this.exec(
+            `cp ${flags} ${JSON.stringify(input.args.sourcePath)} ${JSON.stringify(input.args.targetPath)}`,
+        );
         return {};
     }
 
     async downloadFiles(input: DownloadFilesInput): Promise<DownloadFilesOutput> {
-        const results: Record<string, string> = {};
-        for (const p of input.args.paths) {
-            const { content } = await workerFetch<{ content: string }>(this.workerUrl, '/sandbox/file/read', {
-                sandboxId: this.sandboxId,
-                path: p,
-            });
-            results[p] = content;
-        }
-        return { files: results };
+        // DownloadFilesOutput is `{ url?: string }` — the Cloudflare worker
+        // emits a single downloadable archive URL for the supplied path.
+        // Today we don't have a worker endpoint for this; return an empty
+        // output until the route is added, matching what codesandbox does
+        // while its own download path is being wired.
+        void input;
+        return {};
     }
 
     async createDirectory(input: CreateDirectoryInput): Promise<CreateDirectoryOutput> {
@@ -226,23 +246,36 @@ export class CloudflareSandboxProvider extends Provider {
     }
 
     async statFile(input: StatFileInput): Promise<StatFileOutput> {
-        const result = await this.exec(`stat -c '{"size":%s,"isDir":"%F"}' ${JSON.stringify(input.args.path)} 2>/dev/null || echo '{"error":true}'`);
+        const result = await this.exec(
+            `stat -c '{"size":%s,"isDir":"%F","mtime":%Y,"ctime":%Z,"atime":%X}' ${JSON.stringify(input.args.path)} 2>/dev/null || echo '{"error":true}'`,
+        );
+        let parsed: { error?: true; size?: number; isDir?: string; mtime?: number; ctime?: number; atime?: number };
         try {
-            const parsed = JSON.parse(result.stdout.trim());
-            if (parsed.error) return { stat: null };
-            return {
-                stat: {
-                    size: parsed.size,
-                    isDirectory: parsed.isDir === 'directory',
-                },
-            };
-        } catch { return { stat: null }; }
+            parsed = JSON.parse(result.stdout.trim());
+        } catch {
+            throw new Error(
+                `cloudflare statFile: unparseable stat output for "${input.args.path}"`,
+            );
+        }
+        if (parsed.error) {
+            throw new Error(`cloudflare statFile: no stat available for "${input.args.path}"`);
+        }
+        return {
+            type: parsed.isDir === 'directory' ? 'directory' : 'file',
+            ...(parsed.size !== undefined ? { size: parsed.size } : {}),
+            ...(parsed.mtime !== undefined ? { mtime: parsed.mtime } : {}),
+            ...(parsed.ctime !== undefined ? { ctime: parsed.ctime } : {}),
+            ...(parsed.atime !== undefined ? { atime: parsed.atime } : {}),
+        };
     }
 
     // -- terminal & commands -------------------------------------------------
 
-    async createTerminal(input: CreateTerminalInput): Promise<CreateTerminalOutput> {
-        const id = input?.args?.id || 'default';
+    async createTerminal(_input: CreateTerminalInput): Promise<CreateTerminalOutput> {
+        // CreateTerminalInput is `{}` today — the id source moved out of
+        // the input shape. Use a stable default id; per-terminal addressing
+        // goes through the returned `Terminal.id` once it's wired.
+        const id = 'default';
         const adapter = this.createTerminalAdapter(id);
         const terminal = new CloudflareTerminal(adapter);
         return { terminal };

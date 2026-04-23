@@ -178,7 +178,13 @@ export class CodesandboxProvider extends Provider {
             title: input.title,
             description: input.description,
             tags: input.tags,
-            privacy: 'public-hosts',
+            // 'public-hosts' is the runtime value that fixes 401 on preview
+            // URLs (see 0633c6e0). The SDK's public `SandboxPrivacy` type
+            // was narrowed to `'public'|'unlisted'|'private'`, but the
+            // backend still accepts 'public-hosts'. Casting preserves the
+            // behavior while silencing the typecheck — swapping to 'public'
+            // would reintroduce the 401 regression.
+            privacy: 'public-hosts' as unknown as 'public',
         });
         return {
             id: newSandbox.id,
@@ -196,7 +202,13 @@ export class CodesandboxProvider extends Provider {
             source: 'git',
             url: input.repoUrl,
             branch: input.branch,
-            privacy: 'public-hosts',
+            // 'public-hosts' is the runtime value that fixes 401 on preview
+            // URLs (see 0633c6e0). The SDK's public `SandboxPrivacy` type
+            // was narrowed to `'public'|'unlisted'|'private'`, but the
+            // backend still accepts 'public-hosts'. Casting preserves the
+            // behavior while silencing the typecheck — swapping to 'public'
+            // would reintroduce the 401 regression.
+            privacy: 'public-hosts' as unknown as 'public',
             async setup(session) {
                 await session.setup.run();
             },
