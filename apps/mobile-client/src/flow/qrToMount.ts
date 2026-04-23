@@ -171,17 +171,35 @@ export async function qrToMount(barcodeData: string): Promise<QrMountResult> {
         // synthesizes `ws://<host>:8788`. `relay` here is a full URL (the
         // manifest endpoint), so extract just the hostname before passing down.
         let relayHost = relay;
+        let relayPort: number | undefined;
         try {
-            relayHost = new URL(relay).hostname || relay;
+            const parsed = new URL(relay);
+            relayHost = parsed.hostname || relay;
+            // Include port too so the overlay can reach the relay via the
+            // exact URL authority (matches AppRouter.mountOverlayBundle's
+            // props shape — initial-mount via QR-scan and subsequent-mount
+            // via twoTierBootstrap now agree end-to-end).
+            if (parsed.port !== '') {
+                const p = Number.parseInt(parsed.port, 10);
+                if (Number.isFinite(p)) relayPort = p;
+            } else {
+                // Default ports per scheme — http=80, https=443.
+                relayPort =
+                    parsed.protocol === 'https:' || parsed.protocol === 'wss:'
+                        ? 443
+                        : 80;
+            }
         } catch {
             // Leave as-is if `relay` wasn't a parseable URL; shell.js will log
             // the connect failure either way.
         }
         try {
             console.log(
-                `${LOG_PREFIX} stage=mount OnlookRuntime.mountOverlay() bytes=${bundleResult.source.length} relayHost=${relayHost}`,
+                `${LOG_PREFIX} stage=mount OnlookRuntime.mountOverlay() bytes=${bundleResult.source.length} relayHost=${relayHost} relayPort=${relayPort ?? '<unset>'}`,
             );
-            runtime.mountOverlay(bundleResult.source, { sessionId, relayHost });
+            const props: Record<string, unknown> = { sessionId, relayHost };
+            if (relayPort !== undefined) props.relayPort = relayPort;
+            runtime.mountOverlay(bundleResult.source, props);
             console.log(`${LOG_PREFIX} stage=mount mountOverlay() returned`);
             hasMountedApplication = true;
         } catch (err: unknown) {

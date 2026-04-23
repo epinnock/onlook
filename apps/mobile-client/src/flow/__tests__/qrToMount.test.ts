@@ -385,11 +385,18 @@ describe('qrToMount', () => {
         expect(call[0]).toBe(OK_BUNDLE.source);
         // `relay` is a full URL; shell.js's _tryConnectWebSocket expects a
         // bare hostname, so qrToMount extracts `URL.hostname` before passing
-        // it through as `relayHost`.
-        expect(call[1]).toEqual({ sessionId: OK_PARSE.sessionId, relayHost: 'localhost' });
+        // it through as `relayHost`. Port is extracted too so the overlay's
+        // props match AppRouter's initial-mount + twoTierBootstrap's
+        // subsequent-mount shape (all three pass {sessionId, relayHost,
+        // relayPort}).
+        expect(call[1]).toEqual({
+            sessionId: OK_PARSE.sessionId,
+            relayHost: 'localhost',
+            relayPort: 8787,
+        });
     });
 
-    test('ABI v1: relayHost extracts hostname from a full URL with scheme/port/path', async () => {
+    test('ABI v1: relayHost + relayPort extract from a full URL with scheme/port/path', async () => {
         const mountOverlay = mock(() => {});
         (globalThis as GlobalWithRuntime).OnlookRuntime = {
             abi: 'v1',
@@ -403,7 +410,28 @@ describe('qrToMount', () => {
 
         await qrToMount(VALID_BARCODE);
         const call = mountOverlay.mock.calls[0] ?? [];
-        expect((call[1] as { relayHost: string }).relayHost).toBe('192.168.0.17');
+        const props = call[1] as { relayHost: string; relayPort: number };
+        expect(props.relayHost).toBe('192.168.0.17');
+        expect(props.relayPort).toBe(18999);
+    });
+
+    test('ABI v1: relayPort defaults to 80 (http) or 443 (https/wss) when URL port omitted', async () => {
+        const mountOverlay = mock(() => {});
+        (globalThis as GlobalWithRuntime).OnlookRuntime = {
+            abi: 'v1',
+            mountOverlay,
+        };
+        parseReturn = {
+            action: 'launch',
+            sessionId: 'sess-https',
+            relay: 'https://relay.onlook.com/manifest/abc',
+        };
+
+        await qrToMount(VALID_BARCODE);
+        const call = mountOverlay.mock.calls[0] ?? [];
+        const props = call[1] as { relayHost: string; relayPort: number };
+        expect(props.relayHost).toBe('relay.onlook.com');
+        expect(props.relayPort).toBe(443);
     });
 
     test('ABI v1: relayHost passes through unchanged when relay is not a parseable URL', async () => {
