@@ -702,7 +702,7 @@ describe('TwoTierMobilePreviewPipeline.sync', () => {
     });
 
     // Phase 11b soak Q4 (large-overlay frequency) parity. Prior to
-    // commit TBD, only v1 pushes emitted the `large-overlay` guardrail
+    // commit b44c09f1, only v1 pushes emitted the `large-overlay` guardrail
     // event — the legacy branch had no size check, so Q4 would show a
     // false 0% for the legacy baseline. These tests lock in symmetric
     // emission across both branches for over-soft-cap bundles.

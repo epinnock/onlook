@@ -32,7 +32,7 @@ describe('wrapOverlayCode', () => {
     });
 
     test('tolerates a runtime where `process` is undefined (browser context)', () => {
-        // Reproduces the bug class we saw in commit TBD: the deprecation
+        // Reproduces the bug class we saw in commit d52d2701: the deprecation
         // warning path accessed `process.env` without guarding, which
         // throws ReferenceError in a pure browser (Next.js normally
         // polyfills, but webpack SSR / Vite + worker contexts do not
