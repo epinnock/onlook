@@ -129,19 +129,28 @@ Alert threshold: any single error string > 10/hour sustained
 
 ### Q5b — phone-side mount latency (eval-slow signal)
 
-**Motivation.** ADR-0001 §"Performance envelope" targets ≤100ms eval latency on a 2-year-old iPhone. The phone populates `OverlayAckMessage.mountDurationMs` with the wall-clock time spent in `mountOverlay` (see `packages/mobile-client-protocol/src/abi-v1.ts`). Editor-side capture flows through `RelayWsClient.snapshot().acks` → `MobileOverlayAckTab` (dev panel). To land this in PostHog, an editor-side subscription to `onOverlayAck` needs to call `emitOverlayPushTelemetry`-equivalent for the ack; that wiring is still TODO at time of writing (the schema + dev-panel-render pieces landed 2026-04-23).
+**Motivation.** ADR-0001 §"Performance envelope" targets ≤100ms eval latency on a 2-year-old iPhone.
 
-Once ack-side PostHog emission is wired, the expected query shape:
+**Pieces shipped 2026-04-23:**
+- Schema: `OverlayAckMessage.mountDurationMs?: number` (optional, non-negative). `packages/mobile-client-protocol/src/abi-v1.ts`.
+- Phone-side measurement: `measureMountDuration` in `apps/mobile-client/src/flow/twoTierBootstrap.ts` wraps every mount path (explicit, v1 `runtime.mountOverlay`, legacy `reloadBundle`). Uses `performance.now()` when available, `Date.now()` fallback.
+- Dev-panel render: `MobileOverlayAckTab` row shows the duration inline with amber color when `>100ms`.
+- PostHog emitter: `emitOverlayAckTelemetry(ack)` in `overlay-telemetry-sink.ts`. Captures `onlook_overlay_ack` with a pre-computed `evalLatencyOverBudget` boolean.
+
+**Still TODO for live Q5b:** wire `RelayWsClient`'s `handlers.onOverlayAck` hook to call `emitOverlayAckTelemetry`. `RelayWsClient` isn't yet instantiated by any editor flow; that integration lives with the broader Phase 9 editor work. Once wired, the query shape:
 
 ```
-Events: onlook_overlay_ack  (event name TBD — not live yet)
+Events: onlook_overlay_ack
 Filter: properties.pipeline = 'overlay-v1' AND has(properties.mountDurationMs)
 Formula: p95(properties.mountDurationMs)
-Pass gate: p95 <= 120ms
-Stop gate: p95 > 250ms sustained
+Breakdown: nothing (pipeline is always 'overlay-v1' here — legacy has no ack)
+Pass gate: p95 <= 120ms AND fewer than 1% of acks have evalLatencyOverBudget=true
+Stop gate: p95 > 250ms sustained for any 30-min window
 ```
 
-Until that's wired, the dev panel's amber-highlighted `mountDurationMs` cells on `MobileOverlayAckTab` serve as a local-dev signal when the phone runtime populates the field. Legacy phone binaries that predate the schema field simply don't emit it — backward-compatible by design (`mountDurationMs` is optional in the schema).
+Short-circuit alerts can filter on `properties.evalLatencyOverBudget = true` — pre-computed against `EVAL_LATENCY_TARGET_MS = 100` to save the dashboard from re-writing the threshold each time.
+
+Until production wire-up, the dev panel's amber-highlighted `mountDurationMs` cells on `MobileOverlayAckTab` serve as a local-dev signal. Legacy phone binaries that predate the schema field simply don't emit it — backward-compatible by design.
 
 ### Q6 — session-level divergence
 
