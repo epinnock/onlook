@@ -224,7 +224,21 @@ first via #14)**.
 | 51 | pending | `package.json` install/update editor flow — Phase 9 work. |
 | 52 | done | Representative-package coverage in `pure-js-package.test.ts` (14 tests): lodash (CJS, multi-module), zod (CJS, deep typed subpaths), nanoid (ESM-CJS interop, single-module), ESM-only specimen (`__esModule` flag + default + named exports), cache round-trip across three shapes, subpath priority (`subpaths` wins over raw module-key fallback). Browser-bundler full suite: 168 pass. |
 | 53 | done | `OverlayAssetManifest` + `AssetDescriptor` schema in abi-v1.ts. Image/font/svg/media/json/text/binary descriptors. |
-| 54–68 | pending | Phase 7 asset pipeline — wiring through editor bundler + uploader. |
+| 54 | partial | Image imports (png/jpg/jpeg/webp/gif/avif/bmp/ico) covered by `createAssetsInlinePlugin` (≤8 KB inlined as `data:` URL) + `createAssetsR2Plugin` (>8 KB uploaded and rewritten to an immutable URL via `defaultAssetKey` sha256). 10 tests green (`assets-inline.test.ts` + `assets-r2.test.ts`). Scale-variant (`@2x`/`@3x`) routing remains Phase 7 follow-up. |
+| 55 | pending | SVG as component via `react-native-svg` — requires a virtual-module loader that JSX-wraps the SVG contents. Today SVG routes through the generic asset plugins (data URL / R2 URL). |
+| 56 | partial | SVG as URL (`?url`) — generic asset plugins already emit `data:image/svg+xml;base64,...` for ≤8 KB inputs and `https://…/<hash>` for larger ones. An explicit `?url` query-param pass-through for bypassing size heuristics is Phase 7 polish. |
+| 57 | pending | SVG as raw text (`?raw`) — requires a distinct loader branch returning `export default <string>`. Not yet wired. |
+| 58 | done | Font imports (ttf/otf/woff/woff2) — same plugin pair as #54. MIME types registered (`font/ttf`, `font/otf`, `font/woff`, `font/woff2`). |
+| 59 | pending | Audio/video (mp3/wav/m4a/mp4/mov/webm) — neither `ASSET_MIME_TYPES` nor `ASSET_FILTER` include them today. |
+| 60 | partial | JSON imports — esbuild's built-in JSON loader is active through `bundle.ts`; Phase 7's "parsed module" shape (resolving `import pkg from './x.json'` to the parsed object at runtime) is already the esbuild default. Explicit `OnlookRuntime.resolveAsset` stub variant for JSON files remains for the Metro-registry emulation slot (#67). |
+| 61 | pending | Raw-text imports (`.txt`/`.md`/`.html`/`.glsl`) — not yet in the loader chain. |
+| 62 | partial | Binary asset URI descriptors — large-file R2 path emits a URL string (`export default "<immutable-url>"`); a typed `AssetDescriptor.kind: 'binary'` path with explicit bytes/size metadata is Phase 7 follow-up. |
+| 63 | partial | Metadata: hash (sha256) + MIME type + size in bytes shipped in `defaultAssetKey` + plugin output. Dimensions, scale, SVG viewBox, font hints (unit metrics) remain Phase 7 polish. |
+| 64 | done | Asset bytes keyed by sha256 content hash; `createImmutableAssetUrl` rewrites to an immutable `<baseAssetUrl>/<hash>` path. R2 / session-storage bucket wiring lives in `cf-expo-relay` / editor upload layer. |
+| 65 | pending | Asset-check protocol (pre-upload HEAD / manifest diff) — deferred with #64 plumbing maturation. |
+| 66 | pending | `OnlookRuntime.resolveAsset(assetId)` stub emission from the bundler — the runtime side of the API exists (`resolveAsset` test in `onlook-runtime-js.test.ts`), but the bundler emits raw URLs today rather than descriptor-backed stubs. |
+| 67 | pending | Metro asset-registry emulation — needed for RN libraries that introspect the registry (e.g. `@react-native-community/image-editor`). Not yet wired. |
+| 68 | partial | Tests: 10 green across `assets-inline.test.ts` + `assets-r2.test.ts` cover image/font inline fallback, R2 rewrite, and inferred MIME types. Per-class coverage (`.svg?url`/`.svg?raw`, audio/video, JSON descriptors, binary bytes, missing-asset path) lands as each #55–#67 slot fills. |
 | 69 | done | Relay HmrSession accepts `overlayUpdate` (validated via abi-v1 Zod). Legacy `overlay` / `bundle` fallthrough preserved behind migration flag. Agent ae66f515 + in-band extensions. |
 | 70 | done | `WS /hmr/:sessionId` route preserved from pre-ABI work. |
 | 71 | done | `handlePush` fan-out routes overlayUpdate to every connected WS. Broadcast structured-log: `hmr.push.v1`. |
