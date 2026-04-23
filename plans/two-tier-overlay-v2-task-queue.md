@@ -501,3 +501,40 @@ client 450/0 (42 files), cf-expo-relay 217/0, mobile-client-protocol
 115/1-skip/0 (11 files), packages total 1779/0. Typecheck clean
 across every filtered workspace. 26 commits this autonomous session
 (9e2c0345..926334b7).
+
+### Infinity-audit completion + tRPC boundary hardening (2026-04-23, cont.)
+
+Session continued with a systematic sweep of every `z.number()` in
+the monorepo that could accept `Infinity` or `NaN`. 16 additional
+commits (`f60a42cd..6c6473ad`) tightened validation at every layer:
+
+- **Perf-guardrails defensive guards** (`b47d1bb6`): `evaluatePushTelemetry` + `evaluateBuildDuration` both use `Number.isFinite` before emitting guardrail events. Previously `NaN` would silently slip through `evaluateBuildDuration` (NaN comparisons always false so the `<= threshold` early return was bypassed).
+- **TapMessage x/y + IndexActionLocation** (`257dd308`): phone-side tap coordinates and DOM action indices.
+- **branch.createBlank framePosition** (`da3333c3`): tRPC boundary for frame DB rows.
+- **sandbox port fields** (`e84ef69b`): `.int().min(1).max(65535)` — TCP port range.
+- **code.scrapeUrl + project.list** (`05cb4212`): waitFor timeout + limit pagination.
+- **image.compress options** (`2e446ab6`): all five numeric knobs matched to sharp's documented domains.
+- **feedback.attachments.size** (`c27d2a12`): `.int().max(256MB)`.
+- **AI grep tool** (`e5e3890b`): `-A/-B/-C/head_limit` → `.int().nonnegative()`.
+- **push-overlay.delivered parse** (`5ac6b162`): `Number.isFinite && >= 0` on the relay-returned count.
+- **Dev-panel render + summary** (`61bddd61`): `Number.isFinite` on MobileOverlayAckTab row + summarizeAcks aggregator.
+- **sendAck + measureMountDuration** (`08277b59`, `6c6473ad`): mobile-client defense layers 1 + 2 with a regression test.
+- **feedback.metadata z.any() → z.unknown()** (`c070f827`): type-hole closure.
+- **Prettier + dead-code cleanup** (`4a2cb08d`, `8836d2ce`).
+
+**Eval-latency signal: triple-defense stack now locked in:**
+
+```
+Layer 1: measureMountDuration → Number.isFinite(raw) && raw >= 0 ? raw : undefined
+Layer 2: sendAck → if (Number.isFinite(mountDurationMs) && >= 0) ack.mountDurationMs = …
+Layer 3: OverlayAckMessageSchema → .finite().nonnegative().optional()
+```
+
+Each layer has its own regression test. A corrupt phone-clock value
+can't propagate through all three.
+
+**Cumulative session result (9e2c0345..6c6473ad, 42 commits):**
+web-client 595/0 (53 files), mobile-client 451/0 (42 files),
+cf-expo-relay 217/0 (17 files), packages 1787/0 (135+ files).
+Total ~3,050 passing tests across critical suites, 0 failures.
+Typecheck clean across web-client + mobile-client + mobile-preview.
