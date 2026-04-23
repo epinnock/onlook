@@ -107,8 +107,19 @@ export function startTwoTierBootstrap(options: TwoTierBootstrapOptions): TwoTier
     // in ONLOOK_OBSERVABILITY_TYPES and fans it out to the editor's socket.
     // Bridgeless iOS 18.6's WS receive-side is dead (ADR finding #8); send-
     // side TCP write works, so this is the supported ack path from device.
-    const sendAck = (msg: { code: string }, status: 'mounted' | 'failed', errorMessage?: string): void => {
-        const overlayHash = `legacy-${msg.code.length}`;
+    const sendAck = (
+        msg: { code: string; meta?: { overlayHash?: string } },
+        status: 'mounted' | 'failed',
+        errorMessage?: string,
+    ): void => {
+        // Phase 11a — v1 messages carry the REAL sha256 at msg.meta.overlayHash
+        // (copied verbatim from the editor's push). Using it lets the editor
+        // correlate this ack to the specific overlay it pushed. Legacy messages
+        // have no meta — fall back to a synthetic hash keyed on byte count.
+        const overlayHash =
+            msg.meta?.overlayHash !== undefined
+                ? msg.meta.overlayHash
+                : `legacy-${msg.code.length}`;
         const ack: Record<string, unknown> = {
             type: 'onlook:overlayAck',
             sessionId: options.sessionId,

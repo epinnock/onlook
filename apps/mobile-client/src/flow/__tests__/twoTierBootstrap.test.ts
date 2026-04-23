@@ -271,6 +271,62 @@ describe('startTwoTierBootstrap', () => {
         }
     });
 
+    test('v1 ack uses meta.overlayHash (real sha256) instead of the legacy-<length> fallback', () => {
+        const fake = new FakeDispatcher();
+        const realHash = 'a'.repeat(64); // sha256 hex shape
+        startTwoTierBootstrap({
+            sessionId: 'sess',
+            relayUrl: 'ws://relay',
+            enabled: true,
+            createDispatcher: () => fake as unknown as OverlayDispatcher,
+            mountOverlay: () => undefined, // explicit mount, no runtime needed
+        });
+        fake.emitV1('some-overlay-source', {
+            meta: { overlayHash: realHash, entryModule: 0, buildDurationMs: 0 },
+        });
+        const ack = fake.sent[0] as { overlayHash: string };
+        expect(ack.overlayHash).toBe(realHash);
+    });
+
+    test('legacy ack without meta falls back to legacy-<length> synthetic hash', () => {
+        const fake = new FakeDispatcher();
+        startTwoTierBootstrap({
+            sessionId: 'sess',
+            relayUrl: 'ws://relay',
+            enabled: true,
+            createDispatcher: () => fake as unknown as OverlayDispatcher,
+            mountOverlay: () => undefined,
+        });
+        fake.emit('hi'); // 2 bytes of legacy code
+        const ack = fake.sent[0] as { overlayHash: string };
+        expect(ack.overlayHash).toBe('legacy-2');
+    });
+
+    test('v1 ack on mount-failure also uses the real overlayHash + carries the error', () => {
+        const fake = new FakeDispatcher();
+        const realHash = 'b'.repeat(64);
+        startTwoTierBootstrap({
+            sessionId: 'sess',
+            relayUrl: 'ws://relay',
+            enabled: true,
+            createDispatcher: () => fake as unknown as OverlayDispatcher,
+            mountOverlay: () => {
+                throw new Error('mount kaboom');
+            },
+        });
+        fake.emitV1('overlay-source', {
+            meta: { overlayHash: realHash, entryModule: 0, buildDurationMs: 0 },
+        });
+        const ack = fake.sent[0] as {
+            overlayHash: string;
+            status: string;
+            error?: { kind: string; message: string };
+        };
+        expect(ack.overlayHash).toBe(realHash);
+        expect(ack.status).toBe('failed');
+        expect(ack.error?.message).toContain('mount kaboom');
+    });
+
     test('sends onlook:overlayAck with status=mounted after successful explicit mount', () => {
         const fake = new FakeDispatcher();
         const beforeSend = Date.now();
