@@ -223,6 +223,64 @@ describe('Phase 11b v1 end-to-end integration', () => {
         expect(ack.error?.message).toContain('mount boom in v1');
     });
 
+    test('v1 config drift (editor ahead of phone) fails loudly — no silent false-positive mount', async () => {
+        // Runtime is LEGACY (no abi==='v1', no mountOverlay). Editor pushes a
+        // v1 overlayUpdate — this is the exact scenario the Phase 11b staged
+        // rollout must NOT silently mishandle.
+        (globalThis as { OnlookRuntime?: unknown }).OnlookRuntime = {
+            // Legacy runtime: reloadBundle exists but there's no abi='v1' +
+            // mountOverlay. If the mount-routing fell back to reloadBundle
+            // on a v1 envelope, the evaluation would succeed but nothing
+            // would render (v1 envelopes don't self-call renderApp).
+            reloadBundle: () => {
+                throw new Error(
+                    'reloadBundle MUST NOT be called for v1 overlays on legacy runtime — ' +
+                        'that would produce a false-positive "mounted" ack',
+                );
+            },
+        };
+
+        const sockets: MockSocket[] = [];
+        const dispatcher = new OverlayDispatcher('ws://relay.lan:8891/hmr/sess-drift', {
+            createSocket: (url) => {
+                const s = new MockSocket(url);
+                sockets.push(s);
+                return s as unknown as WebSocket;
+            },
+        });
+
+        startTwoTierBootstrap({
+            sessionId: 'sess-drift',
+            relayUrl: 'ws://relay.lan:8891/hmr/sess-drift',
+            enabled: true,
+            createDispatcher: () => dispatcher,
+        });
+        await new Promise((r) => setTimeout(r, 5));
+
+        const realHash = 'c'.repeat(64);
+        sockets[0]!.relayPush({
+            type: 'overlayUpdate',
+            abi: 'v1',
+            sessionId: 'sess-drift',
+            source: 'module.exports = {};',
+            assets: { abi: 'v1', assets: {} },
+            meta: { overlayHash: realHash, entryModule: 0, buildDurationMs: 3 },
+        });
+
+        // Ack surfaces the config drift as 'failed' with a diagnostic
+        // message — NOT 'mounted'. Phase 11b soak dashboards can detect
+        // the drift and roll back the flag flip.
+        expect(sockets[0]!.sent).toHaveLength(1);
+        const ack = sockets[0]!.sent[0] as {
+            status: string;
+            overlayHash: string;
+            error?: { message: string };
+        };
+        expect(ack.status).toBe('failed');
+        expect(ack.overlayHash).toBe(realHash);
+        expect(ack.error?.message).toContain('not v1-capable');
+    });
+
     test('legacy wire shape on the same integration path still mounts via reloadBundle (Phase G preservation)', async () => {
         const reloadCalls: string[] = [];
         (globalThis as { OnlookRuntime?: unknown }).OnlookRuntime = {
