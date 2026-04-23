@@ -130,4 +130,22 @@ Known remaining implementation gates:
 
 ## Validation Notes
 
-Focused validations are run per task. The full `bun run typecheck` currently fails on existing baseline errors outside this queue (code-provider/sandbox typing, pre-existing Templates event handler regressions). `bun install --frozen-lockfile` also fails after adding new workspace packages because `bun.lock` needs workspace metadata; lockfile edits remain deferred to the maintainer per repo instructions. The `esbuild-wasm` dep for full in-Chromium bundling (task #30) is gated on the same lockfile unlock.
+Focused validations are run per task. **2026-04-23 update:** The
+code-provider/sandbox typing errors referenced in the previous
+validation note are resolved (commit `9e2c0345` migrated the
+Cloudflare provider to the current `code-provider/src/types.ts`
+interface — readFile, writeFile, listFiles, deleteFiles, copyFiles,
+downloadFiles, statFile, createTerminal rewritten to match) and the
+`'public-hosts'` → `SandboxPrivacy` narrowing in `codesandbox/index.ts`
+was silenced with a documented cast that preserves the deliberate
+runtime value (see commit `9e2c0345` body + 0633c6e0). Result:
+`cd apps/web/client && bun run typecheck` → 0 errors. The
+`packages/code-provider` package-local typecheck still surfaces
+unrelated pre-existing errors (the `--jsx` not set warnings, which
+are a tsconfig composite-project traversal quirk against packages
+that expose `.tsx`), but those do not fail the editor's own
+typecheck which is what ships.
+
+`bun install --frozen-lockfile` remains deferred to the maintainer
+per repo instructions. `esbuild-wasm` dep for full in-Chromium
+bundling (task #30) is gated on the same lockfile unlock.
