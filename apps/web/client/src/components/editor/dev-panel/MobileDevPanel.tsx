@@ -36,6 +36,7 @@ import type {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@onlook/ui/tabs';
 import { cn } from '@onlook/ui/utils';
 
+import { EVAL_LATENCY_TARGET_MS } from '@/services/expo-relay/overlay-telemetry-sink';
 import type { PreflightSummary } from '@/services/expo-relay/preflight-formatter';
 
 import { MobileConsoleTab } from './MobileConsoleTab';
@@ -157,7 +158,7 @@ export function MobileDevPanel({
                     {ackOverBudgetCount > 0 ? (
                         <span
                             data-testid="mobile-dev-panel-acks-over-budget-badge"
-                            title="Acks with mountDurationMs > 100ms (ADR-0001 eval-latency budget)."
+                            title={`Acks with mountDurationMs > ${EVAL_LATENCY_TARGET_MS}ms (ADR-0001 eval-latency budget).`}
                             className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500/25 px-1 text-[10px] tabular-nums text-amber-300"
                         >
                             {ackOverBudgetCount}

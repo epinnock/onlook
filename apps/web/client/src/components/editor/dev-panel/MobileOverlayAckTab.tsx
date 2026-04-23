@@ -31,6 +31,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { OverlayAckMessage, WsMessage } from '@onlook/mobile-client-protocol';
+
+import { EVAL_LATENCY_TARGET_MS } from '@/services/expo-relay/overlay-telemetry-sink';
 import { cn } from '@onlook/ui/utils';
 
 export interface MobileOverlayAckTabProps {
@@ -141,11 +143,11 @@ export function MobileOverlayAckRow({ ack }: MobileOverlayAckRowProps) {
                         data-testid="mobile-overlay-ack-mount-duration"
                         className={cn(
                             'shrink-0 tabular-nums',
-                            ack.mountDurationMs > 100
+                            ack.mountDurationMs > EVAL_LATENCY_TARGET_MS
                                 ? 'text-amber-400'
                                 : 'text-neutral-500',
                         )}
-                        title="Phone-side mountOverlay() latency. ADR-0001 target is ≤ 100ms on a 2-year-old iPhone."
+                        title={`Phone-side mountOverlay() latency. ADR-0001 target is ≤ ${EVAL_LATENCY_TARGET_MS}ms on a 2-year-old iPhone.`}
                     >
                         {Math.round(ack.mountDurationMs)}ms
                     </span>
@@ -193,7 +195,7 @@ export function summarizeAcks(
     acks: ReadonlyArray<OverlayAckMessage>,
     opts: { evalLatencyTargetMs?: number } = {},
 ): OverlayAckSummary {
-    const evalTarget = opts.evalLatencyTargetMs ?? 100;
+    const evalTarget = opts.evalLatencyTargetMs ?? EVAL_LATENCY_TARGET_MS;
     let mountedCount = 0;
     let failedCount = 0;
     let overBudgetCount = 0;
@@ -316,10 +318,10 @@ export function MobileOverlayAckTab({
                         <span className="text-neutral-600">·</span>
                         <span
                             data-testid="mobile-overlay-ack-summary-p95"
-                            title="p95 mountDurationMs across acks with the field populated. ADR-0001 target is ≤100ms."
+                            title={`p95 mountDurationMs across acks with the field populated. ADR-0001 target is ≤${EVAL_LATENCY_TARGET_MS}ms.`}
                             className={cn(
                                 'tabular-nums',
-                                summary.p95MountDurationMs > 100
+                                summary.p95MountDurationMs > EVAL_LATENCY_TARGET_MS
                                     ? 'text-amber-400'
                                     : 'text-neutral-400',
                             )}
@@ -333,7 +335,7 @@ export function MobileOverlayAckTab({
                         <span className="text-neutral-600">·</span>
                         <span
                             data-testid="mobile-overlay-ack-summary-over-budget"
-                            title="Mounts that exceeded the 100ms eval-latency budget."
+                            title={`Mounts that exceeded the ${EVAL_LATENCY_TARGET_MS}ms eval-latency budget.`}
                             className="text-amber-400"
                         >
                             {summary.overBudgetCount} over budget
