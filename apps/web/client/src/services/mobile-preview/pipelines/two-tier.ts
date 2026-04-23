@@ -184,23 +184,46 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
             // keeps working until the flag is flipped (ADR-0009 Phase 11b).
             const useV1 = isMobilePreviewOverlayV1PipelineEnabled();
 
-            const wrapped = useV1
-                ? wrapOverlayV1(result.code, { sourceMap: result.sourceMap })
-                : wrapOverlayCode(result.code, { sourceMap: result.sourceMap });
-
             // Tasks #98-#100 — Pre-push size gate on the v1 branch. The
             // relay already rejects > 2MB bodies with 413, but surfacing the
             // failure here gives a clearer error message that names the cap
             // and the overlay's actual size. Legacy branch skips this — its
             // wire shape has no hard cap gate yet and the relay's 413 is the
             // current enforcement point (tracked separately in Phase 11a).
+            let wrapped: { code: string; sourceMap?: string };
             if (useV1) {
-                const sizeCheck = checkOverlaySize(wrapped.code);
+                const wrappedV1 = wrapOverlayV1(result.code, { sourceMap: result.sourceMap });
+                const sizeCheck = checkOverlaySize(wrappedV1.code);
                 if (sizeCheck.status === 'fail-hard') {
                     throw new Error(
                         `two-tier pipeline (v1): ${sizeCheck.message}`,
                     );
                 }
+                if (sizeCheck.status === 'warn-soft') {
+                    // Mirrors cf-expo-relay's `hmr.push.v1.softcap` warn log.
+                    // Surface soft-cap hits at the editor boundary too so
+                    // bundle-bloat creep is observable before it reaches the
+                    // relay.
+                    console.warn(
+                        '[two-tier.v1]',
+                        JSON.stringify({
+                            event: 'overlay.soft_cap',
+                            bytes: sizeCheck.bytes,
+                            softCap: sizeCheck.softCap,
+                            hardCap: sizeCheck.hardCap,
+                        }),
+                    );
+                }
+                // sizeCheck.status === 'ok' → no action.
+                if (wrappedV1.sizeWarning !== undefined) {
+                    // wrapOverlayV1's own soft-cap warning (applies to INPUT
+                    // source, not envelope). Log at same severity so both
+                    // layers agree on observability.
+                    console.warn('[two-tier.v1] wrap-overlay-v1:', wrappedV1.sizeWarning);
+                }
+                wrapped = wrappedV1;
+            } else {
+                wrapped = wrapOverlayCode(result.code, { sourceMap: result.sourceMap });
             }
 
             emitStatus(input.onStatus, { kind: 'pushing' });
