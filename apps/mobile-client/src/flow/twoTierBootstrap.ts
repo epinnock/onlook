@@ -26,7 +26,13 @@ import { isTwoTierPipelineEnabled } from './featureFlags';
 declare global {
     var OnlookRuntime:
         | {
+              abi?: string;
               reloadBundle?: (bundleSource: string) => void;
+              mountOverlay?: (
+                  source: string,
+                  props?: Record<string, unknown>,
+                  assets?: unknown,
+              ) => void;
               version?: string | (() => string);
           }
         | undefined;
@@ -130,7 +136,35 @@ export function startTwoTierBootstrap(options: TwoTierBootstrapOptions): TwoTier
             }
             return;
         }
-        const reloadBundle = globalThis.OnlookRuntime?.reloadBundle;
+        // Phase 11a — ABI v1 messages carry `abi: 'v1'` after the dispatcher's
+        // normalization (see overlayDispatcher.handleRaw). For v1 envelopes,
+        // prefer `OnlookRuntime.mountOverlay(source, props, assets)` which
+        // eval-runs the envelope AND reads __pendingEntry → renderApp. The
+        // legacy `reloadBundle` path would eval the envelope but never mount
+        // because the v1 envelope doesn't self-call renderApp — it only
+        // publishes to __pendingEntry.
+        const runtime = globalThis.OnlookRuntime;
+        const isV1 = (msg as { abi?: string }).abi === 'v1';
+        if (isV1 && runtime?.abi === 'v1' && typeof runtime.mountOverlay === 'function') {
+            try {
+                const props = {
+                    sessionId: options.sessionId,
+                    // Extract relayHost + port from the WS URL if the caller
+                    // provides them as manifest-style fields downstream. For
+                    // now the bootstrap hands the raw session id; full props
+                    // plumbing lives with Phase 9 editor work.
+                };
+                const assets = (msg as { assets?: unknown }).assets;
+                runtime.mountOverlay(msg.code, props, assets);
+                sendAck(msg, 'mounted');
+            } catch (err) {
+                const message = err instanceof Error ? err.message : String(err);
+                log(`mountOverlay (v1) threw: ${message}`);
+                sendAck(msg, 'failed', message);
+            }
+            return;
+        }
+        const reloadBundle = runtime?.reloadBundle;
         if (typeof reloadBundle === 'function') {
             try {
                 reloadBundle(msg.code);
@@ -143,7 +177,7 @@ export function startTwoTierBootstrap(options: TwoTierBootstrapOptions): TwoTier
             return;
         }
         log(
-            `overlay received but OnlookRuntime.reloadBundle is not available ` +
+            `overlay received but neither OnlookRuntime.mountOverlay nor .reloadBundle is available ` +
                 `(${msg.code.length} bytes of bundle) — runtime not booted yet`,
         );
     };

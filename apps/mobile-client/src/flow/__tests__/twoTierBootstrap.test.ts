@@ -41,6 +41,19 @@ class FakeDispatcher {
             >[0]);
         }
     }
+
+    /** Emit a v1-normalized message — post-dispatcher shape (abi flag set). */
+    emitV1(code: string, extras: Record<string, unknown> = {}): void {
+        for (const l of this.listeners) {
+            l({
+                type: 'overlay',
+                code,
+                abi: 'v1',
+                sessionId: 'sess',
+                ...extras,
+            } as Parameters<OverlayListener>[0]);
+        }
+    }
 }
 
 describe('startTwoTierBootstrap', () => {
@@ -145,7 +158,9 @@ describe('startTwoTierBootstrap', () => {
             });
             fake.emit('globalThis.x=1;');
             expect(
-                logs.some((l) => l.includes('OnlookRuntime.reloadBundle is not available')),
+                logs.some((l) =>
+                    l.includes('neither OnlookRuntime.mountOverlay nor .reloadBundle is available'),
+                ),
             ).toBe(true);
         } finally {
             globalThis.OnlookRuntime = priorMount;
@@ -168,6 +183,89 @@ describe('startTwoTierBootstrap', () => {
             });
             fake.emit('globalThis.onlookMount=function(){};');
             expect(received).toEqual(['globalThis.onlookMount=function(){};']);
+        } finally {
+            globalThis.OnlookRuntime = priorRuntime;
+        }
+    });
+
+    // ─── v1 mount routing (Phase 11a phone-side — bidirectional) ────────────
+
+    test('v1 message routes to OnlookRuntime.mountOverlay when the runtime is v1-capable', () => {
+        const fake = new FakeDispatcher();
+        const mountCalls: Array<{ source: string; props: unknown; assets: unknown }> = [];
+        const priorRuntime = globalThis.OnlookRuntime;
+        globalThis.OnlookRuntime = {
+            abi: 'v1',
+            mountOverlay: (source: string, props?: Record<string, unknown>, assets?: unknown) =>
+                mountCalls.push({ source, props, assets }),
+            reloadBundle: () => {
+                throw new Error('reloadBundle should NOT be called for v1 messages');
+            },
+        };
+        try {
+            startTwoTierBootstrap({
+                sessionId: 'sess',
+                relayUrl: 'ws://relay',
+                enabled: true,
+                createDispatcher: () => fake as unknown as OverlayDispatcher,
+            });
+            fake.emitV1('envelope-v1-source', {
+                assets: { abi: 'v1', assets: {} },
+            });
+            expect(mountCalls).toHaveLength(1);
+            expect(mountCalls[0]?.source).toBe('envelope-v1-source');
+            expect(mountCalls[0]?.props).toEqual({ sessionId: 'sess' });
+            expect(mountCalls[0]?.assets).toEqual({ abi: 'v1', assets: {} });
+        } finally {
+            globalThis.OnlookRuntime = priorRuntime;
+        }
+    });
+
+    test('v1 message falls back to reloadBundle when mountOverlay is missing', () => {
+        const fake = new FakeDispatcher();
+        const reloadCalls: string[] = [];
+        const priorRuntime = globalThis.OnlookRuntime;
+        // Runtime reports abi=v1 but doesn't expose mountOverlay — the bootstrap
+        // falls back to reloadBundle (legacy behavior) so bundles still eval.
+        globalThis.OnlookRuntime = {
+            abi: 'v1',
+            reloadBundle: (code: string) => reloadCalls.push(code),
+        };
+        try {
+            startTwoTierBootstrap({
+                sessionId: 'sess',
+                relayUrl: 'ws://relay',
+                enabled: true,
+                createDispatcher: () => fake as unknown as OverlayDispatcher,
+            });
+            fake.emitV1('envelope-v1');
+            expect(reloadCalls).toEqual(['envelope-v1']);
+        } finally {
+            globalThis.OnlookRuntime = priorRuntime;
+        }
+    });
+
+    test('legacy message on a v1-capable runtime still uses reloadBundle (no auto-promotion)', () => {
+        const fake = new FakeDispatcher();
+        const mountCalls: string[] = [];
+        const reloadCalls: string[] = [];
+        const priorRuntime = globalThis.OnlookRuntime;
+        globalThis.OnlookRuntime = {
+            abi: 'v1',
+            mountOverlay: (source: string) => mountCalls.push(source),
+            reloadBundle: (code: string) => reloadCalls.push(code),
+        };
+        try {
+            startTwoTierBootstrap({
+                sessionId: 'sess',
+                relayUrl: 'ws://relay',
+                enabled: true,
+                createDispatcher: () => fake as unknown as OverlayDispatcher,
+            });
+            // Legacy emit: no abi field.
+            fake.emit('legacy-code');
+            expect(mountCalls).toEqual([]); // mountOverlay NOT called
+            expect(reloadCalls).toEqual(['legacy-code']);
         } finally {
             globalThis.OnlookRuntime = priorRuntime;
         }
