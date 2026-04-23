@@ -707,6 +707,89 @@ describe('HmrSession overlayUpdate (v1) — multi-client + disconnect (task #76)
         expect(parsed.overlayHash).toBe('b'.repeat(64));
     });
 
+    // ─── Ack observability (Phase 11b Q5b eval-latency log signal) ─────────
+    test('forwarded overlayAck emits hmr.ack.v1 log with mountDurationMs when populated', async () => {
+        const session = makeSession();
+        const sender = await openSocket(session);
+        await openSocket(session); // a receiver so `delivered` > 0
+
+        const ack = {
+            type: 'onlook:overlayAck',
+            sessionId: 's',
+            overlayHash: 'deadbeef',
+            status: 'mounted',
+            timestamp: 1_712_000_000_000,
+            mountDurationMs: 42,
+        };
+        const infoLogs: string[] = [];
+        const origInfo = console.info;
+        console.info = ((msg: string) => {
+            if (typeof msg === 'string') infoLogs.push(msg);
+        }) as typeof console.info;
+        try {
+            sender.server.emit('message', JSON.stringify(ack));
+        } finally {
+            console.info = origInfo;
+        }
+
+        const ackLog = infoLogs.find((l) => l.includes('hmr.ack.v1'));
+        expect(ackLog).toBeDefined();
+        const parsed = JSON.parse(ackLog!) as {
+            event: string;
+            sessionId: string;
+            overlayHash: string;
+            status: string;
+            delivered: number;
+            mountDurationMs?: number;
+            errorKind?: string;
+        };
+        expect(parsed.event).toBe('hmr.ack.v1');
+        expect(parsed.sessionId).toBe('s');
+        expect(parsed.overlayHash).toBe('deadbeef');
+        expect(parsed.status).toBe('mounted');
+        expect(parsed.delivered).toBe(1); // one receiver, sender excluded
+        expect(parsed.mountDurationMs).toBe(42);
+    });
+
+    test('failed ack log includes errorKind; mountDurationMs absent when omitted', async () => {
+        const session = makeSession();
+        const sender = await openSocket(session);
+        await openSocket(session);
+
+        const ack = {
+            type: 'onlook:overlayAck',
+            sessionId: 's',
+            overlayHash: 'deadbeef',
+            status: 'failed',
+            timestamp: 1_712_000_000_000,
+            error: { kind: 'overlay-runtime', message: 'boom' },
+            // no mountDurationMs — legacy-binary / failure-path case.
+        };
+        const infoLogs: string[] = [];
+        const origInfo = console.info;
+        console.info = ((msg: string) => {
+            if (typeof msg === 'string') infoLogs.push(msg);
+        }) as typeof console.info;
+        try {
+            sender.server.emit('message', JSON.stringify(ack));
+        } finally {
+            console.info = origInfo;
+        }
+
+        const ackLog = infoLogs.find((l) => l.includes('hmr.ack.v1'));
+        expect(ackLog).toBeDefined();
+        const parsed = JSON.parse(ackLog!) as {
+            status: string;
+            errorKind?: string;
+            mountDurationMs?: number;
+        };
+        expect(parsed.status).toBe('failed');
+        expect(parsed.errorKind).toBe('overlay-runtime');
+        // JSON.stringify drops undefined keys, so parsed shape is clean
+        // when the phone didn't populate mountDurationMs.
+        expect(parsed.mountDurationMs).toBeUndefined();
+    });
+
     test('over soft cap: hmr.push.v1 log adds softCapExceeded + emits hmr.push.v1.softcap warn', async () => {
         const session = makeSession();
         await openSocket(session);

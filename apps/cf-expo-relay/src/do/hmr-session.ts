@@ -327,10 +327,29 @@ export class HmrSession extends DurableObject<Env> {
             const ackParse = OverlayAckMessageSchema.safeParse(parsed);
             if (ackParse.success) {
                 const payload = JSON.stringify(ackParse.data);
+                let delivered = 0;
                 for (const socket of this.sockets) {
                     if (socket === sender || socket.readyState !== WebSocket.OPEN) continue;
                     socket.send(payload);
+                    delivered += 1;
                 }
+                // Structured log mirroring the push-side `hmr.push.v1` line so
+                // operators watching Workers tail / log drains can correlate
+                // push → ack pairs. mountDurationMs is surfaced explicitly
+                // (when populated by the phone) since it's the Phase 11b Q5b
+                // eval-latency signal — watching logs is the fallback for
+                // operators without the PostHog dashboard live yet.
+                console.info(
+                    JSON.stringify({
+                        event: 'hmr.ack.v1',
+                        sessionId: ackParse.data.sessionId,
+                        overlayHash: ackParse.data.overlayHash,
+                        status: ackParse.data.status,
+                        delivered,
+                        mountDurationMs: ackParse.data.mountDurationMs,
+                        errorKind: ackParse.data.error?.kind,
+                    }),
+                );
                 return;
             }
             const obsParse = WsMessageSchema.safeParse(parsed);
