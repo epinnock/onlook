@@ -5,26 +5,30 @@ Operational guide for landing the two-tier pipeline changes in production. Cover
 ## What this deploy adds
 
 - **Durable Object:** `HmrSession` — fans out overlay pushes to connected phone clients, persists the last overlay for late-joining clients.
+- **Durable Object:** `EventsSession` — per-session poll-channel queue for events the phone can't receive via WebSocket (bridgeless iOS 18.6, ADR finding #8). Ring buffer (100 events, 10s TTL) + monotonic cursor + 15s keepAlive.
 - **Migration v2:** `new_sqlite_classes: ["HmrSession"]` (applied automatically by `wrangler deploy`).
-- **HTTP routes:** `POST /push/:sessionId`, `OPTIONS /push/:sessionId`, `WS /hmr/:sessionId`.
+- **Migration v3:** `new_sqlite_classes: ["EventsSession"]` (applied automatically on this deploy).
+- **HTTP routes:** `POST /push/:sessionId`, `OPTIONS /push/:sessionId`, `WS /hmr/:sessionId`, plus **new:** `GET /events?session=<id>&since=<cursor>` and `POST /events/push?session=<id>`.
 - **Secret:** `ALLOWED_PUSH_ORIGINS` (comma-separated editor origins allowed to POST overlays; unset = any origin, for local dev only).
 
 ## Pre-deploy checklist
 
-1. `bun test src/__tests__/*.test.ts src/__tests__/routes/*.test.ts` — 112 tests green.
+1. `bun test` — 197 tests green (covers all routes + both DOs + cross-layer integration).
 2. `bun run typecheck` — clean.
-3. Confirm `wrangler.jsonc` has both bindings + both migrations:
+3. Confirm `wrangler.jsonc` has all three bindings + all three migrations:
 
    ```jsonc
    "durable_objects": {
      "bindings": [
-       { "name": "EXPO_SESSION", "class_name": "ExpoSession" },
-       { "name": "HMR_SESSION",  "class_name": "HmrSession" }
+       { "name": "EXPO_SESSION",   "class_name": "ExpoSession" },
+       { "name": "HMR_SESSION",    "class_name": "HmrSession" },
+       { "name": "EVENTS_SESSION", "class_name": "EventsSession" }
      ]
    },
    "migrations": [
      { "tag": "v1", "new_sqlite_classes": ["ExpoSession"] },
-     { "tag": "v2", "new_sqlite_classes": ["HmrSession"] }
+     { "tag": "v2", "new_sqlite_classes": ["HmrSession"] },
+     { "tag": "v3", "new_sqlite_classes": ["EventsSession"] }
    ]
    ```
 
@@ -90,6 +94,21 @@ If unset in production, the relay reflects **any** `Origin` header — safe for 
    ```bash
    bunx wrangler tail --env production | grep '"event":"hmr.push"'
    # expected on each /push: {"event":"hmr.push","delivered":N,"bytes":…,"sockets":…}
+   ```
+
+5. `/events` poll channel smoke:
+
+   ```bash
+   # Push an event
+   curl -s -X POST \
+     -H 'Content-Type: application/json' \
+     --data '{"type":"overlayAck","data":{"sessionId":"smoke-2","mountedAt":1700000000}}' \
+     'https://expo-relay.onlook.workers.dev/events/push?session=smoke-2'
+   # expected: 202 {"ok":true,"id":"e-1","cursor":"1"}
+
+   # Poll it back
+   curl -s 'https://expo-relay.onlook.workers.dev/events?session=smoke-2&since=0'
+   # expected: {"events":[{"id":"e-1","type":"overlayAck",...}],"cursor":"1"}
    ```
 
 ## Rollback
