@@ -820,4 +820,37 @@ describe('startTwoTierBootstrap', () => {
             (globalThis as { OnlookRuntime?: unknown }).OnlookRuntime = prev;
         }
     });
+
+    test('measureMountDuration: non-finite delta → mountDurationMs omitted from ack', () => {
+        // Simulate a broken clock where `performance.now()` returns a
+        // value that produces a non-finite delta (e.g. start=NaN,
+        // end=NaN). The clamp in `measureMountDuration` should cause
+        // sendAck to drop the field entirely rather than emit Infinity.
+        const fake = new FakeDispatcher();
+        const originalPerformance = (
+            globalThis as { performance?: unknown }
+        ).performance;
+        try {
+            (globalThis as { performance?: unknown }).performance = {
+                now: () => NaN,
+            };
+            startTwoTierBootstrap({
+                sessionId: 'sess',
+                relayUrl: 'http://relay',
+                enabled: true,
+                createDispatcher: () => fake as unknown as OverlayDispatcher,
+                mountOverlay: () => undefined,
+                startOverlayAckPoll: () =>
+                    ({ installed: false, stop: () => undefined }) satisfies OverlayAckPollHandle,
+            });
+            fake.emit('x');
+            const ack = fake.sent[0] as Record<string, unknown>;
+            expect(ack.status).toBe('mounted');
+            // Omitted — caller's Number.isFinite guard drops it instead
+            // of surfacing NaN/Infinity in the ack.
+            expect(ack.mountDurationMs).toBeUndefined();
+        } finally {
+            (globalThis as { performance?: unknown }).performance = originalPerformance;
+        }
+    });
 });
