@@ -227,9 +227,21 @@ export async function injectPreloadScriptIntoExpoTemplate(provider: Provider, sa
         console.warn('[PreloadScript]   web/index.html injection failed:', err);
     }
 
-    // Strategy 2: Inject runtime import into index.js or App.js
-    // This is needed for CSB templates with custom Express servers that don't use web/index.html
-    const entryFiles = ['index.js', 'App.js', 'App.tsx', 'index.ts'];
+    // Strategy 2: Inject runtime import into the project's entry file.
+    // This is needed for CSB templates with custom Express servers that
+    // don't use web/index.html AND for ExpoBrowser branches where the
+    // user's entry point happens to be a TypeScript variant. Order
+    // matches browser-metro's entry-resolver.ts so we inject into
+    // whichever file the bundler actually resolves as the entry.
+    const entryFiles = [
+        'index.tsx',
+        'index.ts',
+        'index.jsx',
+        'index.js',
+        'App.tsx',
+        'App.jsx',
+        'App.js',
+    ];
     const importLine = `import './${ONLOOK_PRELOAD_SCRIPT_FILE}';\n`;
 
     for (const entryFile of entryFiles) {
