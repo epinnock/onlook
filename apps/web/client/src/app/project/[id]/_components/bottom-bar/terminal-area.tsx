@@ -1,6 +1,8 @@
 'use client';
 
+import { MobilePreviewDevPanelContainer } from '@/components/editor/dev-panel/MobilePreviewDevPanelContainer';
 import { useEditorEngine } from '@/components/store/editor';
+import { env } from '@/env';
 import { Icons } from '@onlook/ui/icons';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@onlook/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@onlook/ui/tooltip';
@@ -12,9 +14,19 @@ import { ExpoQrButton } from './expo-qr-button';
 import { RestartSandboxButton } from './restart-sandbox-button';
 import { Terminal } from './terminal';
 
+const MOBILE_PREVIEW_TAB_KEY = '__mobile-preview__';
+
 export const TerminalArea = observer(({ children }: { children: React.ReactNode }) => {
     const editorEngine = useEditorEngine();
     const branches = editorEngine.branches;
+
+    // Phase 9 #51 UI wire-in: mobile-preview dev panel appears as a
+    // synthetic tab whenever any branch uses the ExpoBrowser provider.
+    // The panel surface is provider-agnostic, but gating on ExpoBrowser
+    // keeps the tab out of the way for CSB/Cloudflare-only projects.
+    const hasExpoBrowserBranch = branches.allBranches.some(
+        (b) => b?.sandbox?.providerType === 'expo_browser',
+    );
 
     // Collect terminal sessions from all branches
     const allTerminalSessions = new Map<string, { name: string; branchName: string; branchId: string; sessionId: string; session: any }>();
@@ -109,8 +121,11 @@ export const TerminalArea = observer(({ children }: { children: React.ReactNode 
                     terminalHidden ? 'h-0 w-0 invisible' : 'h-[22rem] w-[37rem]',
                 )}
             >
-                {allTerminalSessions.size > 0 ? (
+                {allTerminalSessions.size > 0 || hasExpoBrowserBranch ? (
                     <Tabs defaultValue={'cli'} value={activeSessionId || ''} onValueChange={(value) => {
+                        if (value === MOBILE_PREVIEW_TAB_KEY) {
+                            return;
+                        }
                         // Extract branch and session from the combined key
                         const terminalData = allTerminalSessions.get(value);
                         if (terminalData) {
@@ -132,6 +147,16 @@ export const TerminalArea = observer(({ children }: { children: React.ReactNode 
                                     </span>
                                 </TabsTrigger>
                             ))}
+                            {hasExpoBrowserBranch ? (
+                                <TabsTrigger
+                                    key={MOBILE_PREVIEW_TAB_KEY}
+                                    value={MOBILE_PREVIEW_TAB_KEY}
+                                    className="flex-1"
+                                    data-testid="terminal-area-mobile-preview-tab"
+                                >
+                                    <span className="truncate">Mobile Preview</span>
+                                </TabsTrigger>
+                            ) : null}
                         </TabsList>
                         <div className="w-full h-full overflow-auto">
                             {Array.from(allTerminalSessions).map(([key, terminalData]) => (
@@ -139,6 +164,19 @@ export const TerminalArea = observer(({ children }: { children: React.ReactNode 
                                     <Terminal hidden={terminalHidden} terminalSessionId={terminalData.sessionId} branchId={terminalData.branchId} />
                                 </TabsContent>
                             ))}
+                            {hasExpoBrowserBranch ? (
+                                <TabsContent
+                                    key={MOBILE_PREVIEW_TAB_KEY}
+                                    value={MOBILE_PREVIEW_TAB_KEY}
+                                    className="h-full"
+                                >
+                                    <MobilePreviewDevPanelContainer
+                                        serverBaseUrl={env.NEXT_PUBLIC_MOBILE_PREVIEW_URL}
+                                        fileSystem={editorEngine.fileSystem}
+                                        defaultTab="console"
+                                    />
+                                </TabsContent>
+                            ) : null}
                         </div>
                     </Tabs>
                 ) : (

@@ -30,19 +30,31 @@ interface MockEditorEngine {
     projectId: string;
     fileSystem: unknown;
     branches: { activeBranch: MockBranch };
+    activeSandbox: { session: { provider: unknown } };
 }
 
-const engineRef: { current: MockEditorEngine } = {
-    current: {
+function makeEngine(overrides: {
+    activeBranch?: MockBranch;
+    provider?: unknown;
+} = {}): MockEditorEngine {
+    return {
         projectId: 'proj_1',
         fileSystem: {},
         branches: {
-            activeBranch: {
-                id: 'branch_1',
-                sandbox: { providerType: 'expo_browser' },
-            },
+            activeBranch:
+                overrides.activeBranch ?? {
+                    id: 'branch_1',
+                    sandbox: { providerType: 'expo_browser' },
+                },
         },
-    },
+        activeSandbox: {
+            session: { provider: overrides.provider ?? null },
+        },
+    };
+}
+
+const engineRef: { current: MockEditorEngine } = {
+    current: makeEngine(),
 };
 
 interface MockPreviewHandle {
@@ -93,6 +105,22 @@ mock.module('@/env', () => ({
     },
 }));
 
+// Phase 9 #51 wire-in surface — the button renders an
+// `InstallStatusIndicator` next to itself. Stub the hook so the test
+// stays agnostic of its internal timers/refs and trivially renders.
+mock.module('@/hooks/use-install-dependencies', () => ({
+    useInstallDependencies: () => ({
+        status: { kind: 'idle' as const },
+        cancel: () => undefined,
+    }),
+}));
+
+mock.module('@/services/mobile-preview/provider-install-client', () => ({
+    createProviderInstallClient: () => ({
+        install: async () => ({ ok: true }),
+    }),
+}));
+
 // Stub QrModal to a trivial marker div so renderToStaticMarkup doesn't try
 // to walk into Radix's portal/ref machinery (which requires a real DOM).
 mock.module('@/components/ui/qr-modal', () => ({
@@ -126,45 +154,28 @@ function renderHtml(): string {
 
 describe('PreviewOnDeviceButton', () => {
     test('renders nothing when active branch is not ExpoBrowser', () => {
-        engineRef.current = {
-            projectId: 'proj_1',
-            fileSystem: {},
-            branches: {
-                activeBranch: {
-                    id: 'branch_1',
-                    sandbox: { providerType: 'codesandbox' },
-                },
+        engineRef.current = makeEngine({
+            activeBranch: {
+                id: 'branch_1',
+                sandbox: { providerType: 'codesandbox' },
             },
-        };
+        });
         previewRef.current = createPreviewHandle();
         const html = renderHtml();
         expect(html).toBe('');
     });
 
     test('renders nothing when active branch has no sandbox', () => {
-        engineRef.current = {
-            projectId: 'proj_1',
-            fileSystem: {},
-            branches: {
-                activeBranch: { id: 'branch_1' },
-            },
-        };
+        engineRef.current = makeEngine({
+            activeBranch: { id: 'branch_1' },
+        });
         previewRef.current = createPreviewHandle();
         const html = renderHtml();
         expect(html).toBe('');
     });
 
     test('renders the button when active branch is ExpoBrowser', () => {
-        engineRef.current = {
-            projectId: 'proj_1',
-            fileSystem: {},
-            branches: {
-                activeBranch: {
-                    id: 'branch_1',
-                    sandbox: { providerType: 'expo_browser' },
-                },
-            },
-        };
+        engineRef.current = makeEngine();
         previewRef.current = createPreviewHandle();
         const html = renderHtml();
         expect(html).toContain('data-testid="preview-on-device-button"');
@@ -176,16 +187,7 @@ describe('PreviewOnDeviceButton', () => {
     });
 
     test('passes preview.isOpen through to QrModal', () => {
-        engineRef.current = {
-            projectId: 'proj_1',
-            fileSystem: {},
-            branches: {
-                activeBranch: {
-                    id: 'branch_1',
-                    sandbox: { providerType: 'expo_browser' },
-                },
-            },
-        };
+        engineRef.current = makeEngine();
         // Pre-open the preview handle and check that the stub modal flips
         // its `data-open` marker on the next render. This proves
         // `preview.isOpen` is wired into the QrModal `open` prop.
@@ -196,16 +198,7 @@ describe('PreviewOnDeviceButton', () => {
     });
 
     test('preview handle exposes open/close/retry callable handlers', async () => {
-        engineRef.current = {
-            projectId: 'proj_1',
-            fileSystem: {},
-            branches: {
-                activeBranch: {
-                    id: 'branch_1',
-                    sandbox: { providerType: 'expo_browser' },
-                },
-            },
-        };
+        engineRef.current = makeEngine();
         previewRef.current = createPreviewHandle();
 
         // Render once so the test exercises the full mount path through

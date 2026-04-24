@@ -20,12 +20,16 @@
  * the outer observer for non-ExpoBrowser branches.
  */
 
+import { InstallStatusIndicator } from '@/components/editor/install-status/InstallStatusIndicator';
 import { useEditorEngine } from '@/components/store/editor';
 import { QrModal } from '@/components/ui/qr-modal';
 import { env } from '@/env';
+import { useInstallDependencies } from '@/hooks/use-install-dependencies';
 import { useMobilePreviewStatus } from '@/hooks/use-mobile-preview-status';
+import { createProviderInstallClient } from '@/services/mobile-preview/provider-install-client';
 import { Button } from '@onlook/ui/button';
 import { observer } from 'mobx-react-lite';
+import { useMemo } from 'react';
 
 export const PreviewOnDeviceButton = observer(function PreviewOnDeviceButton() {
     const editorEngine = useEditorEngine();
@@ -39,7 +43,7 @@ export const PreviewOnDeviceButton = observer(function PreviewOnDeviceButton() {
     return <PreviewOnDeviceInner fileSystem={editorEngine.fileSystem} />;
 });
 
-function PreviewOnDeviceInner({
+const PreviewOnDeviceInner = observer(function PreviewOnDeviceInner({
     fileSystem,
 }: {
     fileSystem: ReturnType<typeof useEditorEngine>['fileSystem'];
@@ -50,9 +54,20 @@ function PreviewOnDeviceInner({
     // LAN IP; in production it points at the deployed CF Worker that serves
     // the static runtime manifest. When unset, the hook surfaces a clear
     // error in the modal.
+    const editorEngine = useEditorEngine();
     const preview = useMobilePreviewStatus({
         serverBaseUrl: env.NEXT_PUBLIC_MOBILE_PREVIEW_URL,
         fileSystem,
+    });
+
+    const provider = editorEngine.activeSandbox.session.provider;
+    const installClient = useMemo(
+        () => (provider ? createProviderInstallClient({ provider }) : null),
+        [provider],
+    );
+    const { status: installStatus, cancel: cancelInstall } = useInstallDependencies({
+        fileSystem,
+        client: installClient,
     });
 
     const handleClick = () => {
@@ -61,6 +76,11 @@ function PreviewOnDeviceInner({
 
     return (
         <>
+            <InstallStatusIndicator
+                status={installStatus}
+                onCancel={cancelInstall}
+                className="h-8"
+            />
             <Button
                 variant="ghost"
                 size="sm"
@@ -79,4 +99,4 @@ function PreviewOnDeviceInner({
             />
         </>
     );
-}
+});
