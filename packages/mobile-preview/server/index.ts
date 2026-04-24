@@ -50,9 +50,17 @@ const wsServer = Bun.serve({
     }
 
     if (url.pathname === '/status') {
+      // Same self-healing call as the HTTP /status branch — keeps
+      // both endpoints consistent through a tmpwatch wipe.
+      let hash: string | null;
+      try {
+        hash = ensureRuntimeStaged();
+      } catch {
+        hash = currentRuntimeHash;
+      }
       return createWsStatusResponse({
         clients: wsClients.size,
-        runtimeHash: currentRuntimeHash,
+        runtimeHash: hash,
         lanIp: LAN_IP,
         httpPort: HTTP_PORT,
         wsPort: WS_PORT,
@@ -105,11 +113,20 @@ const httpServer = Bun.serve({
       return withCors(Response.json({ ok: true, version: '0.1.0' }));
     }
 
-    // Status (polled by ExpoQrButton in the Onlook editor)
+    // Status (polled by ExpoQrButton in the Onlook editor).
+    // Calling `ensureRuntimeStaged` re-checks disk; if macOS launchd
+    // tmpwatch wiped `/tmp/cf-builds/*` since startup, this re-stages
+    // the runtime so the same hash points at live files again.
     if (path === '/status') {
+      let hash: string | null;
+      try {
+        hash = ensureRuntimeStaged();
+      } catch {
+        hash = currentRuntimeHash;
+      }
       return withCors(
         createHttpStatusResponse({
-          runtimeHash: currentRuntimeHash,
+          runtimeHash: hash,
           clients: wsClients.size,
           lanIp: LAN_IP,
           httpPort: HTTP_PORT,
