@@ -290,7 +290,21 @@ export class SandboxManager {
             console.info('[SandboxManager] Running initial browser-metro bundle for branch', branchId);
             await bundler.bundle();
         } catch (err) {
-            console.error('[SandboxManager] Initial bundle failed:', err);
+            // Empty / new-branch case: branch has `.onlook/` scaffolding
+            // but no source files yet. That's not an error — the watcher
+            // below will re-bundle when the first source file lands.
+            // Logging at error level floods the console for every empty
+            // branch on a multi-branch project (common: `main` + `branch1`
+            // where the user hasn't checked in anything on branch1 yet).
+            const message = err instanceof Error ? err.message : String(err);
+            if (message.includes('No entry file found')) {
+                console.info(
+                    '[SandboxManager] Initial bundle skipped — branch has no source files yet:',
+                    branchId,
+                );
+            } else {
+                console.error('[SandboxManager] Initial bundle failed:', err);
+            }
         }
 
         // Watch the local Vfs for file changes and re-bundle on every
