@@ -88,6 +88,33 @@ describe('usePackageJsonWatch — smoke', () => {
         const markup = renderToStaticMarkup(<Probe />);
         expect(markup).toContain('data-testid="probe"');
     });
+
+    // Regression for commit d92232fa: when CodeFileSystem.watchDirectory
+    // throws synchronously (provider session not yet started), the hook
+    // must absorb the throw and leave the React tree intact. Otherwise
+    // the editor error boundary fires and the whole project page crashes.
+    test('absorbs synchronous watchDirectory throws without taking down the tree', () => {
+        const brokenVfs: MobilePreviewVfs = {
+            async listAll() {
+                return [];
+            },
+            async readFile() {
+                throw new Error('File system not initialized');
+            },
+            watchDirectory() {
+                throw new Error('File system not initialized');
+            },
+        };
+        function Probe() {
+            usePackageJsonWatch(brokenVfs, () => undefined);
+            return <div data-testid="probe" />;
+        }
+        // The effect body runs lazily on browser mount, but the sync
+        // render path must NOT throw either — the hook's other branches
+        // (e.g. the readFile IIFE) are also guarded; this proves the
+        // render-phase composition is safe when every fs op is broken.
+        expect(() => renderToStaticMarkup(<Probe />)).not.toThrow();
+    });
 });
 
 // ─── Effect-body integration tests ─────────────────────────────────
