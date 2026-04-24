@@ -71,17 +71,11 @@ export function MobilePreviewDevPanelContainer({
     className,
     panelClassName,
 }: MobilePreviewDevPanelContainerProps) {
-    const { relayWsClient, status } = useMobilePreviewStatus({
+    const { relayWsClient, sessionId } = useMobilePreviewStatus({
         serverBaseUrl,
         fileSystem,
     });
     const snap = useRelaySnapshot(relayWsClient);
-
-    // The preview session id is only stable when status === 'ready'.
-    // MobileDevPanel filters its tabs by sessionId; passing undefined
-    // shows all sessions (safer than a stale id pointing at a past
-    // session).
-    const sessionId = relayWsClient ? extractSessionId(status) : undefined;
 
     // Split the snapshot's combined messages into (a) WsMessage[] for
     // the console/network/error/select/tap tabs and (b) a mutable
@@ -98,29 +92,11 @@ export function MobilePreviewDevPanelContainer({
             messages={messages}
             acks={acks}
             preflightSummary={preflightSummary}
-            sessionId={sessionId}
+            sessionId={sessionId ?? undefined}
             defaultTab={defaultTab}
             className={className}
             panelClassName={panelClassName}
         />
     );
-}
-
-/**
- * Pull the sessionId out of a ready-state status. Defensive —
- * `status.manifestUrl` exists on ready but parsing it here would
- * duplicate the work `useRelayWsClient` already did. If the client
- * is live we know the sessionId is valid; we just don't have it
- * exposed on its own. Return undefined so MobileDevPanel renders
- * unfiltered — acceptable UX degradation.
- */
-function extractSessionId(
-    _status: ReturnType<typeof useMobilePreviewStatus>['status'],
-): string | undefined {
-    // TODO(phase-9): expose sessionId as a first-class field on
-    // `useMobilePreviewStatus`'s return (or via `useRelayWsClient`)
-    // so the dev panel can filter correctly. For now render all
-    // sessions; the common case is one session per editor anyway.
-    return undefined;
 }
 

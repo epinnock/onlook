@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { renderQrSvg } from '@/services/expo-relay';
+import { parseManifestUrl } from '@/services/expo-relay/manifest-url';
 import type { RelayWsClient } from '@/services/expo-relay/relay-ws-client';
 import {
     buildMobilePreviewBundle,
@@ -67,6 +68,16 @@ export interface UseMobilePreviewStatusResult {
      * wire-in needed for the PostHog soak signal to start flowing.
      */
     relayWsClient: RelayWsClient | null;
+    /**
+     * Preview session id — the bundleHash extracted from the ready-
+     * state manifestUrl. Null unless `status.kind === 'ready'` AND the
+     * URL is well-formed. MobileDevPanel uses this to filter its tabs
+     * so the console / network / acks streams only show events from
+     * the currently-connected session (stale ids from a prior boot are
+     * dropped). Resolves the Phase 9 TODO previously documented in
+     * `MobilePreviewDevPanelContainer.extractSessionId`.
+     */
+    sessionId: string | null;
 }
 
 interface MobilePreviewStatusResponse {
@@ -351,5 +362,14 @@ export function useMobilePreviewStatus(
         manifestUrl: manifestUrlForRelay,
     });
 
-    return { status, isOpen, open, close, retry, relayWsClient };
+    // Derive sessionId from the ready-state manifestUrl so dev-panel
+    // callers can filter streams by session without re-implementing
+    // parseManifestUrl. Null on non-ready states (idle/opening/failed)
+    // or on malformed URLs — same nullability contract as relayWsClient.
+    const sessionId =
+        status.kind === 'ready' && status.manifestUrl
+            ? (parseManifestUrl(status.manifestUrl)?.bundleHash ?? null)
+            : null;
+
+    return { status, isOpen, open, close, retry, relayWsClient, sessionId };
 }
