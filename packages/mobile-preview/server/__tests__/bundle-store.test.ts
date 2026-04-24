@@ -91,4 +91,36 @@ describe('ensureRuntimeStaged — stale-cache invalidation', () => {
         expect(existsSync(paths.iosBundlePath)).toBe(true);
         expect(existsSync(paths.manifestFieldsPath)).toBe(true);
     });
+
+    test('re-stages when the per-hash directory itself is gone', () => {
+        // Stronger form of the previous test — simulates a wider tmpwatch
+        // run that removes the HASH dir entirely, not just its contents.
+        // mkdirSync { recursive: true } inside ensureRuntimeStaged must
+        // recreate the directory before writing.
+        const h1 = ensureRuntimeStaged({ runtimePath: runtimeFile, storeDir });
+        const paths = getBundleStorePaths(h1, storeDir);
+        rmSync(paths.dir, { recursive: true, force: true });
+        expect(existsSync(paths.dir)).toBe(false);
+
+        const h2 = ensureRuntimeStaged({ runtimePath: runtimeFile, storeDir });
+        expect(h2).toBe(h1);
+        expect(existsSync(paths.iosBundlePath)).toBe(true);
+        expect(existsSync(paths.manifestFieldsPath)).toBe(true);
+    });
+
+    test('first re-stage keeps the cached hash, not throws, even if only a subset is missing', () => {
+        // Partial-wipe scenario: only manifest-fields.json is gone. The
+        // existsSync guard checks iosBundlePath AND manifestFieldsPath, so
+        // missing EITHER should trigger a re-stage. Locks in that the
+        // guard is a logical AND (both must be present to reuse cache).
+        const h1 = ensureRuntimeStaged({ runtimePath: runtimeFile, storeDir });
+        const paths = getBundleStorePaths(h1, storeDir);
+        rmSync(paths.manifestFieldsPath);
+        expect(existsSync(paths.iosBundlePath)).toBe(true);
+        expect(existsSync(paths.manifestFieldsPath)).toBe(false);
+
+        const h2 = ensureRuntimeStaged({ runtimePath: runtimeFile, storeDir });
+        expect(h2).toBe(h1);
+        expect(existsSync(paths.manifestFieldsPath)).toBe(true);
+    });
 });
