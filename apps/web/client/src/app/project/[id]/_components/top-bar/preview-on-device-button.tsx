@@ -19,6 +19,10 @@
  * the Rules of Hooks aren't violated when we early-return `null` from
  * the outer observer for non-ExpoBrowser branches.
  */
+import { useMemo } from 'react';
+import { observer } from 'mobx-react-lite';
+
+import { Button } from '@onlook/ui/button';
 
 import { InstallStatusIndicator } from '@/components/editor/install-status/InstallStatusIndicator';
 import { useEditorEngine } from '@/components/store/editor';
@@ -27,9 +31,6 @@ import { env } from '@/env';
 import { useInstallDependencies } from '@/hooks/use-install-dependencies';
 import { useMobilePreviewStatus } from '@/hooks/use-mobile-preview-status';
 import { createProviderInstallClient } from '@/services/mobile-preview/provider-install-client';
-import { Button } from '@onlook/ui/button';
-import { observer } from 'mobx-react-lite';
-import { useMemo } from 'react';
 
 export const PreviewOnDeviceButton = observer(function PreviewOnDeviceButton() {
     const editorEngine = useEditorEngine();

@@ -26,16 +26,14 @@
  * **Not wired anywhere yet.** Ships as a composable primitive; the
  * future install-flow composes it with a sandbox-install invoker.
  */
-
 import { useEffect, useRef } from 'react';
 
 import type { MobilePreviewVfs } from '@/services/mobile-preview';
+import type { DependencyDiff, DependencyField } from '@/services/mobile-preview/package-json-diff';
 import {
     DEFAULT_DEPENDENCY_FIELDS,
     diffPackageDependencies,
     isDependencyDiffEmpty,
-    type DependencyDiff,
-    type DependencyField,
 } from '@/services/mobile-preview/package-json-diff';
 
 const PACKAGE_JSON_PATH = 'package.json';
@@ -78,9 +76,7 @@ export function usePackageJsonWatch(
                 const raw = await fileSystem.readFile(PACKAGE_JSON_PATH);
                 if (disposed) return;
                 lastContentRef.current =
-                    typeof raw === 'string'
-                        ? raw
-                        : new TextDecoder().decode(raw);
+                    typeof raw === 'string' ? raw : new TextDecoder().decode(raw);
             } catch {
                 // File may not exist yet — that's fine. Treat as null
                 // baseline; the first edit will appear as all-added.
@@ -88,8 +84,7 @@ export function usePackageJsonWatch(
             }
         })();
 
-        const fields =
-            options.fields ?? DEFAULT_DEPENDENCY_FIELDS;
+        const fields = options.fields ?? DEFAULT_DEPENDENCY_FIELDS;
 
         // CodeFileSystem.watchDirectory throws synchronously before the
         // underlying provider session initializes. Guard so a pre-boot
@@ -97,48 +92,46 @@ export function usePackageJsonWatch(
         let unsubscribe: () => void;
         try {
             unsubscribe = fileSystem.watchDirectory('.', async (event) => {
-            if (disposed) return;
-            if (event.type !== 'create' && event.type !== 'update') return;
-            // The watcher fires for every path in the tree; filter to
-            // the root package.json (most Vfs implementations surface
-            // leading './' or a raw relative path).
-            if (
-                event.path !== PACKAGE_JSON_PATH &&
-                event.path !== `./${PACKAGE_JSON_PATH}` &&
-                event.path !== `/${PACKAGE_JSON_PATH}`
-            ) {
-                return;
-            }
-            try {
-                const raw = await fileSystem.readFile(PACKAGE_JSON_PATH);
                 if (disposed) return;
-                const nextContent =
-                    typeof raw === 'string'
-                        ? raw
-                        : new TextDecoder().decode(raw);
-                const diff = diffPackageDependencies(
-                    lastContentRef.current,
-                    nextContent,
-                    fields,
-                );
-                if (!isDependencyDiffEmpty(diff)) {
-                    try {
-                        handlerRef.current(diff);
-                    } catch {
-                        // Consumer errors must not affect the watcher
-                        // loop — swallow.
-                    }
+                if (event.type !== 'create' && event.type !== 'update') return;
+                // The watcher fires for every path in the tree; filter to
+                // the root package.json (most Vfs implementations surface
+                // leading './' or a raw relative path).
+                if (
+                    event.path !== PACKAGE_JSON_PATH &&
+                    event.path !== `./${PACKAGE_JSON_PATH}` &&
+                    event.path !== `/${PACKAGE_JSON_PATH}`
+                ) {
+                    return;
                 }
-                // Always advance the ref so the next diff is
-                // relative to what we've observed (even when diff is
-                // empty — could still be a whitespace / ordering
-                // change we want to treat as the new baseline).
-                lastContentRef.current = nextContent;
-            } catch {
-                // Read failure — treat as no-op. The next event will
-                // re-try.
-            }
-        });
+                try {
+                    const raw = await fileSystem.readFile(PACKAGE_JSON_PATH);
+                    if (disposed) return;
+                    const nextContent =
+                        typeof raw === 'string' ? raw : new TextDecoder().decode(raw);
+                    const diff = diffPackageDependencies(
+                        lastContentRef.current,
+                        nextContent,
+                        fields,
+                    );
+                    if (!isDependencyDiffEmpty(diff)) {
+                        try {
+                            handlerRef.current(diff);
+                        } catch {
+                            // Consumer errors must not affect the watcher
+                            // loop — swallow.
+                        }
+                    }
+                    // Always advance the ref so the next diff is
+                    // relative to what we've observed (even when diff is
+                    // empty — could still be a whitespace / ordering
+                    // change we want to treat as the new baseline).
+                    lastContentRef.current = nextContent;
+                } catch {
+                    // Read failure — treat as no-op. The next event will
+                    // re-try.
+                }
+            });
         } catch (err) {
             console.warn(
                 '[package-json-watch] watchDirectory unavailable (fileSystem not initialized); ' +

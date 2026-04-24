@@ -25,15 +25,12 @@
  */
 import type { OverlayAckMessage, WsMessage } from '@onlook/mobile-client-protocol';
 
-import { useMobilePreviewStatus } from '@/hooks/use-mobile-preview-status';
-import { useRelaySnapshot } from '@/hooks/use-relay-snapshot';
+import type { MobileDevPanelTabKey } from './MobileDevPanel';
 import type { PreflightSummary } from '@/services/expo-relay/preflight-formatter';
 import type { MobilePreviewVfs } from '@/services/mobile-preview';
-
-import {
-    MobileDevPanel,
-    type MobileDevPanelTabKey,
-} from './MobileDevPanel';
+import { useMobilePreviewStatus } from '@/hooks/use-mobile-preview-status';
+import { useRelaySnapshot } from '@/hooks/use-relay-snapshot';
+import { MobileDevPanel } from './MobileDevPanel';
 
 export interface MobilePreviewDevPanelContainerProps {
     /**
@@ -81,7 +78,7 @@ export function MobilePreviewDevPanelContainer({
     // readonly buffer; spread to a mutable array for the prop.
     const messages: WsMessage[] = [];
     for (const m of snap?.messages ?? []) {
-        if (m.type !== 'onlook:overlayAck') messages.push(m as WsMessage);
+        if (m.type !== 'onlook:overlayAck') messages.push(m);
     }
     const acks: OverlayAckMessage[] = [...(snap?.acks ?? [])];
 
@@ -97,4 +94,3 @@ export function MobilePreviewDevPanelContainer({
         />
     );
 }
-

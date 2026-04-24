@@ -17,8 +17,8 @@
  * this workspace.
  */
 
-import { describe, expect, mock, test } from 'bun:test';
 import type * as React from 'react';
+import { describe, expect, mock, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 type MockBranch = {
@@ -33,19 +33,20 @@ interface MockEditorEngine {
     activeSandbox: { session: { provider: unknown } };
 }
 
-function makeEngine(overrides: {
-    activeBranch?: MockBranch;
-    provider?: unknown;
-} = {}): MockEditorEngine {
+function makeEngine(
+    overrides: {
+        activeBranch?: MockBranch;
+        provider?: unknown;
+    } = {},
+): MockEditorEngine {
     return {
         projectId: 'proj_1',
         fileSystem: {},
         branches: {
-            activeBranch:
-                overrides.activeBranch ?? {
-                    id: 'branch_1',
-                    sandbox: { providerType: 'expo_browser' },
-                },
+            activeBranch: overrides.activeBranch ?? {
+                id: 'branch_1',
+                sandbox: { providerType: 'expo_browser' },
+            },
         },
         activeSandbox: {
             session: { provider: overrides.provider ?? null },
@@ -111,9 +112,7 @@ mock.module('@/env', () => ({
 // Hold the mock return value in a ref so individual tests can swap it
 // without re-loading the module (bun's module table is read-only).
 interface InstallStatusForTest {
-    status:
-        | { kind: 'idle' }
-        | { kind: 'installing'; specifiers: string[] };
+    status: { kind: 'idle' } | { kind: 'installing'; specifiers: string[] };
     cancel: () => void;
 }
 const installStatusRef: { current: InstallStatusForTest } = {
@@ -147,11 +146,7 @@ mock.module('@/components/ui/qr-modal', () => ({
 // output is fed to the apps/web/client React 19 SSR renderer. Stubbing
 // keeps the test's element factory consistent (single React copy).
 mock.module('@onlook/ui/button', () => ({
-    Button: ({
-        children,
-        onClick,
-        ...rest
-    }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
+    Button: ({ children, onClick, ...rest }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
         <button type="button" onClick={onClick} {...rest}>
             {children}
         </button>

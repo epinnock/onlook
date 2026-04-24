@@ -15,12 +15,13 @@
  * the wrong architecture for the browser-only target — see
  * `plans/article-native-preview-from-browser.md`.
  */
-
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import type { QrModalStatus } from '@/components/ui/qr-modal';
+import type { RelayWsClient } from '@/services/expo-relay/relay-ws-client';
+import type { MobilePreviewPipeline, MobilePreviewVfs } from '@/services/mobile-preview';
 import { renderQrSvg } from '@/services/expo-relay';
 import { parseManifestUrl } from '@/services/expo-relay/manifest-url';
-import type { RelayWsClient } from '@/services/expo-relay/relay-ws-client';
 import {
     buildMobilePreviewBundle,
     createMobilePreviewPipeline,
@@ -28,14 +29,9 @@ import {
     pushMobilePreviewUpdate,
     resolveMobilePreviewPipelineConfig,
     shouldSyncMobilePreviewPath,
-    type MobilePreviewPipeline,
-    type MobilePreviewVfs,
 } from '@/services/mobile-preview';
 import { registerTwoTierEsbuildServiceFactory } from '@/services/mobile-preview/pipelines/two-tier';
-
 import { useRelayWsClient } from './use-relay-ws-client';
-
-import type { QrModalStatus } from '@/components/ui/qr-modal';
 
 export interface UseMobilePreviewStatusOptions {
     /**
@@ -98,9 +94,7 @@ function ensureTwoTierEsbuildFactoryRegistered(): void {
         await esbuild.initialize({ wasmURL: '/esbuild.wasm' });
         return {
             async build(options) {
-                const result = await esbuild.build(
-                    options as Parameters<typeof esbuild.build>[0],
-                );
+                const result = await esbuild.build(options as Parameters<typeof esbuild.build>[0]);
                 return {
                     outputFiles: result.outputFiles?.map((f) => ({
                         path: f.path,
@@ -131,8 +125,7 @@ export function useMobilePreviewStatus(
         if (!baseUrl) {
             setStatus({
                 kind: 'error',
-                message:
-                    'Missing mobile preview server URL — set NEXT_PUBLIC_MOBILE_PREVIEW_URL.',
+                message: 'Missing mobile preview server URL — set NEXT_PUBLIC_MOBILE_PREVIEW_URL.',
             });
             return;
         }
@@ -244,13 +237,9 @@ export function useMobilePreviewStatus(
                     didPushRef.current = true;
                 }
             } catch (error) {
-                const message =
-                    error instanceof Error ? error.message : String(error);
+                const message = error instanceof Error ? error.message : String(error);
 
-                console.error(
-                    '[mobile-preview] Failed to build/push preview bundle:',
-                    error,
-                );
+                console.error('[mobile-preview] Failed to build/push preview bundle:', error);
 
                 // Surface the error in the QR modal only on the very first
                 // push attempt and only while the modal is actually open.
@@ -326,10 +315,7 @@ export function useMobilePreviewStatus(
                     }
                 };
             } catch (err) {
-                console.error(
-                    '[mobile-preview] Failed to open BroadcastChannel:',
-                    err,
-                );
+                console.error('[mobile-preview] Failed to open BroadcastChannel:', err);
             }
         }
 
@@ -366,9 +352,7 @@ export function useMobilePreviewStatus(
     // additional wire-in. Gated on `isOpen` to avoid opening a
     // long-lived WS in the background when the modal is closed.
     const manifestUrlForRelay =
-        isOpen && status.kind === 'ready' && status.manifestUrl
-            ? status.manifestUrl
-            : null;
+        isOpen && status.kind === 'ready' && status.manifestUrl ? status.manifestUrl : null;
     const { client: relayWsClient } = useRelayWsClient({
         manifestUrl: manifestUrlForRelay,
     });

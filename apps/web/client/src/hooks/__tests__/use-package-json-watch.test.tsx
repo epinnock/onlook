@@ -14,24 +14,17 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 import type { MobilePreviewVfs } from '@/services/mobile-preview';
 import type { DependencyDiff } from '@/services/mobile-preview/package-json-diff';
-
 import { usePackageJsonWatch } from '../use-package-json-watch';
 
 function makeVfs(initial: Record<string, string>): {
     vfs: MobilePreviewVfs;
     setFile: (path: string, contents: string) => void;
-    fireEvent: (
-        type: 'create' | 'update' | 'delete' | 'rename',
-        path: string,
-    ) => void;
+    fireEvent: (type: 'create' | 'update' | 'delete' | 'rename', path: string) => void;
     readCalls: () => string[];
 } {
     const files = new Map<string, string>(Object.entries(initial));
     const listeners: Array<
-        (e: {
-            type: 'create' | 'update' | 'delete' | 'rename';
-            path: string;
-        }) => void
+        (e: { type: 'create' | 'update' | 'delete' | 'rename'; path: string }) => void
     > = [];
     const readCalls: string[] = [];
     return {
@@ -66,8 +59,7 @@ function makeVfs(initial: Record<string, string>): {
     };
 }
 
-const mkPkg = (deps: Record<string, string>) =>
-    JSON.stringify({ name: 'a', dependencies: deps });
+const mkPkg = (deps: Record<string, string>) => JSON.stringify({ name: 'a', dependencies: deps });
 
 describe('usePackageJsonWatch — smoke', () => {
     test('renders without throwing when fileSystem is null', () => {
