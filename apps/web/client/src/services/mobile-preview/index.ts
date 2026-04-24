@@ -40,6 +40,13 @@ export {
     TwoTierMobilePreviewPipeline,
     twoTierMobilePreviewCapabilities,
 } from './pipelines/two-tier';
+
+// Phase 9 `#51` — package install/update primitives. Exported so
+// the editor's future integration can pull from the canonical
+// service boundary rather than deep-importing each module.
+export * from './package-json-diff';
+export * from './dependency-install';
+export * from './provider-install-client';
 export type {
     MobilePreviewEvalBundle,
     MobilePreviewFileChangeEvent,
