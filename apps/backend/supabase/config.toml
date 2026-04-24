@@ -45,3 +45,14 @@ verify_jwt = false
 [storage.buckets.preview_images]
 public = true
 file_size_limit = "10MiB"
+
+# ExpoBrowser project bucket. Backs the ExpoBrowser provider's file
+# system — object keys follow `<projectId>/<branchId>/<filePath>`.
+# Access is gated by the RLS policies in migration
+# `20260407210000_expo_projects_storage_rls.sql` which join to
+# `public.user_projects` so only project owners can read/write.
+# `supabase start` auto-creates the bucket locally from this block;
+# production gets it through the same policies installed via Terraform.
+[storage.buckets."expo-projects"]
+public = false
+file_size_limit = "50MiB"
