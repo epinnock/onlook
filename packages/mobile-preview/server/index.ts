@@ -148,6 +148,18 @@ const httpServer = Bun.serve({
     // Manifest
     const manifestMatch = path.match(/^\/manifest\/([a-f0-9]{64})$/);
     if (manifestMatch) {
+      // Self-heal: if the requested hash matches our current runtime
+      // AND the on-disk bundle is missing (tmpwatch wiped it), re-stage
+      // before serving. Clients that hit /manifest directly (Expo
+      // updater, QR scan without the editor's /status poll) would
+      // otherwise see a 404 after a midnight wipe.
+      if (manifestMatch[1] === currentRuntimeHash) {
+        try {
+          ensureRuntimeStaged();
+        } catch {
+          /* ignore — handler will 404 below if the stage failed */
+        }
+      }
       return handleManifestRequest(req, manifestMatch[1], {
         storeDir: STORE_DIR,
         lanIp: LAN_IP,
@@ -159,6 +171,16 @@ const httpServer = Bun.serve({
     const bundleMatch = path.match(/^\/([a-f0-9]{64})(?:\.ts)?\.bundle$/);
     if (bundleMatch) {
       const hash = bundleMatch[1];
+      // Same self-heal guard as /manifest — the iPhone runtime follows
+      // up manifest fetch with a bundle fetch, and tmpwatch could fire
+      // between the two even on the same midnight.
+      if (hash === currentRuntimeHash) {
+        try {
+          ensureRuntimeStaged();
+        } catch {
+          /* ignore — readBundle will surface the 404 below */
+        }
+      }
       const platform = toBundlePlatform(url.searchParams.get('platform'));
       const body = readBundle(hash, platform, STORE_DIR);
       if (!body) {
