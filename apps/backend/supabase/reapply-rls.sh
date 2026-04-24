@@ -16,12 +16,20 @@ set -euo pipefail
 
 MIGRATIONS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/migrations"
 
-# Resolve the local supabase_db container name. The project_id in
-# config.toml drives the suffix. Fallback to a glob search.
-CONTAINER=$(docker ps --filter 'name=supabase_db_' --format '{{.Names}}' | head -n 1)
+# No-op early in environments that don't have a running supabase_db container
+# (CI, production deploy pipelines, etc). Those targets use `supabase db push`
+# against the remote project directly, which applies all migrations including
+# the RLS ones — re-running them here would be redundant. Local dev is the
+# only consumer that needs this script.
+if ! command -v docker >/dev/null 2>&1; then
+    echo "[reapply-rls] docker CLI unavailable — skipping (not a local-dev environment)."
+    exit 0
+fi
+
+CONTAINER=$(docker ps --filter 'name=supabase_db_' --format '{{.Names}}' 2>/dev/null | head -n 1)
 if [[ -z "${CONTAINER}" ]]; then
-    echo "[reapply-rls] No supabase_db_* container running — start with \`bun run backend:start\` first." >&2
-    exit 1
+    echo "[reapply-rls] No supabase_db_* container running — skipping. Start locally with \`bun run backend:start\` if you need RLS reapplied."
+    exit 0
 fi
 
 echo "[reapply-rls] Reapplying RLS policies via ${CONTAINER}"
