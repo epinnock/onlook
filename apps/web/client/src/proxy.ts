@@ -15,6 +15,10 @@ export const config = {
          * - favicon.ico (favicon file)
          * Feel free to modify this pattern to include more paths.
          */
-        '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+        // `v1/runners` short-circuits to a dedicated route handler so
+        // Cursor-IDE preflight polling doesn't pile up behind the
+        // Supabase-session middleware (each hit compiled the not-found
+        // page — 4+ min latency under load).
+        '/((?!_next/static|_next/image|favicon.ico|v1/runners|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
     ],
 };
