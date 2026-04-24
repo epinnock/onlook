@@ -93,6 +93,16 @@ const DIR_PLACEHOLDER = '.onlook-dir-placeholder';
 
 const DEFAULT_BUCKET = 'expo-projects';
 
+/**
+ * Returns true when `path` contains a `..` segment that would escape
+ * the current directory. Matches the segment as a whole — `..foo` is
+ * allowed, `foo/../bar` is rejected. Exported for tests.
+ */
+export function containsParentSegment(path: string): boolean {
+    if (!path) return false;
+    return path.split(/[/\\]/).some((segment) => segment === '..');
+}
+
 export class SupabaseStorageAdapter implements StorageAdapter {
     private readonly client: SupabaseClient;
     private readonly bucket: string;
@@ -123,6 +133,20 @@ export class SupabaseStorageAdapter implements StorageAdapter {
             .replace(/^\/+/, '')
             .replace(/^\.\//, '')
             .replace(/^\.$/, '');
+
+        // Reject path traversal: `..` segments in the logical path would
+        // escape the `${projectId}/${branchId}` prefix if Supabase ever
+        // resolved the key, and at minimum produce weird storage keys
+        // that break the fromKey reverse mapping and listing UX. The
+        // editor's CodeFileSystem normalizes paths before reaching the
+        // provider, so this only fires on a misbehaving caller — treat it
+        // as a programming error rather than a silent fallback.
+        if (containsParentSegment(trimmed)) {
+            throw new Error(
+                `ExpoBrowser storage: path traversal segment (".") rejected in logical path: ${logicalPath}`,
+            );
+        }
+
         return trimmed.length === 0 ? this.prefix : `${this.prefix}/${trimmed}`;
     }
 

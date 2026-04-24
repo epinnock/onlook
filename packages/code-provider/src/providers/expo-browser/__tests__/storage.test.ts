@@ -12,7 +12,7 @@
  */
 import { describe, expect, it } from 'bun:test';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { SupabaseStorageAdapter } from '../utils/storage';
+import { SupabaseStorageAdapter, containsParentSegment } from '../utils/storage';
 
 const PROJECT_ID = '2bffdddd-0000-0000-0000-000000000001';
 const BRANCH_ID = 'fceb0000-0000-0000-0000-0000000000aa';
@@ -125,5 +125,61 @@ describe('SupabaseStorageAdapter.fromKey', () => {
 
     it("round-trips fromKey(toKey('foo/bar')) to 'foo/bar'", () => {
         expect(adapter.publicFromKey(adapter.publicToKey('foo/bar'))).toBe('foo/bar');
+    });
+
+    // Regression for path-traversal defense added in the Phase 9 #51
+    // bug-hunt session. toKey used to accept `..` segments verbatim,
+    // producing weird storage keys like
+    // `<projectId>/<branchId>/../../etc/passwd` that would break
+    // fromKey's reverse mapping and (under a misconfigured Supabase
+    // Storage setup) could escape the per-user prefix. Now toKey
+    // throws on any `..` segment.
+    it('rejects path-traversal: plain ".." throws', () => {
+        expect(() => adapter.publicToKey('..')).toThrow(/traversal/i);
+    });
+
+    it("rejects path-traversal: '../etc' throws", () => {
+        expect(() => adapter.publicToKey('../etc')).toThrow(/traversal/i);
+    });
+
+    it("rejects path-traversal: 'foo/../bar' throws (mid-path)", () => {
+        expect(() => adapter.publicToKey('foo/../bar')).toThrow(/traversal/i);
+    });
+
+    it("rejects path-traversal: 'foo/bar/..' throws (trailing)", () => {
+        expect(() => adapter.publicToKey('foo/bar/..')).toThrow(/traversal/i);
+    });
+
+    it('does NOT reject `..foo` as a path segment (prefix-only match)', () => {
+        expect(() => adapter.publicToKey('..foo/bar')).not.toThrow();
+    });
+
+    it('does NOT reject `foo..` as a path segment', () => {
+        expect(() => adapter.publicToKey('foo../bar')).not.toThrow();
+    });
+});
+
+describe('containsParentSegment', () => {
+    it('returns true for `..`, `a/../b`, `../a`, `a/..`', () => {
+        expect(containsParentSegment('..')).toBe(true);
+        expect(containsParentSegment('a/../b')).toBe(true);
+        expect(containsParentSegment('../a')).toBe(true);
+        expect(containsParentSegment('a/..')).toBe(true);
+    });
+
+    it('returns false for segment-prefix/suffix matches (`..foo`, `foo..`)', () => {
+        expect(containsParentSegment('..foo')).toBe(false);
+        expect(containsParentSegment('foo..')).toBe(false);
+        expect(containsParentSegment('foo..bar/baz')).toBe(false);
+    });
+
+    it('handles backslash separators (Windows paths)', () => {
+        expect(containsParentSegment('a\\..\\b')).toBe(true);
+    });
+
+    it('returns false for empty / plain paths', () => {
+        expect(containsParentSegment('')).toBe(false);
+        expect(containsParentSegment('foo/bar.ts')).toBe(false);
+        expect(containsParentSegment('.hidden')).toBe(false);
     });
 });
