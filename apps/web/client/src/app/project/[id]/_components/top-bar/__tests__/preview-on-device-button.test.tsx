@@ -108,11 +108,23 @@ mock.module('@/env', () => ({
 // Phase 9 #51 wire-in surface — the button renders an
 // `InstallStatusIndicator` next to itself. Stub the hook so the test
 // stays agnostic of its internal timers/refs and trivially renders.
-mock.module('@/hooks/use-install-dependencies', () => ({
-    useInstallDependencies: () => ({
+// Hold the mock return value in a ref so individual tests can swap it
+// without re-loading the module (bun's module table is read-only).
+interface InstallStatusForTest {
+    status:
+        | { kind: 'idle' }
+        | { kind: 'installing'; specifiers: string[] };
+    cancel: () => void;
+}
+const installStatusRef: { current: InstallStatusForTest } = {
+    current: {
         status: { kind: 'idle' as const },
         cancel: () => undefined,
-    }),
+    },
+};
+
+mock.module('@/hooks/use-install-dependencies', () => ({
+    useInstallDependencies: () => installStatusRef.current,
 }));
 
 mock.module('@/services/mobile-preview/provider-install-client', () => ({
@@ -216,5 +228,45 @@ describe('PreviewOnDeviceButton', () => {
         previewRef.current.close();
         expect(previewRef.current.closeCalls).toBe(1);
         expect(previewRef.current.isOpen).toBe(false);
+    });
+
+    // Phase 9 #51 wire-in: the button renders an InstallStatusIndicator
+    // alongside itself. The default mocked hook returns idle → the pill
+    // renders null. Flip the ref to 'installing' and the indicator
+    // surfaces next to the button; flipping back to 'idle' restores the
+    // no-UI-noise contract.
+    test('InstallStatusIndicator renders beside the button', () => {
+        engineRef.current = makeEngine();
+        previewRef.current = createPreviewHandle();
+        installStatusRef.current = {
+            status: {
+                kind: 'installing' as const,
+                specifiers: ['lodash'],
+            },
+            cancel: () => undefined,
+        };
+        try {
+            const html = renderHtml();
+            expect(html).toContain('data-testid="install-status-indicator"');
+            expect(html).toContain('Installing');
+            expect(html).toContain('lodash');
+            // Button still present alongside the pill
+            expect(html).toContain('data-testid="preview-on-device-button"');
+        } finally {
+            installStatusRef.current = {
+                status: { kind: 'idle' as const },
+                cancel: () => undefined,
+            };
+        }
+    });
+
+    test('InstallStatusIndicator renders nothing when idle', () => {
+        engineRef.current = makeEngine();
+        previewRef.current = createPreviewHandle();
+        // default install status is idle
+        const html = renderHtml();
+        expect(html).not.toContain('data-testid="install-status-indicator"');
+        // Button still present
+        expect(html).toContain('data-testid="preview-on-device-button"');
     });
 });
