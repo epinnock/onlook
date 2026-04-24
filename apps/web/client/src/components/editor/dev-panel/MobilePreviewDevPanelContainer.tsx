@@ -6,24 +6,22 @@
  * wire-in chain:
  *
  *   useMobilePreviewStatus      (commit a3dbd5d4)
- *     ↓ relayWsClient
+ *     ↓ relayWsClient, sessionId
  *   useRelaySnapshot            (commit 47448a33)
  *     ↓ {messages, acks}
  *   MobileDevPanel              (this component)
  *
- * The parent layout decides where to render this — currently no
- * editor surface calls it (see Phase 9 Task A remaining UI work).
- * When a render slot is chosen, this is a one-line drop-in:
+ * Wired into the editor layout (commit 38fd856c) as a synthetic
+ * "Mobile Preview" tab inside `terminal-area.tsx`, gated to
+ * ExpoBrowser branches. Keep the composition encapsulated here so
+ * downstream callers don't have to re-derive the hook chain — they
+ * only pick a tab/pane and drop this component in:
  *
  *   <MobilePreviewDevPanelContainer
  *     serverBaseUrl={env.NEXT_PUBLIC_MOBILE_PREVIEW_URL}
  *     fileSystem={branch.fileSystem}
  *     defaultTab="console"
  *   />
- *
- * Separating the composition from the layout slot means whoever
- * lands the editor integration doesn't have to re-derive the hook
- * chain — they pick a tab/pane and drop this component in.
  */
 import type { OverlayAckMessage, WsMessage } from '@onlook/mobile-client-protocol';
 
