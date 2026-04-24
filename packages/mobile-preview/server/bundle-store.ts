@@ -77,9 +77,27 @@ export function readBundle(
 }
 
 export function ensureRuntimeStaged(options: RuntimeStageOptions = {}): string {
-  if (currentRuntimeHash) return currentRuntimeHash;
-
   const runtimePath = options.runtimePath ?? RUNTIME_BUNDLE_PATH;
+  const storeDir = options.storeDir ?? STORE_DIR;
+
+  // Check the cached hash BUT confirm the on-disk files still exist.
+  // macOS's launchd tmpwatch job periodically wipes `/tmp/cf-builds/*`
+  // at midnight, so a long-running server would happily hand out a
+  // stale `currentRuntimeHash` that points at an empty directory —
+  // every manifest request then 404s until the server is restarted.
+  // Re-stage when we detect the cache is a lie.
+  if (currentRuntimeHash) {
+    const cachedPaths = getBundleStorePaths(currentRuntimeHash, storeDir);
+    if (
+      existsSync(cachedPaths.manifestFieldsPath) &&
+      existsSync(cachedPaths.iosBundlePath)
+    ) {
+      return currentRuntimeHash;
+    }
+    // Cache is stale — fall through to re-stage.
+    currentRuntimeHash = null;
+  }
+
   if (!existsSync(runtimePath)) {
     throw new Error(
       `Runtime bundle not found at ${runtimePath}. Run: bun run packages/mobile-preview/server/build-runtime.ts`,
@@ -88,7 +106,7 @@ export function ensureRuntimeStaged(options: RuntimeStageOptions = {}): string {
 
   const bundle = readFileSync(runtimePath);
   const hash = createHash('sha256').update(bundle).digest('hex');
-  const paths = getBundleStorePaths(hash, options.storeDir ?? STORE_DIR);
+  const paths = getBundleStorePaths(hash, storeDir);
 
   mkdirSync(paths.dir, { recursive: true });
   writeFileSync(paths.iosBundlePath, bundle);
