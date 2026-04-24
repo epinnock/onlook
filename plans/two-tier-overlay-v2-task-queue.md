@@ -221,7 +221,7 @@ first via #14)**.
 | 48 | done (primitive) | `resolvePureJsModule(artifact, specifier)` composes the bare-import resolver. Editor fetch plumbing shipped via `createRemotePureJsCache` + `createLayeredPureJsCache` (see #47). Still pending: the production overlay-bundler build step that instantiates a layered cache and wires it into esbuild resolve — lives with Phase 9 package-install flow (#51). |
 | 49 | done | `mergePureJsArtifactIntoOverlay` bundles pure-JS modules into the overlay graph. `baseId` sequentially allocated; `entryId` points at the main factory. |
 | 50 | done | `DISALLOWED_NATIVE_ALIASES` + `preflightAbiV1Imports` reject native-backed packages with `kind: 'unsupported-native'` before build. |
-| 51 | pending | `package.json` install/update editor flow — Phase 9 work. |
+| 51 | done | `package.json` install/update editor flow — all 7 primitives + Phase 11b telemetry + UI wire-in shipped. Commit `38fd856c` (2026-04-23) renders `InstallStatusIndicator` beside the Preview-on-Device button and `MobilePreviewDevPanelContainer` as a synthetic "Mobile Preview" tab in `terminal-area.tsx`, both gated to ExpoBrowser branches. Validated E2E: editor → Preview button → QR modal → manifest URL → `exp://` deep-link reaches iPhone 16 Pro sim (OnlookMobileClient). Commit `d92232fa` bundled a real-bug fix caught during the walkthrough: `useMobilePreviewStatus` + `usePackageJsonWatch` now guard `fileSystem.watchDirectory` against an uninitialized `CodeFileSystem` (threw synchronously when the sandbox provider hadn't started, crashing the editor boundary). Web-client suite 682/0 green post-wire-in. |
 | 52 | done | Representative-package coverage in `pure-js-package.test.ts` (14 tests): lodash (CJS, multi-module), zod (CJS, deep typed subpaths), nanoid (ESM-CJS interop, single-module), ESM-only specimen (`__esModule` flag + default + named exports), cache round-trip across three shapes, subpath priority (`subpaths` wins over raw module-key fallback). Browser-bundler full suite: 168 pass. |
 | 53 | done | `OverlayAssetManifest` + `AssetDescriptor` schema in abi-v1.ts. Image/font/svg/media/json/text/binary descriptors. |
 | 54 | done | Image imports (png/jpg/jpeg/webp/gif/avif/bmp/ico) covered by `createAssetsInlinePlugin` (≤8 KB inlined as `data:` URL) + `createAssetsR2Plugin` (>8 KB uploaded with sha256 content-hash key). Scale variants shipped 2026-04-23 via `parseScaleSuffix` in `assets-resolve.ts`: `icon@2x.png` → `descriptor.scale=2`, `icon@3x.png` → 3, `icon@1.5x.png` → 1.5, plus platform-prefix support (`icon.ios@2x.png` → 2). Image dimensions extracted via `extractImageDimensions` (PNG IHDR / GIF logical screen / WebP VP8/VP8L/VP8X / BMP / JPEG SOF marker walk). |
@@ -311,7 +311,7 @@ ADR-0009 + Phase 11a implementation (`two-tier.ts` v1 branch behind the flag).
 | `#23–25` | Native C++ JSI wiring on mini Xcode 16.4 — separate optimization project. |
 | `#29` / `#77` | `onlook-client-v2` target on `browser-metro` is iframe-rewire follow-up. |
 | `#31` | Multi-module split — single-module esbuild output is sufficient today. |
-| `#51` | Phase 9 editor UI for package install/update flow. |
+| `#51` | ~~Phase 9 editor UI for package install/update flow.~~ **CLOSED 2026-04-23** via commit `38fd856c`. |
 | `#85` | Maestro flow on physical device — operator-gated. |
 | `#89–94` | Phase 11b (flip default) needs 7-day soak operator + real telemetry sink per ADR-0009. |
 
