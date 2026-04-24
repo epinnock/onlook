@@ -28,6 +28,25 @@ function resolveProjectPath(sandboxId: string, relativePath: string): string {
 }
 
 const EXPO_WEB_TEMPLATE_PATH = 'web/index.html';
+
+/**
+ * Ordered entry-file candidates for preload-script injection (Strategy 2
+ * in `injectPreloadScriptIntoExpoTemplate`). Order matches
+ * `browser-metro`'s `entry-resolver.ts` precedence so the injector
+ * modifies whichever file the bundler actually resolves as the entry.
+ *
+ * Exported so tests can lock the shape and consumers can reuse the
+ * same ordering for related passes (e.g. the router-config detection).
+ */
+export const EXPO_PRELOAD_ENTRY_CANDIDATES: readonly string[] = [
+    'index.tsx',
+    'index.ts',
+    'index.jsx',
+    'index.js',
+    'App.tsx',
+    'App.jsx',
+    'App.js',
+];
 const EXPO_WEB_TEMPLATE_FALLBACK = `<!DOCTYPE html>
 <html lang="en">
   <head>
@@ -228,23 +247,10 @@ export async function injectPreloadScriptIntoExpoTemplate(provider: Provider, sa
     }
 
     // Strategy 2: Inject runtime import into the project's entry file.
-    // This is needed for CSB templates with custom Express servers that
-    // don't use web/index.html AND for ExpoBrowser branches where the
-    // user's entry point happens to be a TypeScript variant. Order
-    // matches browser-metro's entry-resolver.ts so we inject into
-    // whichever file the bundler actually resolves as the entry.
-    const entryFiles = [
-        'index.tsx',
-        'index.ts',
-        'index.jsx',
-        'index.js',
-        'App.tsx',
-        'App.jsx',
-        'App.js',
-    ];
+    // See EXPO_PRELOAD_ENTRY_CANDIDATES for the full precedence list.
     const importLine = `import './${ONLOOK_PRELOAD_SCRIPT_FILE}';\n`;
 
-    for (const entryFile of entryFiles) {
+    for (const entryFile of EXPO_PRELOAD_ENTRY_CANDIDATES) {
         try {
             const entryPath = resolveProjectPath(sandboxId, entryFile);
             const response = await provider.readFile({ args: { path: entryPath } });
