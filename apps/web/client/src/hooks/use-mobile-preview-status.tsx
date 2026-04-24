@@ -299,6 +299,7 @@ export function useMobilePreviewStatus(
         // button but defer the subscription; the BroadcastChannel branch
         // below remains the primary push signal in that window.
         let stopWatching: (() => void) | null = null;
+        let fileSystemReady = false;
         try {
             stopWatching = fileSystem.watchDirectory('/', (event) => {
                 if (!shouldSyncMobilePreviewPath(event.path)) {
@@ -306,6 +307,7 @@ export function useMobilePreviewStatus(
                 }
                 schedulePush();
             });
+            fileSystemReady = true;
         } catch (err) {
             console.warn(
                 '[mobile-preview] watchDirectory unavailable (fileSystem not initialized); ' +
@@ -331,7 +333,16 @@ export function useMobilePreviewStatus(
             }
         }
 
-        schedulePush();
+        // Only fire the initial push when the filesystem was actually
+        // available — otherwise pushLatestBundle immediately trips on
+        // fileSystem.listAll() for the same "File system not initialized"
+        // reason, logging a misleading error on every render. The
+        // BroadcastChannel onmessage path below will kick off the first
+        // push once the canvas iframe hydrates and broadcasts its first
+        // bundle event.
+        if (fileSystemReady) {
+            schedulePush();
+        }
 
         return () => {
             disposed = true;
