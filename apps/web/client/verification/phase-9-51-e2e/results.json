@@ -84,6 +84,34 @@
                 "full-page capture confirms no hidden errors below the fold"
             ],
             "proof": "fullPage screenshot shows the editor shell + QR modal overlay with no off-screen error states"
+        },
+        "07-sim-post-rls-fix": {
+            "state": "passed",
+            "screenshot": "results/07-sim-post-rls-fix.png",
+            "assertions": [
+                "OnlookMobileClient still renders cleanly on iPhone 16 Pro sim after commit efb9286c + 1c55af93",
+                "Empty OverlayHost = correct idle state (bridgeless WebSocket.onmessage doesn't dispatch; cf-expo-relay events channel is the live path, covered by smoke-e2e.sh)"
+            ],
+            "proof": "xcrun simctl io screenshot captured via SSH to scry-farmer@192.168.0.17 post-RLS fix"
+        },
+        "08-post-rls-fix-qr-modal": {
+            "state": "passed",
+            "screenshot": "results/08-post-rls-fix-qr-modal.png",
+            "assertions": [
+                "QR modal still works after commit efb9286c (RLS fix)",
+                "manifest URL unchanged from baseline"
+            ],
+            "proof": "snapshot confirms QR dialog + copy button + fallback URL all render"
+        },
+        "09-editor-post-bundle-success": {
+            "state": "passed",
+            "screenshot": "results/09-editor-post-bundle-success.png",
+            "assertions": [
+                "[browser-metro] bundled 3 modules in 689ms (entry: index.tsx) — console log confirms the browser-metro iframe-preview bundler successfully compiled seeded source files after the RLS fix let the sync engine pull them",
+                "Empty-branch (branch1) logs info 'Initial bundle skipped — branch has no source files yet' instead of error (commit 1c55af93)",
+                "Editor UI renders cleanly — canvas iframe in place, top-bar buttons intact, chat panel populated"
+            ],
+            "proof": "console.info log chain: attachBrowserMetro → Running initial bundle → bundled 3 modules in 689ms"
         }
     },
     "not_yet_verified_in_this_run": [
@@ -119,10 +147,17 @@
         }
     ],
     "summary": {
-        "total_scenarios": 6,
-        "passed": 6,
+        "total_scenarios": 9,
+        "passed": 9,
         "deferred": 2,
         "failed": 0,
-        "issues_surfaced": 3
+        "issues_surfaced": 3,
+        "bugs_fixed_during_verification": [
+            "LOCAL-ENV-01 (RLS upload rejection) → fixed by efb9286c + 6f905539 (auto-reapply RLS after drizzle push, CI-safe)",
+            "LOCAL-ENV-03 (penpal infinite retry) → fixed by a33e0405 (cap at 10 attempts)",
+            "cosmetic: 'Initial bundle failed' red-error on empty branches → fixed by 1c55af93 (downgrade to info log)",
+            "architectural: mobile-preview runtime stale after tmpwatch wipe → fixed by 9339ac60 + f09e5abd + adc61266 (self-heal /status + /manifest + /:hash.bundle)",
+            "architectural: watchDirectory throws on uninitialized fs → fixed by d92232fa + 5000a2fb (defensive guards + initial-push skip)"
+        ]
     }
 }
