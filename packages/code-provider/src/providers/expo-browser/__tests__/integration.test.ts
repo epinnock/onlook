@@ -2,7 +2,11 @@
  * ExpoBrowserProvider integration smoke test.
  *
  * Exercises the wired provider against the live local Supabase instance
- * (http://127.0.0.1:54321 + the 'expo-projects' bucket created in setup).
+ * (http://127.0.0.1:54321). The required `expo-projects` bucket is seeded
+ * by the SQL migration `20260424000000_expo_projects_bucket.sql` (plus the
+ * declarative `[storage.buckets."expo-projects"]` block in
+ * apps/backend/supabase/config.toml) — so a fresh `supabase start` + `bun
+ * run db:push` produces a working local environment without manual setup.
  *
  * Skipped automatically when local Supabase is unreachable so this file
  * doesn't break the unit-test suite for developers without the backend
