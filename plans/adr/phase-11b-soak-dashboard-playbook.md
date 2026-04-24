@@ -63,6 +63,24 @@ emitOverlayPipelineMarker({ kind: 'flag-flip', pipeline: 'overlay-v1', note: 'Ph
 ```
 Dashboard queries can filter on `properties.kind` to align before/after windows without guessing deployment timestamps.
 
+### `onlook_dependency_install` — Phase 9 `#51` install events
+
+Emitted by `emitInstallTelemetry()` (default-wired from `useInstallDependencies`). Fires on every install state transition — idle, installing, ready, failed.
+
+| Field | Type | Notes |
+|---|---|---|
+| `pipeline` | `'overlay-v1'` | Fixed — `#51` is v1-only; legacy doesn't have an install flow |
+| `kind` | `'idle' \| 'installing' \| 'ready' \| 'failed'` | Install state |
+| `specifierCount` | number? | How many dependencies were changed |
+| `durationMs` | number? | Wall-clock ms for the install (ready/failed only) |
+| `retryCount` | number? | Retries performed (0 = first-try success) |
+| `error` | string? | Failure message (failed only) |
+
+Use cases:
+- **Spike-detection on `kind='failed'`** — if install failure rate goes up, the user base is in a broken-deps state, not a pipeline problem.
+- **Correlation with `onlook_overlay_push`** — see Q7 below.
+- **Session-level audit trail** — replay a session's timeline to diagnose "which overlay push was slow BECAUSE an install was in flight".
+
 ## Canary questions + PostHog query recipes
 
 All queries use PostHog's `events` source, filtered by the event name. Breakdown or group-by `properties.pipeline` to split v1 vs legacy.
@@ -164,6 +182,31 @@ Formula: count(distinct properties.ok)
 Alert threshold: any session where both ok=true and ok=false occur in a 5-min window (count = 2)
 ```
 
+### Q7 — install-to-mount correlation
+
+**Motivation.** Phase 9 `#51` (package install flow) ships install events as `onlook_dependency_install`. Need to verify that a package install doesn't regress subsequent overlay mount latency — e.g. "after adding lodash, overlay mounts take 300ms longer because the user code now imports more deps".
+
+```
+Events: onlook_dependency_install WHERE kind='ready'
+       → join with onlook_overlay_push WHERE timestamp > install.timestamp
+         AND timestamp < install.timestamp + 10 minutes
+Formula: p95(push.durationMs) per install event
+Pass gate: p95 mount latency post-install within 20% of pre-install baseline
+Stop gate: post-install p95 > pre-install p95 + 200ms sustained
+```
+
+Cross-event correlation may need a PostHog funnel or a manual join on `sessionId`. A simpler sentinel: spike in `onlook_dependency_install WHERE kind='failed'` coincident with push-failure-rate uptick → user is in broken-install state, not a v1 pipeline problem.
+
+```
+Install failure rate check:
+Events: onlook_dependency_install
+Filter: properties.kind = 'failed'
+Formula: count(*) / sum(count of installs)
+Alert: failure rate > 5% sustained for 30min
+```
+
+The install event also carries `specifierCount` so the dashboard can slice "install latency by package count" — a p95 that grows linearly is healthy (larger installs take longer), but a flat-line or inversion is a signal.
+
 ## Go / no-go decision at T+7d
 
 Pass if:
@@ -173,6 +216,7 @@ Pass if:
 - Q4 v1 soft-cap rate within 0.5% of legacy
 - Q5 no single error kind sustained > 10/hour for more than 2 consecutive hours
 - Q6 < 0.1% of sessions show ping-pong
+- Q7 install failure rate < 5%, post-install p95 mount within 20% of pre-install (only evaluate if Phase 9 `#51` UI lands during the soak — otherwise N/A)
 
 If any single gate fails, revert the flag (one line in `two-tier.ts`) and investigate before re-arming.
 
