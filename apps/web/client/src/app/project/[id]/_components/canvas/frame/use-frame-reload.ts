@@ -7,15 +7,27 @@ const RELOAD_INCREMENT_MS = 1000;
 const PENPAL_BASE_TIMEOUT_MS = 5000;
 const PENPAL_TIMEOUT_INCREMENT_MS = 2000;
 const PENPAL_MAX_TIMEOUT_MS = 30000;
+// Stop retrying after this many failed reload attempts. Without a cap,
+// a fundamentally broken preview iframe (no source files, unresolvable
+// sandbox, etc.) triggers the `handleConnectionFailed` → scheduleReload
+// → penpal-timeout cycle forever, which floods the editor console with
+// "Penpal connection timeout after 30000ms" every minute or so and
+// wastes CPU re-parsing the iframe DOM.
+const MAX_RELOAD_ATTEMPTS = 10;
 
 export function useFrameReload() {
     const reloadCountRef = useRef(0);
     const reloadTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const [reloadKey, setReloadKey] = useState(0);
     const [isPenpalConnected, setIsPenpalConnected] = useState(false);
+    const [hasGivenUp, setHasGivenUp] = useState(false);
 
     const immediateReload = () => {
-        setReloadKey(prev => prev + 1);
+        // Manual reload resets the give-up state so the user can try
+        // again after fixing whatever broke.
+        setHasGivenUp(false);
+        reloadCountRef.current = 0;
+        setReloadKey((prev) => prev + 1);
     };
 
     const scheduleReload = () => {
@@ -24,10 +36,23 @@ export function useFrameReload() {
         }
 
         reloadCountRef.current += 1;
-        const reloadDelay = RELOAD_BASE_DELAY_MS + (RELOAD_INCREMENT_MS * (reloadCountRef.current - 1));
+        if (reloadCountRef.current > MAX_RELOAD_ATTEMPTS) {
+            // Give up — don't schedule another attempt. The user can
+            // call `immediateReload` (clicking the reload button in the
+            // frame header) to reset the counter.
+            setHasGivenUp(true);
+            console.warn(
+                `[frame] Gave up reconnecting after ${MAX_RELOAD_ATTEMPTS} attempts. ` +
+                    `Click reload to try again.`,
+            );
+            return;
+        }
+        const reloadDelay =
+            RELOAD_BASE_DELAY_MS +
+            RELOAD_INCREMENT_MS * (reloadCountRef.current - 1);
 
         reloadTimeoutRef.current = setTimeout(() => {
-            setReloadKey(prev => prev + 1);
+            setReloadKey((prev) => prev + 1);
             reloadTimeoutRef.current = null;
         }, reloadDelay);
     };
@@ -52,6 +77,7 @@ export function useFrameReload() {
     useEffect(() => {
         if (isPenpalConnected && reloadCountRef.current > 0) {
             reloadCountRef.current = 0;
+            setHasGivenUp(false);
         }
     }, [isPenpalConnected]);
 
@@ -72,6 +98,7 @@ export function useFrameReload() {
     return {
         reloadKey,
         isPenpalConnected,
+        hasGivenUp,
         immediateReload,
         handleConnectionFailed,
         handleConnectionSuccess,
