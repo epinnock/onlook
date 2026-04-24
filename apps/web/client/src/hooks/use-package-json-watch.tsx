@@ -91,7 +91,12 @@ export function usePackageJsonWatch(
         const fields =
             options.fields ?? DEFAULT_DEPENDENCY_FIELDS;
 
-        const unsubscribe = fileSystem.watchDirectory('.', async (event) => {
+        // CodeFileSystem.watchDirectory throws synchronously before the
+        // underlying provider session initializes. Guard so a pre-boot
+        // render doesn't take down the editor tree.
+        let unsubscribe: () => void;
+        try {
+            unsubscribe = fileSystem.watchDirectory('.', async (event) => {
             if (disposed) return;
             if (event.type !== 'create' && event.type !== 'update') return;
             // The watcher fires for every path in the tree; filter to
@@ -134,6 +139,14 @@ export function usePackageJsonWatch(
                 // re-try.
             }
         });
+        } catch (err) {
+            console.warn(
+                '[package-json-watch] watchDirectory unavailable (fileSystem not initialized); ' +
+                    'install pipeline will stay idle until the fileSystem boots.',
+                err,
+            );
+            unsubscribe = () => undefined;
+        }
 
         return () => {
             disposed = true;

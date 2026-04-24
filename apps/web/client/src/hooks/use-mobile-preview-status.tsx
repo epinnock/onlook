@@ -280,12 +280,28 @@ export function useMobilePreviewStatus(
         // watchDirectory signal fires during initial hydration but misses
         // some subsequent writes (e.g. inline code edits), which is why
         // auto-push previously stopped working after the first render.
-        const stopWatching = fileSystem.watchDirectory('/', (event) => {
-            if (!shouldSyncMobilePreviewPath(event.path)) {
-                return;
-            }
-            schedulePush();
-        });
+        //
+        // Guard against an uninitialized file system — CodeFileSystem
+        // throws synchronously from `watchDirectory` before its underlying
+        // provider session has started. When a user lands on a project
+        // whose sandbox hasn't booted yet, we still render the preview
+        // button but defer the subscription; the BroadcastChannel branch
+        // below remains the primary push signal in that window.
+        let stopWatching: (() => void) | null = null;
+        try {
+            stopWatching = fileSystem.watchDirectory('/', (event) => {
+                if (!shouldSyncMobilePreviewPath(event.path)) {
+                    return;
+                }
+                schedulePush();
+            });
+        } catch (err) {
+            console.warn(
+                '[mobile-preview] watchDirectory unavailable (fileSystem not initialized); ' +
+                    'falling back to BroadcastChannel signal.',
+                err,
+            );
+        }
 
         let bundleChannel: BroadcastChannel | null = null;
         if (typeof BroadcastChannel !== 'undefined') {
@@ -311,7 +327,7 @@ export function useMobilePreviewStatus(
             if (pushTimer) {
                 clearTimeout(pushTimer);
             }
-            stopWatching();
+            stopWatching?.();
             bundleChannel?.close();
         };
         // `isOpen` is intentionally read inside the effect (for the
