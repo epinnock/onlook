@@ -40,6 +40,13 @@ export const OVERLAY_PIPELINE_MARKER_EVENT = 'onlook_overlay_pipeline_marker';
  * observed by `subscribeRelayEvents` (Phase 11b Q5b eval-latency signal).
  */
 export const OVERLAY_ACK_EVENT = 'onlook_overlay_ack';
+/**
+ * Phase 9 `#51` install-event capture. Fires on every
+ * `installDependencies()` state transition so the soak dashboard can
+ * correlate install latency + failure rates with overlay metrics —
+ * e.g. did an `npm install` stall before a push-slow cluster?
+ */
+export const OVERLAY_INSTALL_EVENT = 'onlook_dependency_install';
 /** ADR-0001 §"Performance envelope" eval-latency target (ms). */
 export const EVAL_LATENCY_TARGET_MS = 100;
 
@@ -185,6 +192,41 @@ export function emitOverlayPipelineMarker(marker: OverlayPipelineMarker): void {
  * `plans/adr/phase-11b-soak-dashboard-playbook.md` Q5b for the
  * dashboard consumer shape.
  */
+/**
+ * Route a `DependencyInstallStatus` transition through PostHog AND
+ * the console sink. Fires once per install state change from
+ * `installDependencies()`.
+ *
+ * Operators correlate `onlook_dependency_install` events with
+ * `onlook_overlay_push` / `onlook_overlay_ack` clusters to diagnose
+ * "the mount-latency spike right after a package install" class of
+ * regressions. Pipeline tag defaults to 'overlay-v1' since `#51` is
+ * v1-only — legacy doesn't have the install flow.
+ */
+export interface InstallTelemetryEvent {
+    readonly kind: 'idle' | 'installing' | 'ready' | 'failed';
+    readonly specifierCount?: number;
+    readonly durationMs?: number;
+    readonly retryCount?: number;
+    readonly error?: string;
+}
+
+export function emitInstallTelemetry(event: InstallTelemetryEvent): void {
+    if (event.kind === 'failed') {
+        console.warn('[onlook.install]', event);
+    } else {
+        console.info('[onlook.install]', event);
+    }
+    captureSafely(OVERLAY_INSTALL_EVENT, {
+        pipeline: 'overlay-v1' as OverlayPipelineTag,
+        kind: event.kind,
+        specifierCount: event.specifierCount,
+        durationMs: event.durationMs,
+        retryCount: event.retryCount,
+        error: event.error,
+    });
+}
+
 export function emitOverlayAckTelemetry(ack: OverlayAckMessage): void {
     // `Number.isFinite` filters NaN + ±Infinity defensively — the schema
     // already rejects these, but callers that skip schema validation

@@ -39,6 +39,7 @@ import {
     type DependencyField,
     type DependencyDiff,
 } from '@/services/mobile-preview/package-json-diff';
+import { emitInstallTelemetry } from '@/services/expo-relay/overlay-telemetry-sink';
 
 import { usePackageJsonWatch } from './use-package-json-watch';
 
@@ -130,6 +131,28 @@ export function useInstallDependencies(
                     if (controllerRef.current === controller) {
                         setStatus(s);
                     }
+                    // Phase 11b soak: emit every transition to PostHog
+                    // (always — even stale-install transitions are
+                    // useful signal for the soak dashboard). The
+                    // emitter is never-throw per the sink contract.
+                    emitInstallTelemetry({
+                        kind: s.kind,
+                        specifierCount:
+                            s.kind === 'installing' ||
+                            s.kind === 'ready' ||
+                            s.kind === 'failed'
+                                ? s.specifiers.length
+                                : undefined,
+                        durationMs:
+                            s.kind === 'ready' || s.kind === 'failed'
+                                ? s.durationMs
+                                : undefined,
+                        retryCount:
+                            s.kind === 'ready' || s.kind === 'failed'
+                                ? s.retryCount
+                                : undefined,
+                        error: s.kind === 'failed' ? s.error : undefined,
+                    });
                 },
             });
         },

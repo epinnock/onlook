@@ -22,11 +22,13 @@ import type { OverlayAckMessage } from '@onlook/mobile-client-protocol';
 
 import {
     EVAL_LATENCY_TARGET_MS,
+    emitInstallTelemetry,
     emitOverlayAckTelemetry,
     emitOverlayPerfGuardrail,
     emitOverlayPipelineMarker,
     emitOverlayPushTelemetry,
     OVERLAY_ACK_EVENT,
+    OVERLAY_INSTALL_EVENT,
     OVERLAY_PERF_EVENT,
     OVERLAY_PIPELINE_MARKER_EVENT,
     OVERLAY_PUSH_EVENT,
@@ -349,5 +351,66 @@ describe('emitOverlayAckTelemetry', () => {
             mountDurationMs: NaN as unknown as number,
         });
         expect(capture.mock.calls[0]![1]!.evalLatencyOverBudget).toBe(false);
+    });
+});
+
+describe('emitInstallTelemetry', () => {
+    test('captures installing kind with specifierCount, no duration', () => {
+        const capture = installMockPostHog();
+        emitInstallTelemetry({
+            kind: 'installing',
+            specifierCount: 3,
+        });
+        const [eventName, props] = capture.mock.calls[0]!;
+        expect(eventName).toBe(OVERLAY_INSTALL_EVENT);
+        expect(props!.pipeline).toBe('overlay-v1');
+        expect(props!.kind).toBe('installing');
+        expect(props!.specifierCount).toBe(3);
+        expect(props!.durationMs).toBeUndefined();
+    });
+
+    test('captures ready kind with duration + retryCount', () => {
+        const capture = installMockPostHog();
+        emitInstallTelemetry({
+            kind: 'ready',
+            specifierCount: 1,
+            durationMs: 3400,
+            retryCount: 0,
+        });
+        const props = capture.mock.calls[0]![1]!;
+        expect(props.kind).toBe('ready');
+        expect(props.durationMs).toBe(3400);
+        expect(props.retryCount).toBe(0);
+    });
+
+    test('failed kind routes to console.warn, carries error field', () => {
+        installMockPostHog();
+        emitInstallTelemetry({
+            kind: 'failed',
+            specifierCount: 2,
+            durationMs: 1000,
+            retryCount: 1,
+            error: 'network timeout',
+        });
+        expect(console.warn).toHaveBeenCalledTimes(1);
+        expect(console.info).not.toHaveBeenCalled();
+    });
+
+    test('idle kind routes to console.info', () => {
+        installMockPostHog();
+        emitInstallTelemetry({ kind: 'idle' });
+        expect(console.info).toHaveBeenCalledTimes(1);
+        expect(console.warn).not.toHaveBeenCalled();
+    });
+
+    test('swallows posthog throws (never-throw guarantee)', () => {
+        (globalThis as GlobalWithPostHog).posthog = {
+            capture: () => {
+                throw new Error('install capture boom');
+            },
+        };
+        expect(() =>
+            emitInstallTelemetry({ kind: 'installing', specifierCount: 1 }),
+        ).not.toThrow();
     });
 });
