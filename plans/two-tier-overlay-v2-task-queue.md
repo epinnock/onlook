@@ -643,3 +643,49 @@ baked bundle directly.
 Monitor watching `/tmp/xcode-build.log` for BUILD SUCCEEDED /
 FAILED / error / linker errors. Outcome will close Task B or
 surface specific compilation issues to address.
+
+### Phase 9 `#51` primitive chain — 7 pieces shipped autonomously
+
+After Task A + Task B closed, the session continued into Phase 9
+`#51` (package.json install/update editor flow). The original scope
+estimate was "multi-hour + sandbox protocol design blocker" — but
+by designing a `SandboxInstallClient` interface that any
+code-provider can satisfy (and they all do, via `runCommand`), the
+entire chain became autonomously composable:
+
+| # | Piece | Commit | Scope |
+|---|---|---|---|
+| 1 | `diffPackageDependencies()` | `c2285797` | Pure JSON diff with added/removed/changed/unchanged categorization. 14 tests. |
+| 2 | `formatDependencyDiff()` | `cf94750e` | Human-readable "Added 2: lodash, zod. Removed 1…" summary with truncation. 6 tests. |
+| 3 | `usePackageJsonWatch()` | `4310f95a` | Vfs-backed reactive hook — fires only on actual dependency change. 6 tests. |
+| 4 | `installDependencies()` + `SandboxInstallClient` | `faf16f99` | Orchestrator with status-machine + retry + AbortSignal. 10 tests. |
+| 5 | `createProviderInstallClient()` | `fb83fd4b` | Adapter that turns any `@onlook/code-provider` into a `SandboxInstallClient` via `runCommand`. 11 tests. |
+| 6 | `useInstallDependencies()` facade | `5a647a9c` | Single-hook composition with abort-on-new-diff + unmount cleanup. 4 smoke tests. |
+| 7 | `InstallStatusIndicator` UI | `71fd81c5` | Zero-framework-dep status pill; idle→null, installing with Cancel, ready with ms, failed with Retry. 11 tests. |
+| + | `emitInstallTelemetry()` | `ac11ad34` | Phase 11b sink extension — `onlook_dependency_install` event class with 5 tests. |
+| + | Q7 playbook docs | `598c8b68` | Install-to-mount correlation, post-install p95 gate, install failure rate alert. |
+
+**Complete wire-up is a single React tree:**
+
+```tsx
+const { status, cancel } = useInstallDependencies({
+  fileSystem,
+  client: createProviderInstallClient({ provider }),
+});
+return <InstallStatusIndicator status={status} onCancel={cancel} />;
+```
+
+**PostHog flows automatically** via the telemetry wiring — no
+additional call sites. Phase 11b dashboard Q7 correlates install
+events with subsequent overlay mounts.
+
+**Remaining blocker for visible `#51` functionality:** same UX
+decision as Task A — where to render the UI in the editor layout.
+Two components to place (both drop-in):
+- `MobilePreviewDevPanelContainer` (ack stream + console/network
+  tabs + preflight)
+- `InstallStatusIndicator` (install state pill)
+
+Recommended: terminal-area.tsx as a new dev-panel tab for the first;
+the install indicator can sit in the top-bar next to the QR button
+or in the terminal-area header.
