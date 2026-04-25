@@ -18,11 +18,22 @@
  */
 import {
     ABI_VERSION,
+    type OnlookRuntimeError,
     type OverlayAssetManifest,
     type OverlayMessage,
     type OverlayUpdateMessage,
     OverlayUpdateMessageSchema,
 } from '@onlook/mobile-client-protocol';
+
+/**
+ * Compatibility gate result for {@link PushOverlayV1Options.compatibility}.
+ * Mirrors `AbiHandshakeHandle.compatibility()` — pass `handle.compatibility`
+ * directly, or any callable that returns the same shape.
+ */
+export type PushOverlayCompatibilityResult =
+    | 'unknown'
+    | 'ok'
+    | OnlookRuntimeError;
 
 export interface OverlaySource {
     readonly code: string;
@@ -311,6 +322,19 @@ export interface PushOverlayV1Options {
     readonly maxRetries?: number;
     readonly retryBaseMs?: number;
     readonly onTelemetry?: ((event: PushOverlayTelemetry) => void) | null;
+    /**
+     * Phase 11b safety gate. When provided, the push is rejected (fail-
+     * closed) before the network round-trip if the phone's AbiHello has
+     * not arrived yet (`'unknown'`) or reports incompatibility (an
+     * `OnlookRuntimeError`). Pass `RelayWsClient`'s effective
+     * compatibility — typically the latest value captured by
+     * `onAbiCompatibility`, or `AbiHandshakeHandle.compatibility` directly.
+     *
+     * Omit on `'two-tier'` (legacy) callers and tests that don't model the
+     * handshake. With no gate the push proceeds verbatim (today's
+     * behavior).
+     */
+    readonly compatibility?: () => PushOverlayCompatibilityResult;
 }
 
 /**
@@ -406,6 +430,31 @@ export async function pushOverlayV1(
             error: result.error,
         });
         return result;
+    }
+
+    // Phase 11b compatibility gate — short-circuits before the network
+    // round-trip when the phone's AbiHello has not arrived (or arrived
+    // reporting incompatibility). Skipped when no gate is provided so
+    // legacy callers stay on the unchanged path. See ADR-0009 §"Pre-flip
+    // check" for why this gate matters.
+    if (options.compatibility) {
+        const status = options.compatibility();
+        if (status !== 'ok') {
+            const error =
+                status === 'unknown'
+                    ? 'phone abi handshake has not completed — pushOverlayV1 fail-closed (Phase 11b gate)'
+                    : `phone abi incompatible (${status.kind}): ${status.message}`;
+            const result: PushOverlayResult = { ok: false, error, attempts: 0 };
+            emit({
+                sessionId: options.sessionId,
+                attempts: 0,
+                durationMs: 0,
+                bytes: 0,
+                ok: false,
+                error,
+            });
+            return result;
+        }
     }
 
     const assets = options.assets ?? emptyAssetManifest();
