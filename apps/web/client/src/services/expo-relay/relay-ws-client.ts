@@ -169,6 +169,36 @@ export class RelayWsClient {
         };
     }
 
+    /**
+     * Replace the first buffered message matching `predicate` with the
+     * value returned by `replacer`. No-op when no entry matches.
+     *
+     * Phase 11b row #35 source-map decoration uses this to swap a raw
+     * `onlook:error` entry with its source-map-decorated version once
+     * the map resolves — without this primitive, the buffered messages
+     * path would either show duplicate rows or the operator would
+     * never see the resolved source frame. The middleware in
+     * `source-map-cache.ts::withSourceMapDecoration` is shaped for
+     * stream consumers; this method bridges to the buffer pattern.
+     *
+     * Match-by-identity in the simplest case (replacer returns a fresh
+     * object with the same `(sessionId, timestamp)` pair); the dev panel's
+     * downstream filters narrow by message type so the swap is
+     * transparent to existing tabs.
+     */
+    replaceMessageMatching(
+        predicate: (msg: WsMessage | OverlayAckMessage) => boolean,
+        replacer: (
+            msg: WsMessage | OverlayAckMessage,
+        ) => WsMessage | OverlayAckMessage,
+    ): boolean {
+        const idx = this.messagesBuf.findIndex(predicate);
+        if (idx === -1) return false;
+        const replaced = replacer(this.messagesBuf[idx]!);
+        this.messagesBuf[idx] = replaced;
+        return true;
+    }
+
     get state(): RelayWsOpenState {
         return this.stateValue;
     }

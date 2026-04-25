@@ -679,3 +679,105 @@ describe('RelayWsClient — disconnect idempotence + side-effect cleanup', () =>
         expect(states[states.length - 1]).toBe('closed');
     });
 });
+
+describe('RelayWsClient — replaceMessageMatching (Phase 11b row #35)', () => {
+    function makeErrorMsg(timestamp: number, sourceFile?: string) {
+        return {
+            type: 'onlook:error' as const,
+            sessionId: 'sess',
+            kind: 'js' as const,
+            message: 'boom',
+            timestamp,
+            ...(sourceFile && {
+                source: { fileName: sourceFile, lineNumber: 1, columnNumber: 0 },
+            }),
+        };
+    }
+
+    test('returns false when no match — buffer is unchanged', () => {
+        const sockets: MockWebSocket[] = [];
+        const c = new RelayWsClient({
+            relayBaseUrl: 'http://r:1',
+            sessionId: 'sess',
+            createSocket: (url) => {
+                const s = new MockWebSocket(url);
+                sockets.push(s);
+                return s as unknown as WebSocket;
+            },
+        });
+        sockets[0]!.fire('open');
+        const result = c.replaceMessageMatching(
+            () => false,
+            (msg) => msg,
+        );
+        expect(result).toBe(false);
+        expect(c.snapshot().messages).toHaveLength(0);
+        c.disconnect();
+    });
+
+    test('replaces the first matching entry in place; subsequent snapshot reflects swap', () => {
+        const sockets: MockWebSocket[] = [];
+        const c = new RelayWsClient({
+            relayBaseUrl: 'http://r:1',
+            sessionId: 'sess',
+            createSocket: (url) => {
+                const s = new MockWebSocket(url);
+                sockets.push(s);
+                return s as unknown as WebSocket;
+            },
+        });
+        sockets[0]!.fire('open');
+        // Inject an undecorated error via the wire.
+        sockets[0]!.fire('message', JSON.stringify(makeErrorMsg(1)));
+        const beforeSnap = c.snapshot();
+        expect(beforeSnap.messages).toHaveLength(1);
+
+        // Decorate it via the new primitive — same shape but with a
+        // populated source field.
+        const result = c.replaceMessageMatching(
+            (msg) =>
+                msg.type === 'onlook:error' && msg.timestamp === 1,
+            (_msg) => makeErrorMsg(1, 'App.tsx'),
+        );
+        expect(result).toBe(true);
+
+        const afterSnap = c.snapshot();
+        expect(afterSnap.messages).toHaveLength(1);
+        const replaced = afterSnap.messages[0];
+        if (replaced?.type === 'onlook:error') {
+            expect(replaced.source?.fileName).toBe('App.tsx');
+        } else {
+            throw new Error('expected onlook:error after replace');
+        }
+        c.disconnect();
+    });
+
+    test('only the first match is swapped; later matches stay raw', () => {
+        const sockets: MockWebSocket[] = [];
+        const c = new RelayWsClient({
+            relayBaseUrl: 'http://r:1',
+            sessionId: 'sess',
+            createSocket: (url) => {
+                const s = new MockWebSocket(url);
+                sockets.push(s);
+                return s as unknown as WebSocket;
+            },
+        });
+        sockets[0]!.fire('open');
+        sockets[0]!.fire('message', JSON.stringify(makeErrorMsg(1)));
+        sockets[0]!.fire('message', JSON.stringify(makeErrorMsg(2)));
+
+        c.replaceMessageMatching(
+            (msg) => msg.type === 'onlook:error',
+            (_msg) => makeErrorMsg(1, 'App.tsx'),
+        );
+
+        const messages = c.snapshot().messages;
+        expect(messages).toHaveLength(2);
+        if (messages[0]?.type === 'onlook:error' && messages[1]?.type === 'onlook:error') {
+            expect(messages[0].source?.fileName).toBe('App.tsx'); // first match decorated
+            expect(messages[1].source).toBeUndefined(); // second left raw
+        }
+        c.disconnect();
+    });
+});
