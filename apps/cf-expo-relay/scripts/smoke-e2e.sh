@@ -144,6 +144,18 @@ else
     fail "overlay v1 push fan-out — see [smoke-overlay-push] log lines above"
 fi
 
+# 7. Asset upload + check — the canonical PUT/HEAD /base-bundle/assets/<hash>
+#    endpoints used by the editor uploaders retargeted in 53bd29ff +
+#    321219b8. Smoke validates HEAD-unknown 404, PUT-first 201,
+#    HEAD-known 200, PUT-overwrite 200, GET round-trip with content-type +
+#    bytewise body match.
+echo "[smoke-e2e] asset upload + check round-trip"
+if bun "${SCRIPT_DIR}/smoke-asset-upload.ts" "http://localhost:${RELAY_PORT}"; then
+    ok "asset upload + check round-trip (PUT 201/200, HEAD 404/200, GET full body)"
+else
+    fail "asset upload + check — see [smoke-asset-upload] log lines above"
+fi
+
 echo "[smoke-e2e] all green"
 if [[ "$KEEP" -eq 1 ]]; then
     echo "[smoke-e2e] --keep: relay=$RELAY_PID cache=$CACHE_PID"
