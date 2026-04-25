@@ -35,8 +35,8 @@ Fires only when a push crosses an ADR-0001 §"Performance envelope" threshold. P
 | Field | Type | Notes |
 |---|---|---|
 | `pipeline` | `'overlay-v1' \| 'overlay-legacy'` | Primary segmentation dimension |
-| `category` | `'push-slow' \| 'push-retried' \| 'large-overlay' \| 'build-slow'` | Which threshold was crossed |
-| `severity` | `'warn' \| 'info'` | warn for push-slow/large-overlay/build-slow hard-cap; info for push-retried and soft-cap large-overlay |
+| `category` | `'push-slow' \| 'push-retried' \| 'large-overlay' \| 'build-slow' \| 'size-grew' \| 'size-shrunk'` | Which threshold was crossed |
+| `severity` | `'warn' \| 'info'` | warn for push-slow/large-overlay/build-slow hard-cap/size-grew; info for push-retried, soft-cap large-overlay, and size-shrunk |
 | `message` | string | Human-readable detail |
 | `sessionId`, `durationMs`, `bytes`, `attempts`, `ok` | (various) | Flattened from the underlying push telemetry |
 
@@ -44,6 +44,7 @@ Coverage (post-2026-04-23 wiring):
 - `push-slow` and `push-retried` — both pipelines, via `evaluatePushTelemetry` in every `onTelemetry` callback.
 - `large-overlay` — both pipelines, via `checkOverlaySize` on the wrapped output (legacy emits info/warn but does NOT fail the push; v1 emits then throws on `fail-hard`).
 - `build-slow` — both pipelines, via `evaluateBuildDuration` on the measured `buildDurationMs`.
+- `size-grew` and `size-shrunk` — both pipelines, via `evaluateSizeDelta` after every successful push. Compares against the previous successful push's wrapped byte size in the same pipeline-class instance. `size-grew` fires at ≥20% growth; `size-shrunk` fires at ≥10 KB drop. First push of a session emits nothing (no baseline yet); the baseline resets on `dispose()` and on session-id rotation.
 
 ### `onlook_overlay_pipeline_marker` — operator pivot markers
 

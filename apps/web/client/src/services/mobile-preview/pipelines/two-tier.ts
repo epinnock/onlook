@@ -21,6 +21,7 @@ import {
 import {
     evaluateBuildDuration,
     evaluatePushTelemetry,
+    evaluateSizeDelta,
 } from '@/services/expo-relay/perf-guardrails';
 import {
     pushOverlay,
@@ -139,6 +140,15 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
         | null;
     private sessionId: string | null;
     private resolvedService: BrowserBundlerEsbuildService | null;
+    /**
+     * Bytes of the previous successfully-pushed wrapped overlay; null until
+     * the first push lands. Used by `evaluateSizeDelta` to surface
+     * `size-grew`/`size-shrunk` perf-guardrail events when the user's overlay
+     * jumps in size between consecutive saves (regression candidate vs. a
+     * deliberate cleanup). Reset to null when the session id rotates so a
+     * new session doesn't compare against a stale baseline.
+     */
+    private previousOverlayBytes: number | null = null;
 
     constructor(
         config: MobilePreviewTwoTierPipelineConfig,
@@ -445,6 +455,19 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
                 throw new Error(`two-tier pipeline: push failed — ${pushResult.error}`);
             }
 
+            // Phase 11b soak signal — surface bundle-size regressions across
+            // consecutive successful pushes. Fires `size-grew` (warn) on a
+            // ≥20% jump or `size-shrunk` (info) on a ≥10 KB drop. Skipped on
+            // the first push of the session; reset whenever sessionId
+            // rotates above. Both pipeline branches feed the same dashboard
+            // segmentation as build-slow / push-slow / large-overlay.
+            const previousBytes = this.previousOverlayBytes;
+            const currentBytes = wrapped.code.length;
+            evaluateSizeDelta(previousBytes, currentBytes, (perfEvent) =>
+                emitOverlayPerfGuardrail(useV1 ? 'overlay-v1' : 'overlay-legacy', perfEvent),
+            );
+            this.previousOverlayBytes = currentBytes;
+
             const trimmedRelay = trimTrailingSlash(relayBaseUrl);
             const manifestUrl = `${trimmedRelay}/manifest/${sessionId}`;
 
@@ -512,6 +535,7 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
 
     dispose(): void {
         this.incremental.reset();
+        this.previousOverlayBytes = null;
     }
 
     private requireConfig(): { builderBaseUrl: string; relayBaseUrl: string } {
