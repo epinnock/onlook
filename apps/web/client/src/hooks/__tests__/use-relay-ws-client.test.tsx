@@ -172,6 +172,76 @@ describe('createRelayWsFromManifest', () => {
         result!.disconnect();
         expect(states).toContain('closed');
     });
+
+    test('Phase 11b: editorCapabilities arms the AbiHello handshake on open', () => {
+        const { sockets, createSocket } = makeFactory();
+        const editorCaps = {
+            abi: 'v1' as const,
+            baseHash: 'editor',
+            rnVersion: '0.81.6',
+            expoSdk: '54.0.0',
+            platform: 'ios' as const,
+            aliases: ['react'],
+        };
+        createRelayWsFromManifest(VALID_MANIFEST, {
+            createSocket,
+            editorCapabilities: editorCaps,
+        });
+        const ws = sockets[0]!;
+        ws.readyState = MockWebSocket.OPEN;
+        ws.fire('open');
+
+        // Editor's hello should have been sent immediately on open.
+        expect(ws.sent).toHaveLength(1);
+        const sent = JSON.parse(ws.sent[0]!);
+        expect(sent.type).toBe('abiHello');
+        expect(sent.role).toBe('editor');
+        expect(sent.runtime).toEqual(editorCaps);
+    });
+
+    test('Phase 11b: omitting editorCapabilities means NO handshake fires', () => {
+        const { sockets, createSocket } = makeFactory();
+        createRelayWsFromManifest(VALID_MANIFEST, { createSocket });
+        const ws = sockets[0]!;
+        ws.readyState = MockWebSocket.OPEN;
+        ws.fire('open');
+        expect(ws.sent).toEqual([]); // no editor hello sent
+    });
+
+    test('Phase 11b: onAbiCompatibility fires when phone hello arrives', () => {
+        const { sockets, createSocket } = makeFactory();
+        const compatCalls: Array<{ result: string | object; phone: object }> = [];
+        const editorCaps = {
+            abi: 'v1' as const,
+            baseHash: 'editor',
+            rnVersion: '0.81.6',
+            expoSdk: '54.0.0',
+            platform: 'ios' as const,
+            aliases: ['react'],
+        };
+        createRelayWsFromManifest(VALID_MANIFEST, {
+            createSocket,
+            editorCapabilities: editorCaps,
+            onAbiCompatibility: (result, phone) =>
+                compatCalls.push({ result, phone }),
+        });
+        const ws = sockets[0]!;
+        ws.readyState = MockWebSocket.OPEN;
+        ws.fire('open');
+
+        const phoneHello = {
+            type: 'abiHello' as const,
+            abi: 'v1' as const,
+            sessionId: VALID_HASH,
+            role: 'phone' as const,
+            runtime: { ...editorCaps, baseHash: 'phone' },
+        };
+        ws.fire('message', JSON.stringify(phoneHello));
+
+        expect(compatCalls).toHaveLength(1);
+        expect(compatCalls[0]!.result).toBe('ok');
+        expect((compatCalls[0]!.phone as { role: string }).role).toBe('phone');
+    });
 });
 
 describe('useRelayWsClient — hook render smoke', () => {

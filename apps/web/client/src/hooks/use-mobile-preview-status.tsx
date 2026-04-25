@@ -17,6 +17,12 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import type {
+    AbiHelloMessage,
+    OnlookRuntimeError,
+    RuntimeCapabilities,
+} from '@onlook/mobile-client-protocol';
+
 import type { QrModalStatus } from '@/components/ui/qr-modal';
 import type { RelayWsClient } from '@/services/expo-relay/relay-ws-client';
 import type { MobilePreviewPipeline, MobilePreviewVfs } from '@/services/mobile-preview';
@@ -74,6 +80,22 @@ export interface UseMobilePreviewStatusResult {
      * `MobilePreviewDevPanelContainer.extractSessionId`.
      */
     sessionId: string | null;
+    /**
+     * Phase 11b — latest AbiHello compatibility result. `'unknown'`
+     * until the phone sends its hello on the current socket; flips to
+     * `'ok'` or an `OnlookRuntimeError` on receipt; resets to
+     * `'unknown'` on socket close + reconnect. Pass to
+     * `<MobileDevPanel abiCompatibility={...}>` to render the
+     * AbiCompatibilityIndicator.
+     */
+    abiCompatibility: 'unknown' | 'ok' | OnlookRuntimeError;
+    /**
+     * Phase 11b — last AbiHello received from the phone, surfaced
+     * via the indicator's hover title for debugging the binary's
+     * advertised capabilities (rnVersion / expoSdk / aliases). Null
+     * when the handshake has not completed.
+     */
+    phoneHello: AbiHelloMessage | null;
 }
 
 interface MobilePreviewStatusResponse {
@@ -376,8 +398,48 @@ export function useMobilePreviewStatus(
     // long-lived WS in the background when the modal is closed.
     const manifestUrlForRelay =
         isOpen && status.kind === 'ready' && status.manifestUrl ? status.manifestUrl : null;
+    // Phase 11b — track the most recent handshake outcome in React
+    // state so the dev-panel re-renders when it changes. The
+    // `abiCompatibility` value flows into the AbiCompatibilityIndicator
+    // and (more importantly) gates pushOverlayV1 via the
+    // compatibilityProvider already wired at line 234. Reset to
+    // 'unknown' when the WS reconnects — the relay also resets its
+    // cached state on socket close so this stays in sync.
+    const [abiCompatibility, setAbiCompatibility] = useState<
+        'unknown' | 'ok' | OnlookRuntimeError
+    >('unknown');
+    const [phoneHello, setPhoneHello] = useState<AbiHelloMessage | null>(null);
+    // The editor side of the AbiHello carries stub capabilities — the
+    // editor isn't a phone; checkAbiCompatibility on the phone only
+    // gates on the abi version equality. The values below are
+    // documented as informational in `RuntimeCapabilities` and are
+    // refined when base-bundle wiring lands. Build once, reuse across
+    // reconnects.
+    const editorCapabilities = useRef<RuntimeCapabilities>({
+        abi: 'v1',
+        baseHash: 'editor',
+        rnVersion: '0.81.6',
+        expoSdk: '54.0.0',
+        platform: 'ios',
+        aliases: [],
+    });
+    // Reset the cached compatibility every time the manifestUrl
+    // changes — a different session means a different phone, so
+    // last-write-wins from a stale connection must not leak through.
+    useEffect(() => {
+        setAbiCompatibility('unknown');
+        setPhoneHello(null);
+    }, [manifestUrlForRelay]);
     const { client: relayWsClient } = useRelayWsClient({
         manifestUrl: manifestUrlForRelay,
+        editorCapabilities: editorCapabilities.current,
+        onAbiCompatibility: useCallback(
+            (result: 'ok' | OnlookRuntimeError, hello: AbiHelloMessage) => {
+                setAbiCompatibility(result);
+                setPhoneHello(hello);
+            },
+            [],
+        ),
     });
     // Mirror the live client into the ref the file-watch closure reads —
     // assign-on-render is the standard react pattern for "give me the
@@ -395,5 +457,15 @@ export function useMobilePreviewStatus(
             ? (parseManifestUrl(status.manifestUrl)?.bundleHash ?? null)
             : null;
 
-    return { status, isOpen, open, close, retry, relayWsClient, sessionId };
+    return {
+        status,
+        isOpen,
+        open,
+        close,
+        retry,
+        relayWsClient,
+        sessionId,
+        abiCompatibility,
+        phoneHello,
+    };
 }

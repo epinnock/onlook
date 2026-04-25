@@ -66,10 +66,11 @@ export function MobilePreviewDevPanelContainer({
     className,
     panelClassName,
 }: MobilePreviewDevPanelContainerProps) {
-    const { relayWsClient, sessionId } = useMobilePreviewStatus({
-        serverBaseUrl,
-        fileSystem,
-    });
+    const { relayWsClient, sessionId, abiCompatibility, phoneHello } =
+        useMobilePreviewStatus({
+            serverBaseUrl,
+            fileSystem,
+        });
     const snap = useRelaySnapshot(relayWsClient);
 
     // Split the snapshot's combined messages into (a) WsMessage[] for
@@ -89,6 +90,14 @@ export function MobilePreviewDevPanelContainer({
             preflightSummary={preflightSummary}
             sessionId={sessionId ?? undefined}
             defaultTab={defaultTab}
+            // Phase 11b — surface the editor's view of the AbiHello
+            // handshake state alongside the tab strip. Always passed
+            // (even on idle 'unknown') so the indicator renders
+            // proactively; the alternative (omit until 'ok') would
+            // hide the WAITING state which is the operator-useful
+            // signal during phone reconnect or initial handshake.
+            abiCompatibility={abiCompatibility}
+            phoneHello={phoneHello}
             className={className}
             panelClassName={panelClassName}
         />
