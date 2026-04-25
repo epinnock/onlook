@@ -8,8 +8,8 @@
  *   - Contains shell.js ONLY. `runtime.js` and its React + reconciler deps
  *     must be absent.
  *   - Evaluates cleanly under Hermes-mode stubs (the mobile-client's actual
- *     JS environment). No `typeof window` branch fires — entry-client-only.js
- *     has no such gate.
+ *     JS environment). entry-client-only.js has no runtime.js gate to begin
+ *     with — runtime.js is excluded from this bundle entirely.
  *   - The shell's `RN$AppRegistry` shadow + Metro module system stay
  *     IIFE-contained (same as the full bundle).
  *

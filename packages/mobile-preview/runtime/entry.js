@@ -1,20 +1,21 @@
 // Entry point: shell first (sets up bootstrap), then runtime (React + reconciler)
 require('./shell.js');
-// Skip React + reconciler setup when running inside the Onlook Mobile
-// Client (Hermes). The main bundle ships its own React; loading ours
-// causes dual-React hooks failures (ReactCurrentDispatcher is on the
-// wrong copy). See plans/post-mortems/2026-04-16-runtime-d-r-clobber.md.
+// Skip React + reconciler setup when the host explicitly opts out via
+// `__noOnlookRuntime`. The Onlook Mobile Client sets this flag in its
+// `index.js` because main.jsbundle ships its own React and loading ours
+// causes dual-React hooks failures (ReactCurrentDispatcher on the wrong
+// copy — see plans/post-mortems/2026-04-16-runtime-d-r-clobber.md).
 //
-// Detection: browsers have `window` defined at prepend time. Hermes does
-// NOT (RN's InitializeCore later sets globalThis.window = globalThis from
-// inside main.jsbundle, but that runs AFTER our runtime prelude). Note:
-// `__turboModuleProxy` is also RN-only but is set LATE — too late for our
-// prepend check. `window` is set by browsers at startup, which is what we
-// need.
-// Skip runtime.js entirely when the host sets `__noOnlookRuntime` — that
-// path is what the Onlook Mobile Client uses (bridgeless/new-arch Fabric
-// where `createView` from old-arch is absent). Expo Go / mobile-preview
-// harness leave the flag unset so runtime.js still loads there.
-if (typeof window !== 'undefined' && !globalThis.__noOnlookRuntime) {
+// Expo Go and the browser-preview harness leave the flag unset, so
+// runtime.js loads there. shell.js needs `_initReconciler`, `renderApp`,
+// and `React` (all defined by runtime.js) to mount the default screen
+// from RN$AppRegistry.runApplication; without them Expo Go blanks out
+// with a "B13 ERROR: _initReconciler not found" log.
+//
+// Historical note: this gate previously also required `typeof window
+// !== 'undefined'` to detect "browser, not Hermes" — but Expo Go is
+// Hermes too, so that check skipped runtime.js in Expo Go and broke the
+// preview path. `__noOnlookRuntime` is the only correct discriminator.
+if (!globalThis.__noOnlookRuntime) {
   require('./runtime.js');
 }

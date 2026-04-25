@@ -7,14 +7,14 @@
  * evaluate end-to-end, then inspect the sandbox to confirm behaviour in both
  * paths the bundle supports:
  *
- *   1. Hermes mode (`__turboModuleProxy` defined) — runtime/entry.js skips
- *      `require('./runtime.js')`, so React + reconciler are NEVER wired onto
- *      the sandbox globals. Main.jsbundle's React is authoritative; see
+ *   1. Onlook Mobile Client mode (`__noOnlookRuntime = true`) — runtime/entry.js
+ *      skips `require('./runtime.js')`, so React + reconciler are NEVER wired
+ *      onto the sandbox globals. Main.jsbundle's React is authoritative; see
  *      plans/post-mortems/2026-04-16-runtime-d-r-clobber.md.
  *
- *   2. Browser-preview mode (`__turboModuleProxy` absent) — runtime.js loads
- *      normally and exposes `React`, `createElement`, `renderApp`,
- *      `_initReconciler` on the sandbox.
+ *   2. Default mode (Expo Go or browser-preview, flag unset) — runtime.js loads
+ *      and exposes `React`, `createElement`, `renderApp`, `_initReconciler`
+ *      on the sandbox so shell.js's RN$AppRegistry.runApplication can mount.
  *
  * In both paths the shell runs (so `RN$AppRegistry` is defined) and the Metro
  * module shim internals (`__d`, `__r`, `__modules`) stay IIFE-contained.
@@ -44,46 +44,33 @@ const BUNDLE_PATH = join(import.meta.dir, '..', '..', 'runtime', 'bundle.js');
  *   - nativeFabricUIManager   — shell throws if missing; needs registerEventHandler
  *   - nativeLoggingHook       — shell's _log funnels through this
  *   - RN$registerCallableModule — shell registers HMRClient/RCTDeviceEventEmitter/etc
- *   - __turboModuleProxy      — optional; entry.js uses its presence to decide
- *                                whether to load runtime.js (Hermes skips it,
- *                                browser-preview loads it). Controlled by the
- *                                `hermes` arg so each describe block can cover
- *                                one path.
+ *   - __noOnlookRuntime       — entry.js gates runtime.js on `!__noOnlookRuntime`.
+ *                                Set true to simulate the Onlook Mobile Client
+ *                                path (skips runtime.js); leave unset to
+ *                                simulate Expo Go / browser-preview (loads
+ *                                runtime.js). Controlled by the `mobileClient`
+ *                                arg so each describe block can cover one path.
  *   - performance, setTimeout, clearTimeout, MessageChannel, queueMicrotask,
  *     console, process — all polyfilled by the bundle's own preamble IIFE
  *     (build-runtime.ts lines 45-53), so we don't need to pre-stub them;
  *     the polyfills are gated by `typeof ... === 'undefined'` so they
  *     no-op if the VM already provides them.
  */
-function buildSandbox(hermes: boolean): Record<string, unknown> {
+function buildSandbox(mobileClient: boolean): Record<string, unknown> {
     const sandbox: Record<string, unknown> = {
-        // Fabric UIManager stub — only registerEventHandler is called at
-        // shell-eval time; createNode/appendChild/etc are reached later via
-        // renderApp() which this test never invokes.
         nativeFabricUIManager: {
             registerEventHandler: () => {},
         },
-        // Hermes-style log hook — shell's _log() is best-effort and
-        // swallows throws, so even a throwing stub would be fine, but
-        // a no-op keeps the test output clean.
         nativeLoggingHook: (_msg: string, _level: number) => {},
-        // Metro-style registerCallableModule: shell calls this 3x eagerly
-        // (HMRClient, RCTDeviceEventEmitter, RCTNativeAppEventEmitter).
-        // Accepting and discarding is sufficient — we never dispatch callable
-        // modules in this test.
         RN$registerCallableModule: (_name: string, _factory: () => unknown) => {},
     };
-    if (!hermes) {
-        // Browser-preview path: `window` is defined. entry.js only loads
-        // runtime.js when `typeof window !== 'undefined'`. In Hermes-mode
-        // tests (hermes=true) we leave window absent, matching what the
-        // runtime prelude sees in Hermes before InitializeCore runs.
-        sandbox.window = sandbox;
+    if (mobileClient) {
+        sandbox.__noOnlookRuntime = true;
     }
     return sandbox;
 }
 
-describe('bundle execution (Hermes mode): runtime.js skipped, React from main.jsbundle', () => {
+describe('bundle execution (Onlook Mobile Client mode): runtime.js skipped, React from main.jsbundle', () => {
     if (!existsSync(BUNDLE_PATH)) {
         test.skip('bundle.js not built — run `bun run build:runtime` in packages/mobile-preview first', () => {
             /* skipped */
@@ -121,25 +108,26 @@ describe('bundle execution (Hermes mode): runtime.js skipped, React from main.js
     // failed we've already surfaced it above. We still run them so a single
     // failing build produces one actionable error rather than a cascade.
 
-    test('sandbox.React is undefined (runtime.js skipped in Hermes mode)', () => {
-        // entry.js gates runtime.js on `typeof __turboModuleProxy === 'undefined'`.
-        // With __turboModuleProxy present (Hermes), runtime.js never runs and
-        // globalThis.React is never set — leaving main.jsbundle's React as the
-        // sole copy. Prevents the dual-React hooks crash (useState of null).
+    test('sandbox.React is undefined (runtime.js skipped via __noOnlookRuntime)', () => {
+        // entry.js gates runtime.js on `!globalThis.__noOnlookRuntime`. With
+        // the flag set true (mobile-client path), runtime.js never runs and
+        // globalThis.React is never set — leaving main.jsbundle's React as
+        // the sole copy. Prevents the dual-React hooks crash.
         expect(sandbox.React).toBeUndefined();
     });
 
-    test('sandbox.createElement is undefined (runtime.js skipped in Hermes mode)', () => {
+    test('sandbox.createElement is undefined (runtime.js skipped via __noOnlookRuntime)', () => {
         expect(sandbox.createElement).toBeUndefined();
     });
 
-    test('sandbox.renderApp is undefined (runtime.js skipped in Hermes mode)', () => {
-        // renderApp is exposed by runtime.js, which is skipped in Hermes.
-        // RN's built-in Fabric reconciler handles rendering instead.
+    test('sandbox.renderApp is undefined (runtime.js skipped via __noOnlookRuntime)', () => {
+        // renderApp is exposed by runtime.js, which is skipped here. The
+        // mobile-client installs its own pinned `globalThis.renderApp` via
+        // `apps/mobile-client/index.js` before the bundle evaluates.
         expect(sandbox.renderApp).toBeUndefined();
     });
 
-    test('sandbox._initReconciler is undefined (runtime.js skipped in Hermes mode)', () => {
+    test('sandbox._initReconciler is undefined (runtime.js skipped via __noOnlookRuntime)', () => {
         expect(sandbox._initReconciler).toBeUndefined();
     });
 
@@ -178,7 +166,7 @@ describe('bundle execution (Hermes mode): runtime.js skipped, React from main.js
     });
 });
 
-describe('bundle execution (browser-preview mode): runtime.js loads, React exposed', () => {
+describe('bundle execution (Expo Go / browser-preview default mode): runtime.js loads, React exposed', () => {
     if (!existsSync(BUNDLE_PATH)) {
         test.skip('bundle.js not built — run `bun run build:runtime` in packages/mobile-preview first', () => {
             /* skipped */
@@ -188,9 +176,9 @@ describe('bundle execution (browser-preview mode): runtime.js loads, React expos
 
     const bundle = readFileSync(BUNDLE_PATH, 'utf8');
 
-    // Sandbox without __turboModuleProxy — entry.js loads runtime.js, which
-    // wires React + reconciler globals. This is the path browser-based preview
-    // iframes take when no native RN bundle is present.
+    // Sandbox without __noOnlookRuntime — entry.js loads runtime.js, which
+    // wires React + reconciler globals. This is the path Expo Go and the
+    // browser-based preview iframe take when the host hasn't opted out.
     const sandbox = buildSandbox(false);
     const context = createContext(sandbox);
 
