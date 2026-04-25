@@ -91,7 +91,38 @@ function formatHoverTitle(
             `aliases: ${r.aliases.length}`,
         ].join('\n');
     }
-    return `Phone abi reports incompatibility: ${state.kind}: ${state.message}\nFix: ${state.kind === 'abi-mismatch' ? 'rebuild the phone binary against the matching ABI' : 'see runtime error message'}.`;
+    // Mismatch path — surface the error's optional context fields when
+    // present so operators get the same debug detail in the hover that
+    // ends up in PostHog. `specifier` arrives on `unknown-specifier`
+    // kinds (the bare import that the runtime couldn't resolve);
+    // `assetId` arrives on `asset-missing` / `asset-load-failed` kinds
+    // (the manifest entry that wasn't found). Stack is intentionally
+    // omitted — a 100-line stack would overflow the title; the dev
+    // panel's error tabs are the right place to inspect it.
+    const lines = [
+        `Phone abi reports incompatibility: ${state.kind}: ${state.message}`,
+    ];
+    if (state.specifier) {
+        lines.push(`specifier: ${state.specifier}`);
+    }
+    if (state.assetId) {
+        lines.push(`assetId: ${state.assetId}`);
+    }
+    if (state.source) {
+        lines.push(
+            `at ${state.source.fileName}:${state.source.lineNumber}:${state.source.columnNumber}`,
+        );
+    }
+    lines.push(
+        `Fix: ${
+            state.kind === 'abi-mismatch'
+                ? 'rebuild the phone binary against the matching ABI'
+                : state.kind === 'unknown-specifier'
+                  ? 'add the specifier to the base bundle alias map and rebuild'
+                  : 'see runtime error message'
+        }.`,
+    );
+    return lines.join('\n');
 }
 
 /**

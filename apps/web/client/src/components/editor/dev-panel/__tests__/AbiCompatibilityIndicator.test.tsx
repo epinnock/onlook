@@ -95,6 +95,74 @@ describe('AbiCompatibilityIndicator', () => {
         expect(html).toContain('see runtime error message');
     });
 
+    test('unknown-specifier kind gets specifier-specific fix-it copy', () => {
+        const html = renderToStaticMarkup(
+            <AbiCompatibilityIndicator
+                state={{
+                    kind: 'unknown-specifier',
+                    message: 'no module',
+                    specifier: 'react-native-svg',
+                }}
+            />,
+        );
+        expect(html).toContain('add the specifier to the base bundle alias map');
+    });
+
+    test('hover surfaces specifier when state carries it', () => {
+        const html = renderToStaticMarkup(
+            <AbiCompatibilityIndicator
+                state={{
+                    kind: 'unknown-specifier',
+                    message: 'unresolved',
+                    specifier: 'react-native-svg',
+                }}
+            />,
+        );
+        expect(html).toContain('specifier: react-native-svg');
+    });
+
+    test('hover surfaces assetId when state carries it', () => {
+        const html = renderToStaticMarkup(
+            <AbiCompatibilityIndicator
+                state={{
+                    kind: 'asset-missing',
+                    message: 'manifest miss',
+                    assetId: 'image/abc123',
+                }}
+            />,
+        );
+        expect(html).toContain('assetId: image/abc123');
+    });
+
+    test('hover surfaces source location when state carries it', () => {
+        const html = renderToStaticMarkup(
+            <AbiCompatibilityIndicator
+                state={{
+                    kind: 'overlay-runtime',
+                    message: 'crashed in render',
+                    source: {
+                        fileName: 'App.tsx',
+                        lineNumber: 42,
+                        columnNumber: 7,
+                    },
+                }}
+            />,
+        );
+        expect(html).toContain('at App.tsx:42:7');
+    });
+
+    test('hover does NOT include detail lines when fields are absent', () => {
+        const html = renderToStaticMarkup(
+            <AbiCompatibilityIndicator
+                state={{ kind: 'overlay-runtime', message: 'plain' }}
+            />,
+        );
+        expect(html).not.toContain('specifier:');
+        expect(html).not.toContain('assetId:');
+        // The base "incompatibility" + fix-it copy still renders.
+        expect(html).toContain('overlay-runtime');
+    });
+
     test('"ok" without phoneHello still renders cleanly', () => {
         const html = renderToStaticMarkup(
             <AbiCompatibilityIndicator state="ok" phoneHello={null} />,
