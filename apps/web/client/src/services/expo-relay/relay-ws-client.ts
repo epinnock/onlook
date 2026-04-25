@@ -41,6 +41,15 @@ import { ABI_VERSION, checkAbiCompatibility } from '@onlook/mobile-client-protoc
 import { startEditorAbiHandshake, type AbiHandshakeHandle } from './abi-hello';
 import { subscribeRelayEvents, type RelayEventHandlers } from './relay-events';
 
+/**
+ * Cached AbiHello compatibility — surfaced via
+ * {@link RelayWsClient.getLastAbiCompatibility} so push-overlay sites can
+ * pass it to `pushOverlayV1`'s `compatibility` gate without subscribing
+ * to onAbiCompatibility separately. Same shape as
+ * `AbiHandshakeHandle.compatibility()` for symmetry.
+ */
+export type RelayWsCompatibility = 'unknown' | 'ok' | OnlookRuntimeError;
+
 const DEFAULT_MESSAGE_BUFFER = 500;
 const DEFAULT_RECONNECT_MIN_MS = 500;
 const DEFAULT_RECONNECT_MAX_MS = 15_000;
@@ -132,6 +141,7 @@ export class RelayWsClient {
     private reconnectTimer: unknown = undefined;
     private subscription: ReturnType<typeof subscribeRelayEvents> | null = null;
     private handshake: AbiHandshakeHandle | null = null;
+    private lastCompatibility: RelayWsCompatibility = 'unknown';
     private disconnected = false;
 
     constructor(private readonly opts: RelayWsClientOptions) {
@@ -161,6 +171,21 @@ export class RelayWsClient {
 
     get state(): RelayWsOpenState {
         return this.stateValue;
+    }
+
+    /**
+     * Latest AbiHello compatibility result. `'unknown'` until the phone's
+     * hello arrives on the current socket; flips to `'ok'` or an
+     * `OnlookRuntimeError` on receipt; resets to `'unknown'` on socket
+     * close. Pass this directly to `pushOverlayV1`'s `compatibility` gate:
+     *
+     *   pushOverlayV1({ ..., compatibility: () => relayWs.getLastAbiCompatibility() })
+     *
+     * The gate fails-closed on `'unknown'`, so a stale-positive across a
+     * phone restart cannot mask an incompatible push.
+     */
+    getLastAbiCompatibility(): RelayWsCompatibility {
+        return this.lastCompatibility;
     }
 
     /** Stop the ingestor. Closes the socket, cancels any queued reconnect. */
@@ -208,6 +233,14 @@ export class RelayWsClient {
             this.subscription = null;
             this.handshake?.cancel();
             this.handshake = null;
+            // Drop the cached compatibility on disconnect — the next
+            // connection may land on a different phone (phone restart,
+            // binary upgrade, foreground/background cycle), so a stale
+            // 'ok' could let an incompatible push slip past the gate.
+            // The handshake re-fires on the new socket's open event;
+            // until then, `getLastAbiCompatibility` reports 'unknown'
+            // which fail-closes pushOverlayV1.
+            this.lastCompatibility = 'unknown';
             if (this.disconnected) return;
             this.setState('closed');
             this.scheduleReconnect();
@@ -254,9 +287,12 @@ export class RelayWsClient {
                     // so polling the handle here would always see
                     // 'unknown'. Re-derive the same result locally —
                     // `checkAbiCompatibility` is pure, so the two derivations
-                    // are guaranteed to agree.
+                    // are guaranteed to agree. Cache it for
+                    // `getLastAbiCompatibility` so push-overlay gate sites
+                    // can read it without subscribing.
                     const compat = checkAbiCompatibility(ABI_VERSION, phone.runtime);
-                    this.opts.onAbiCompatibility?.(compat ?? 'ok', phone);
+                    this.lastCompatibility = compat ?? 'ok';
+                    this.opts.onAbiCompatibility?.(this.lastCompatibility, phone);
                 },
             });
         } catch {

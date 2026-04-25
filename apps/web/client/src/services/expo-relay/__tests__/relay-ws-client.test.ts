@@ -519,6 +519,82 @@ describe('RelayWsClient — editor AbiHello handshake (Phase 11b)', () => {
         // a late phone hello arriving on the closed socket must not throw.
         expect(() => sockets[0]!.fire('message', JSON.stringify(phoneHello))).not.toThrow();
     });
+
+    test('getLastAbiCompatibility starts "unknown", flips to "ok", resets on close', () => {
+        const sockets: MockWebSocket[] = [];
+        const c = new RelayWsClient({
+            relayBaseUrl: 'http://r:1',
+            sessionId: 'sess',
+            editorCapabilities: editorCaps,
+            createSocket: (url) => {
+                const s = new MockWebSocket(url);
+                sockets.push(s);
+                return s as unknown as WebSocket;
+            },
+        });
+        expect(c.getLastAbiCompatibility()).toBe('unknown');
+        sockets[0]!.fire('open');
+        expect(c.getLastAbiCompatibility()).toBe('unknown');
+        sockets[0]!.fire('message', JSON.stringify(phoneHello));
+        expect(c.getLastAbiCompatibility()).toBe('ok');
+        // Socket close drops the cached compat — protects against the
+        // next-connect-may-be-different-phone race.
+        sockets[0]!.fire('close');
+        expect(c.getLastAbiCompatibility()).toBe('unknown');
+        c.disconnect();
+    });
+
+    test('getLastAbiCompatibility surfaces OnlookRuntimeError on mismatched phone abi', () => {
+        // We cannot send a v0 phone hello past the handshake's isAbiHello
+        // guard (it accepts only abi: 'v1'), so this test verifies that
+        // until the phone actually advertises v1+matching, the getter
+        // keeps reporting 'unknown' — i.e., fail-closed by default. This
+        // is the operationally important case; mismatch surfaces only
+        // when a future ABI version lands.
+        const sockets: MockWebSocket[] = [];
+        const c = new RelayWsClient({
+            relayBaseUrl: 'http://r:1',
+            sessionId: 'sess',
+            editorCapabilities: editorCaps,
+            createSocket: (url) => {
+                const s = new MockWebSocket(url);
+                sockets.push(s);
+                return s as unknown as WebSocket;
+            },
+        });
+        sockets[0]!.fire('open');
+        const v0Hello = {
+            ...phoneHello,
+            abi: 'v0',
+            runtime: { ...phoneCaps, abi: 'v0' },
+        } as unknown as typeof phoneHello;
+        sockets[0]!.fire('message', JSON.stringify(v0Hello));
+        // Hello dropped by isAbiHello guard — compatibility stays 'unknown'.
+        expect(c.getLastAbiCompatibility()).toBe('unknown');
+        c.disconnect();
+    });
+
+    test('getLastAbiCompatibility integrates as pushOverlayV1 gate input', () => {
+        // End-to-end shape: the getter returns exactly what
+        // pushOverlayV1's `compatibility` option expects.
+        const sockets: MockWebSocket[] = [];
+        const c = new RelayWsClient({
+            relayBaseUrl: 'http://r:1',
+            sessionId: 'sess',
+            editorCapabilities: editorCaps,
+            createSocket: (url) => {
+                const s = new MockWebSocket(url);
+                sockets.push(s);
+                return s as unknown as WebSocket;
+            },
+        });
+        const gate = () => c.getLastAbiCompatibility();
+        expect(gate()).toBe('unknown'); // pre-handshake — pushOverlayV1 fails closed
+        sockets[0]!.fire('open');
+        sockets[0]!.fire('message', JSON.stringify(phoneHello));
+        expect(gate()).toBe('ok'); // pushOverlayV1 proceeds
+        c.disconnect();
+    });
 });
 
 describe('RelayWsClient — disconnect idempotence + side-effect cleanup', () => {
