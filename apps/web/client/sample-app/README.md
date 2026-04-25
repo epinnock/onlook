@@ -16,8 +16,24 @@ without a real device:
 This file is intentionally outside any package's tsconfig so it doesn't get
 type-checked or bundled by accident. Tooling that wants to exercise it should
 read `./App.tsx` as plain text and feed it through `wrapOverlayV1` →
-`pushOverlayV1` directly. Example one-shot push script lives at
-`/tmp/push-sample-overlay.ts` (developer-local; not checked in).
+`pushOverlayV1` directly.
+
+A ready-to-run push script lives at `./scripts/push.ts`:
+
+```bash
+# 1. Stand up cf-expo-relay locally:
+cd apps/cf-expo-relay && bunx wrangler dev --port 18788 --local
+
+# 2. Push this fixture to it (in another terminal):
+bun run apps/web/client/sample-app/scripts/push.ts \
+    --relay=http://192.168.0.14:18788
+```
+
+The script bundles `App.tsx` with esbuild (externals matching the base bundle
+alias map), wraps with `wrapOverlayV1`, and POSTs the OverlayUpdateMessage
+shape to `/push/<sessionId>`. Prints the
+`onlook://launch?session=…&relay=…` deeplink that the mobile-client's
+deeplink handler (commit `f8d70396`) routes through the URL pipeline.
 
 ## Verification on a real device
 
