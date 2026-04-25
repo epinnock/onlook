@@ -13,7 +13,7 @@
  * it; when they're gone, it re-stages from the runtime path.
  */
 
-import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, statSync, utimesSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -122,5 +122,35 @@ describe('ensureRuntimeStaged — stale-cache invalidation', () => {
         const h2 = ensureRuntimeStaged({ runtimePath: runtimeFile, storeDir });
         expect(h2).toBe(h1);
         expect(existsSync(paths.manifestFieldsPath)).toBe(true);
+    });
+
+    test('re-stages when the source bundle has been rebuilt (mtime drift)', () => {
+        // Long-running server scenario: the editor process keeps
+        // mobile-preview alive across days; meanwhile a developer pulls a
+        // fix (e.g. PR #20's runtime.js gate fix) and rebuilds bundle.js.
+        // The hash dir from the OLD bundle still exists, so the
+        // existsSync guards alone would happily return the stale hash and
+        // every manifest URL would point at the OLD bundle's hash dir.
+        // mtime drift detection forces a re-stage so Expo Go fetches the
+        // freshly-built runtime instead.
+        const h1 = ensureRuntimeStaged({ runtimePath: runtimeFile, storeDir });
+
+        // Rewrite the source bundle with new content + bump mtime forward
+        // by 5 seconds to mimic a rebuild (some filesystems have 1s mtime
+        // resolution, so write-then-utimes is more reliable than relying
+        // on writeFileSync alone to update mtime).
+        writeFileSync(runtimeFile, '// test-runtime-v2 — entry.js fix\n');
+        const before = statSync(runtimeFile);
+        const futureSeconds = before.mtimeMs / 1000 + 5;
+        utimesSync(runtimeFile, futureSeconds, futureSeconds);
+
+        const h2 = ensureRuntimeStaged({ runtimePath: runtimeFile, storeDir });
+        // Different bundle content => different hash.
+        expect(h2).not.toBe(h1);
+        // New hash dir is populated, old one stays put (caller doesn't
+        // own cleanup of stale hash dirs — that's tmpwatch's job).
+        const newPaths = getBundleStorePaths(h2, storeDir);
+        expect(existsSync(newPaths.iosBundlePath)).toBe(true);
+        expect(existsSync(newPaths.manifestFieldsPath)).toBe(true);
     });
 });
