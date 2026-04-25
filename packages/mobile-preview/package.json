@@ -8,7 +8,8 @@
   "types": "./runtime/src/index.ts",
   "description": "Native mobile preview server for Onlook — serves React runtime bundles to Expo Go via manifest protocol + WebSocket hot reload",
   "scripts": {
-    "dev": "bun run server/index.ts",
+    "dev": "bun run build:runtime && bun run server/index.ts",
+    "dev:no-rebuild": "bun run server/index.ts",
     "build:runtime": "bun run server/build-runtime.ts",
     "build:runtime:client-only": "bun run server/build-runtime-client-only.ts",
     "typecheck": "tsc --noEmit"
