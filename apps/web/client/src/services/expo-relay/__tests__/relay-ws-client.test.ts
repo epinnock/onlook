@@ -574,6 +574,60 @@ describe('RelayWsClient — editor AbiHello handshake (Phase 11b)', () => {
         c.disconnect();
     });
 
+    test('editor reconnect: replayed phone hello re-populates lastCompatibility without a fresh hello', () => {
+        // Phase 11b resilience: when the editor's WS drops + auto-reconnects,
+        // the relay replays the most-recent phone hello on the fresh socket
+        // (cf-expo-relay HmrSession.replayLastAbiHellos, 80d3d54f). The
+        // editor's handshake listener processes that replayed hello as if
+        // it were live — checkAbiCompatibility fires, lastCompatibility
+        // flips back to 'ok'. This pins the contract: a phone going
+        // background-then-foreground (where the phone-side onAbiCompat
+        // wouldn't refire because the phone WS stayed open) still leaves
+        // the editor's gate open after the editor's network blip.
+        const sockets: MockWebSocket[] = [];
+        const c = new RelayWsClient({
+            relayBaseUrl: 'http://r:1',
+            sessionId: 'sess',
+            editorCapabilities: editorCaps,
+            // Tighten reconnect so the test doesn't idle on the 500ms default.
+            reconnectMinMs: 5,
+            reconnectMaxMs: 10,
+            setTimeout: (fn) => {
+                // Run immediately on this thread so the test is deterministic.
+                fn();
+                return 0;
+            },
+            clearTimeout: () => {},
+            createSocket: (url) => {
+                const s = new MockWebSocket(url);
+                sockets.push(s);
+                return s as unknown as WebSocket;
+            },
+        });
+
+        // First connection: handshake completes normally.
+        sockets[0]!.fire('open');
+        sockets[0]!.fire('message', JSON.stringify(phoneHello));
+        expect(c.getLastAbiCompatibility()).toBe('ok');
+
+        // Drop the first socket — lastCompatibility resets to 'unknown'
+        // (verified by the prior test). Reconnect timer fires synchronously
+        // via the setTimeout stub; a new MockWebSocket instance lands at
+        // sockets[1].
+        sockets[0]!.fire('close');
+        expect(c.getLastAbiCompatibility()).toBe('unknown');
+        expect(sockets.length).toBeGreaterThanOrEqual(2);
+
+        // Open the new socket. The relay's hmr-session replays the stored
+        // phone hello to fresh joiners — fire it on the new mock to
+        // simulate.
+        sockets[1]!.fire('open');
+        sockets[1]!.fire('message', JSON.stringify(phoneHello));
+        expect(c.getLastAbiCompatibility()).toBe('ok');
+
+        c.disconnect();
+    });
+
     test('getLastAbiCompatibility integrates as pushOverlayV1 gate input', () => {
         // End-to-end shape: the getter returns exactly what
         // pushOverlayV1's `compatibility` option expects.
