@@ -1,8 +1,7 @@
 /**
  * Tests for `wireOnlookSelectToIdeManager` — the production
  * tap-to-source wiring that bridges the MC4.15 receiver to the
- * editor's CodeMirror-driven IdeManager (replaces the Monaco-shaped
- * wireCursorJump that never matched this codebase).
+ * editor's CodeMirror-driven IdeManager.
  *
  * Strategy: dispatch wire-format `onlook:select` payloads through the
  * receiver and assert IdeManager-spy methods receive the correct args.

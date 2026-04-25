@@ -1,14 +1,17 @@
 /**
  * wireOnlookSelectToIdeManager — production wiring for tap-to-source.
  *
- * The editor uses CodeMirror, not Monaco, so the existing
- * {@link wireCursorJump} helper (which manipulates a `MonacoLikeEditor`
- * directly) does not match the production stack. This module provides a
- * CodeMirror-native wiring path: each `onlook:select` message arriving
- * from the phone calls `IdeManager.openCodeLocation(fileName, line, col)`,
- * which sets the existing `_codeNavigationOverride` MobX state — the
- * same mechanism `openCodeBlock` already uses to drive the
- * `useCodeNavigation` hook + CodeMirror EditorView.
+ * Each `onlook:select` message arriving from the phone calls
+ * `IdeManager.openCodeLocation(fileName, line, col)`, which sets the
+ * existing `_codeNavigationOverride` MobX state — the same mechanism
+ * `openCodeBlock` already uses to drive the `useCodeNavigation` hook
+ * + CodeMirror EditorView.
+ *
+ * Historical note: a prior Monaco-shaped helper (`wireCursorJump` +
+ * `monacoCursorJump`) lived alongside this module but was deleted
+ * 2026-04-25 — this codebase uses CodeMirror, not Monaco, so the
+ * shim could never have fired in production. Production wiring lives
+ * here exclusively.
  *
  * Composition contract — wire this once at editor mount:
  *
