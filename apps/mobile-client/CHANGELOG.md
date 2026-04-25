@@ -270,3 +270,27 @@ A 54-commit autonomous session (PR #20) shipped four interrelated workstreams. M
 
 ### Documentation
 - mobile-client task queue MC5.5 status updated to reflect production-wired state. With this, **all three observability streamers (MC5.2 console, MC5.5 network, MC5.7 exceptions) are now production-wired** via the `dynamicWsSender` registry pattern — closes the entire mobile-client observability gap documented in `8c52ebf4`. TapHandler (MC4.14) remains gated on `findNodeAtPoint` (MC4.2, doesn't exist) — separate work.
+
+## [Unreleased] - 2026-04-25 — DevMenu wiring (workstream F continued)
+
+Audit-pattern catch #10: the entire mobile-client DevMenu surface (MC5.9 component + MC5.10 trigger gesture + MC5.11 reload action + MC5.12 clear-storage action + MC5.13 view-logs action) was shipped as primitives but never instantiated/rendered in production. Three-finger long-press did nothing; the modal was unreachable.
+
+### Added
+- **App.tsx wires the DevMenu surface end-to-end**:
+  - `DevMenuTrigger` wraps `<AppRouter />` + `<OverlayHost />` so a three-finger long-press anywhere opens the modal. The wrapper is transparent — children render normally; the App.composition test guard now permits transparent wrappers as long as AppRouter remains an immediate JSX sibling of OverlayHost.
+  - `DevMenu` modal renders 5 actions composed via the existing factories (`createReloadAction`, `createCopySessionIdAction(getSessionId)`, `createViewLogsAction(setVisible)`, `createToggleInspectorAction()`, `createClearStorageAction()`). Each action's `onPress` is wrapped to auto-dismiss the menu after firing.
+  - `RecentLogsModal` mounts as a sibling of the trigger so it persists after the dev menu dismisses (the View Recent Logs action sets visible=true; the modal owns its own onClose dismissal).
+  - `activeSessionIdRef` tracks the resolved session id from deeplink resolve so `createCopySessionIdAction` reads the latest value via closure.
+
+### Changed
+- **App.composition.test.ts** widened to permit transparent wrappers (previously required `<><AppRouter /><OverlayHost /></>` exactly; now allows any wrapper provided AppRouter is the immediate JSX sibling of OverlayHost). The architectural invariant is preserved (no nesting; both elements span every screen).
+
+### Tests
+- mobile-client total stays at 490 (no new tests; existing `DevMenu.test.ts`, `DevMenuTrigger.test.ts`, action factory tests, and the widened composition guard cover the wiring contract).
+
+### Documentation
+- mobile-client task queue MC5.9–MC5.13 statuses follow up in a separate commit.
+
+### Known limitations
+- `SettingsScreen.tsx` exposes a `dev_menu_enabled` toggle persisted to AsyncStorage. The wiring above does NOT consult that key — the trigger is always armed. The three-finger long-press gesture is intentional enough that accidental fires are unlikely; respecting the setting is a follow-up.
+- `createToggleInspectorAction` toggles a global boolean but the inspector overlay UI itself isn't wired — same root cause as TapHandler (gated on `findNodeAtPoint` / MC4.2 unimplemented). The action runs without error but produces no visible effect today.

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Linking } from 'react-native';
 
 import { AppRouter } from './navigation';
@@ -17,6 +17,19 @@ import { fetchPatch } from './debug/fetchPatch';
 import { xhrPatch } from './debug/xhrPatch';
 import { NetworkStreamer } from './debug/networkStreamer';
 import { dynamicWsSender } from './relay/wsSender';
+import {
+    DevMenu,
+    DevMenuTrigger,
+    RecentLogsModal,
+    type DevMenuAction,
+} from './components';
+import {
+    createReloadAction,
+    createClearStorageAction,
+    createCopySessionIdAction,
+    createViewLogsAction,
+    createToggleInspectorAction,
+} from './actions';
 
 /**
  * Boot-time placeholder for the session id stamped on outgoing
@@ -104,6 +117,56 @@ export default function App() {
     // new session can tear down the previous overlay channel cleanly.
     const twoTierHandleRef = useRef<TwoTierBootstrapHandle | null>(null);
 
+    // Active session id for the dev menu's Copy Session ID action. Tracked
+    // alongside `twoTierHandleRef` so the action getter reads the latest
+    // value without stale-closure pitfalls.
+    const activeSessionIdRef = useRef<string | null>(null);
+
+    // Dev menu modal state — opens via the three-finger long-press gesture
+    // (DevMenuTrigger / MC5.10) wrapping the app body. Closes via backdrop
+    // tap or any action's onPress finishing. RecentLogsModal opens via
+    // the "View Recent Logs" action and lives outside the dev menu so it
+    // persists after the menu dismisses.
+    const [devMenuVisible, setDevMenuVisible] = useState(false);
+    const [recentLogsVisible, setRecentLogsVisible] = useState(false);
+    const closeDevMenu = useCallback(() => setDevMenuVisible(false), []);
+    const openDevMenu = useCallback(() => setDevMenuVisible(true), []);
+
+    // Dev menu actions list — built once, stable across re-renders so
+    // DevMenu doesn't re-render its action buttons unnecessarily. Each
+    // factory returns a `DevMenuAction` `{label, onPress, destructive?}`.
+    // Actions that need state read it via closures over refs (e.g.
+    // `activeSessionIdRef`) so the latest value is consulted at press
+    // time rather than at action-list construction time.
+    const devMenuActions = useMemo<readonly DevMenuAction[]>(
+        () => [
+            createReloadAction(),
+            createCopySessionIdAction(() => activeSessionIdRef.current),
+            createViewLogsAction(setRecentLogsVisible),
+            createToggleInspectorAction(),
+            createClearStorageAction(),
+        ],
+        [],
+    );
+
+    // Wrap each action so the dev menu auto-dismisses after press. The
+    // factories themselves don't know about the menu's visibility state;
+    // composing the dismiss here keeps each action self-contained.
+    const wrappedDevMenuActions = useMemo<readonly DevMenuAction[]>(
+        () =>
+            devMenuActions.map((a) => ({
+                ...a,
+                onPress: () => {
+                    try {
+                        a.onPress();
+                    } finally {
+                        closeDevMenu();
+                    }
+                },
+            })),
+        [devMenuActions, closeDevMenu],
+    );
+
     useEffect(() => {
         let cancelled = false;
 
@@ -123,6 +186,7 @@ export default function App() {
                     consoleStreamerRef.current?.setSessionId(result.sessionId);
                     exceptionStreamerRef.current?.setSessionId(result.sessionId);
                     networkStreamerRef.current?.setSessionId(result.sessionId);
+                    activeSessionIdRef.current = result.sessionId;
                     twoTierHandleRef.current?.stop();
                     twoTierHandleRef.current = startTwoTierBootstrap({
                         sessionId: result.sessionId,
@@ -149,8 +213,23 @@ export default function App() {
 
     return (
         <>
-            <AppRouter />
-            <OverlayHost />
+            {/* DevMenuTrigger wraps the app body so a three-finger long-press
+                anywhere opens the dev menu. The trigger is transparent — its
+                children render normally. RecentLogsModal sits outside the
+                trigger so it stays mounted after the dev menu dismisses. */}
+            <DevMenuTrigger onTrigger={openDevMenu}>
+                <AppRouter />
+                <OverlayHost />
+            </DevMenuTrigger>
+            <DevMenu
+                visible={devMenuVisible}
+                onClose={closeDevMenu}
+                actions={[...wrappedDevMenuActions]}
+            />
+            <RecentLogsModal
+                visible={recentLogsVisible}
+                onClose={() => setRecentLogsVisible(false)}
+            />
         </>
     );
 }
