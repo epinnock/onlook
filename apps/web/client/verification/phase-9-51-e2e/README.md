@@ -28,30 +28,35 @@ maps cleanly via `parseOnlookDeepLink` in
 ### Known compatibility gap on the Expo Go path
 
 Observed during this session: the mobile-preview server's `bundle.js`
-(the full runtime with React + react-reconciler) blanks when loaded by
-**Expo Go SDK 54 + new-arch**. The reconciler's host config calls
-`UIManager.createView` which is absent in bridgeless+new-arch (per
-`plans/adr/v2-pipeline-validation-findings.md` finding #5). The
-OnlookMobileClient path works around this by gating `runtime.js` off
-via `globalThis.__noOnlookRuntime = true` in
-`apps/mobile-client/index.js`, but Expo Go has no such gate and just
-silently no-ops the render.
+blanked when loaded by **Expo Go SDK 54 + new-arch**, with the JS
+runtime logging `B13 ERROR: _initReconciler not found — runtime not
+loaded?` immediately after `B13 runApplication`.
 
-The article at `plans/article-native-preview-from-browser.md` predates
-the SDK 54 bridgeless rollout. If you're testing the mobile-preview
-server path against current Expo Go, expect blank screens until the
-runtime bundle is reworked for new-arch.
+**Root cause** (PR #20): `packages/mobile-preview/runtime/entry.js`
+gated the `require('./runtime.js')` call on `typeof window !==
+'undefined'`. The check was added in commit c7b4d21d to keep
+`runtime.js` out of the Onlook Mobile Client (Hermes), but Expo Go
+is also Hermes — `window` is undefined at prepend time there too —
+so `runtime.js` never executed and `_initReconciler` / `renderApp`
+were never registered. PR #20 drops the redundant `window` check
+and relies solely on `__noOnlookRuntime` (set true by
+`apps/mobile-client/index.js`), restoring the contract already
+documented in entry.js's own comment.
+
+Until PR #20 lands and the runtime bundle is rebuilt + restaged in
+`/tmp/cf-builds/<hash>/`, this verification suite's `_old-05-sim-
+mount-broken.png` and `_old-07-sim-post-rls-fix-broken.png` reflect
+that broken-gate state. Once #20 ships, Expo Go's preview path
+should mount the "Onlook Runtime Ready" default screen on first
+manifest fetch.
 
 This is **not** a regression introduced by this PR — it's a pre-
 existing architectural gap that explains why the original
 `_old-05-sim-mount-broken.png` and `_old-07-sim-post-rls-fix-broken.png`
-captures were blank. Future work could:
-1. Build a new-arch-compatible runtime variant (similar to the
-   `bundle-client-only.js` slim split).
-2. Pin Expo Go to an older SDK on the test sim (rollback).
-3. Stop testing this path against new-arch Expo Go and rely solely on
-   the cf-expo-relay + OnlookMobileClient path for visual evidence
-   (Phase G's `v2r-{hello,updated}.png` already does this).
+captures were blank. The fix lives in PR #20; PR #19's correction
+of the screenshot interpretation stands either way (the originals
+captured Expo Go's failure to mount, not OnlookMobileClient's idle
+state).
 
 ## Layout
 
