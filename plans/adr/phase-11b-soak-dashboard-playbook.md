@@ -232,6 +232,6 @@ The sink depends on `globalThis.posthog.capture` being defined. If queries retur
 
 ## What NOT to rely on from this sink
 
-- **Phone-side data.** Every event fires from the editor browser; the phone's ack stream is stored separately in `RelayWsClient.snapshot().acks` (not yet wired into any mounted dev-panel instance — MCG.16 scope).
+- **Phone-side data in PostHog.** Every event fires from the editor browser; the phone's ack stream is stored separately in `RelayWsClient.snapshot().acks` and is rendered locally in the editor via `MobilePreviewDevPanelContainer.tsx` → `MobileOverlayAckTab`, but acks themselves do NOT flow to PostHog. Use the dev panel's overlay-ack tab for inspection during a session; the dashboard sees only the editor-side `onlook_overlay_push` / `onlook_overlay_perf` view of the same operations.
 - **Real-time alerts.** PostHog's event ingestion has a minute-plus latency. For faster signals, watch the browser devtools console directly or pipe to a server-side telemetry backend.
 - **Per-tenant segmentation.** `sessionId` is not guaranteed stable across editor reloads; if we need per-project comparison, correlate via PostHog's own distinct_id and session recording (set up in `telemetry-provider.tsx::identify`).
