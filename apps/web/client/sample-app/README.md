@@ -25,15 +25,19 @@ A ready-to-run push script lives at `./scripts/push.ts`:
 cd apps/cf-expo-relay && bunx wrangler dev --port 18788 --local
 
 # 2a. One-shot push to the relay (in another terminal):
-bun run apps/web/client/sample-app/scripts/push.ts \
+bun --filter @onlook/web-client sample-push -- \
     --relay=http://192.168.0.14:18788
 
 # 2b. Watch mode — re-push on every save (literalizes the user's
 #     "overlay updates on save" intent; the connected mobile-client
 #     receives the updated bundle via the relay's WS fan-out):
-bun run apps/web/client/sample-app/scripts/push.ts \
+bun --filter @onlook/web-client sample-push -- \
     --relay=http://192.168.0.14:18788 \
     --watch
+
+# Or run the script directly without the workspace filter:
+bun run apps/web/client/sample-app/scripts/push.ts \
+    --relay=http://192.168.0.14:18788 [--watch]
 ```
 
 The script bundles `App.tsx` with esbuild (externals matching the base bundle
