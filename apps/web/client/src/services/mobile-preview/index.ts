@@ -1,6 +1,7 @@
 import { env } from '@/env';
 import { transform } from 'sucrase';
 
+import type { PushOverlayCompatibilityResult } from '@/services/expo-relay/push-overlay';
 import {
     getMobilePreviewPipelineKind,
     resolveMobilePreviewPipelineKind,
@@ -139,6 +140,21 @@ export interface CreateMobilePreviewPipelineOptions {
 
 export type MobilePreviewPipelineOptions = CreateMobilePreviewPipelineOptions;
 
+/**
+ * Optional dependency slots for {@link createMobilePreviewPipeline} —
+ * separated from the URL-config object so callers can pass live
+ * runtime hooks (e.g. a compatibility provider closing over a React
+ * ref) without polluting the config shape that
+ * {@link resolveMobilePreviewPipelineConfig} produces.
+ *
+ * Phase 11b: pass `compatibilityProvider: () => relayWs.getLastAbiCompatibility()`
+ * so v1 pushes are gated on the editor's handshake state. Only consumed
+ * by the two-tier branch; the shim branch ignores it.
+ */
+export interface CreateMobilePreviewPipelineDeps {
+    readonly compatibilityProvider?: () => PushOverlayCompatibilityResult;
+}
+
 export function resolveMobilePreviewPipelineConfig(
     options: CreateMobilePreviewPipelineOptions = {},
 ): MobilePreviewPipelineConfig {
@@ -163,34 +179,46 @@ export function resolveMobilePreviewPipelineConfig(
 
 export function createMobilePreviewPipeline(
     options?: CreateMobilePreviewPipelineOptions,
+    deps?: CreateMobilePreviewPipelineDeps,
 ): MobilePreviewPipeline;
 export function createMobilePreviewPipeline(
     config: MobilePreviewPipelineConfig,
+    deps?: CreateMobilePreviewPipelineDeps,
 ): MobilePreviewPipeline;
 export function createMobilePreviewPipeline(
     input: CreateMobilePreviewPipelineOptions | MobilePreviewPipelineConfig = {},
+    deps: CreateMobilePreviewPipelineDeps = {},
 ): MobilePreviewPipeline {
     return createMobilePreviewPipelineFromConfig(
         isMobilePreviewPipelineConfig(input)
             ? input
             : resolveMobilePreviewPipelineConfig(input),
+        deps,
     );
 }
 
 export function createMobilePreviewPipelineFromConfig(
     config: MobilePreviewShimPipelineConfig,
+    deps?: CreateMobilePreviewPipelineDeps,
 ): MobilePreviewPipeline<'shim'>;
 export function createMobilePreviewPipelineFromConfig(
     config: MobilePreviewTwoTierPipelineConfig,
+    deps?: CreateMobilePreviewPipelineDeps,
 ): MobilePreviewPipeline<'two-tier'>;
 export function createMobilePreviewPipelineFromConfig(
     config: MobilePreviewPipelineConfig,
+    deps?: CreateMobilePreviewPipelineDeps,
 ): MobilePreviewPipeline;
 export function createMobilePreviewPipelineFromConfig(
     config: MobilePreviewPipelineConfig,
+    deps: CreateMobilePreviewPipelineDeps = {},
 ): MobilePreviewPipeline {
     if (config.kind === 'two-tier') {
-        return createTwoTierMobilePreviewPipeline(config);
+        return createTwoTierMobilePreviewPipeline(config, {
+            ...(deps.compatibilityProvider !== undefined
+                ? { compatibilityProvider: deps.compatibilityProvider }
+                : {}),
+        });
     }
 
     return createMobilePreviewShimPipeline(config);

@@ -212,4 +212,36 @@ describe('createMobilePreviewPipeline', () => {
             onlookDeepLink: true,
         });
     });
+
+    // Phase 11b — verify the deps slot threads compatibilityProvider
+    // through to the underlying TwoTier pipeline. We don't drive a full
+    // sync here (no esbuild service registered); we just assert the
+    // factory accepts the new shape without regression. The end-to-end
+    // gate behavior is covered by two-tier.test.ts.
+    test('createMobilePreviewPipeline accepts a compatibilityProvider in deps (two-tier)', () => {
+        mockEnv.NEXT_PUBLIC_MOBILE_PREVIEW_PIPELINE = 'two-tier';
+        let calls = 0;
+        const pipeline = createMobilePreviewPipeline(
+            { kind: 'two-tier', builderBaseUrl: 'b', relayBaseUrl: 'r' },
+            { compatibilityProvider: () => {
+                calls += 1;
+                return 'ok';
+            } },
+        );
+        expect(pipeline.kind).toBe('two-tier');
+        // Provider has not been invoked yet — only sync() drives it. This
+        // pins the lazy-call contract: pipeline construction must not
+        // eagerly sample capabilities (the relay WS may not be open yet).
+        expect(calls).toBe(0);
+    });
+
+    test('createMobilePreviewPipeline ignores compatibilityProvider on the shim branch', () => {
+        // Shim has no v1 envelope to gate, so a provider passed in deps
+        // must be silently dropped — not crash, not error.
+        const pipeline = createMobilePreviewPipeline(
+            { kind: 'shim', serverBaseUrl: 's' },
+            { compatibilityProvider: () => 'unknown' },
+        );
+        expect(pipeline.kind).toBe('shim');
+    });
 });

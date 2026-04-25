@@ -116,6 +116,14 @@ export function useMobilePreviewStatus(
     // Stable pipeline ref across renders — creating a new pipeline per
     // push discards the incremental-rebuild cache inside TwoTier.
     const pipelineRef = useRef<MobilePreviewPipeline | null>(null);
+    // Phase 11b — RelayWsClient ref for the compatibility-provider closure.
+    // The provider is captured at pipeline-construction time but called on
+    // every push, so it dereferences the ref lazily. This handles the
+    // common timing where the pipeline is constructed BEFORE the relay WS
+    // has connected (the file-watch effect can fire on first edit before
+    // the user opens the QR modal). When the ref is null/disconnected the
+    // provider returns 'unknown', which fails-closed in pushOverlayV1.
+    const relayWsClientRef = useRef<RelayWsClient | null>(null);
 
     const open = useCallback(async () => {
         setIsOpen(true);
@@ -224,6 +232,15 @@ export function useMobilePreviewStatus(
                     if (!pipelineRef.current) {
                         pipelineRef.current = createMobilePreviewPipeline(
                             resolveMobilePreviewPipelineConfig(),
+                            {
+                                // Phase 11b: gate v1 pushes on the editor's
+                                // handshake state. Lazy ref read on every
+                                // push — pipeline construction runs once,
+                                // but the relayWs client may connect later.
+                                compatibilityProvider: () =>
+                                    relayWsClientRef.current?.getLastAbiCompatibility() ??
+                                    'unknown',
+                            },
                         );
                     }
                     await pipelineRef.current.sync({ fileSystem });
@@ -356,6 +373,12 @@ export function useMobilePreviewStatus(
     const { client: relayWsClient } = useRelayWsClient({
         manifestUrl: manifestUrlForRelay,
     });
+    // Mirror the live client into the ref the file-watch closure reads —
+    // assign-on-render is the standard react pattern for "give me the
+    // latest value inside a stable callback." See `relayWsClientRef`
+    // declaration for why a ref is required (push runs in a closure built
+    // before the relayWs is connected).
+    relayWsClientRef.current = relayWsClient;
 
     // Derive sessionId from the ready-state manifestUrl so dev-panel
     // callers can filter streams by session without re-implementing
