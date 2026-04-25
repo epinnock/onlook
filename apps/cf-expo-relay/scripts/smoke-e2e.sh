@@ -134,6 +134,16 @@ else
     fail "AbiHello WS chain — see [smoke-abi-hello] log lines above for the failing assertion"
 fi
 
+# 6. Overlay push fan-out — the main v2 data path. Editor POSTs an
+#    OverlayUpdateMessage to /push/<sessionId>; phone WS receives via
+#    fan-out; late-joiner gets it via replay.
+echo "[smoke-e2e] overlay v1 push WS fan-out"
+if bun "${SCRIPT_DIR}/smoke-overlay-push.ts" "http://localhost:${RELAY_PORT}"; then
+    ok "overlay v1 push fan-out (editor→relay→phone WS + replay)"
+else
+    fail "overlay v1 push fan-out — see [smoke-overlay-push] log lines above"
+fi
+
 echo "[smoke-e2e] all green"
 if [[ "$KEEP" -eq 1 ]]; then
     echo "[smoke-e2e] --keep: relay=$RELAY_PID cache=$CACHE_PID"
