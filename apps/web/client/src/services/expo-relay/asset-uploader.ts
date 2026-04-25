@@ -1,15 +1,32 @@
 /**
- * Editor asset uploader — task #64.
+ * Editor asset uploader — task #64 (retargeted 2026-04-25 to match the
+ * canonical relay endpoint added in task #74).
  *
- * Computes sha256(bytes), POSTs the bytes to the relay's asset-upload
- * endpoint, returns the R2 URI to embed in an `AssetDescriptor`.
- *
- * The editor typically calls `checkAssetHashes` first to skip already-known
- * hashes; this module is the upload step for the novel ones.
+ * Computes sha256(bytes), PUTs the bytes to the relay's
+ * `/base-bundle/assets/<hash>` endpoint, returns the R2 URI the asset
+ * is durably reachable at. The editor typically calls `checkAssetHashes`
+ * first to skip already-known hashes; this module is the upload step
+ * for the novel ones.
  *
  * Wire:
- *   POST /assets/upload/:hash      (Content-Type: application/octet-stream)
- *      → 202 { uri: "https://r2/assets/<hash>" }
+ *   PUT  <relayBaseUrl>/base-bundle/assets/<hash>
+ *        Content-Type: <mime>
+ *        body: bytes
+ *      → 201 (created) | 200 (overwrite); no JSON body
+ *
+ * The relay's PUT doesn't return a `uri` field — the editor derives the
+ * GET URL from `<relayBaseUrl>/base-bundle/assets/<hash>` since asset
+ * keys are content-addressed (sha256 hex) and the relay's GET / HEAD on
+ * the same path serves them durably from R2. Caller embeds the derived
+ * URI in `AssetDescriptor`.
+ *
+ * Audit note: prior to 2026-04-25 this module POSTed to
+ * `/assets/upload/<hash>` — a path the relay never had a route for.
+ * No production caller invoked the function (the editor pipeline didn't
+ * yet depend on R2 upload), so the mismatch was invisible. Caught
+ * during the same audit thread that found the dead Monaco shim, the
+ * unwired reconnect-replayer, etc. — the editor uploader is now
+ * pointed at a real endpoint.
  */
 
 export interface UploadAssetOptions {
@@ -50,7 +67,8 @@ export async function uploadAsset(
     if (typeof fetchImpl !== 'function') {
         return { ok: false, hash: options.hash, error: 'fetch is not available' };
     }
-    const url = `${options.relayBaseUrl.replace(/\/+$/, '')}/assets/upload/${encodeURIComponent(options.hash)}`;
+    const baseUrl = options.relayBaseUrl.replace(/\/+$/, '');
+    const url = `${baseUrl}/base-bundle/assets/${encodeURIComponent(options.hash)}`;
     const controller = new AbortController();
     const timer = setTimeout(
         () => controller.abort(),
@@ -58,7 +76,7 @@ export async function uploadAsset(
     );
     try {
         const resp = await fetchImpl(url, {
-            method: 'POST',
+            method: 'PUT',
             headers: {
                 'Content-Type': options.mime || 'application/octet-stream',
                 'X-Onlook-Session-Id': options.sessionId,
@@ -74,15 +92,15 @@ export async function uploadAsset(
                 status: resp.status,
             };
         }
-        const parsed = (await resp.json()) as { uri?: unknown };
-        if (typeof parsed.uri !== 'string') {
-            return {
-                ok: false,
-                hash: options.hash,
-                error: 'relay returned no uri field',
-            };
-        }
-        return { ok: true, uri: parsed.uri, hash: options.hash };
+        // The relay's PUT returns no body — derive the durable GET URI
+        // from the hash + base URL. Asset keys are content-addressed so
+        // this URI is stable and serves bytes via the same path's
+        // GET/HEAD branches.
+        return {
+            ok: true,
+            uri: url,
+            hash: options.hash,
+        };
     } catch (err) {
         return {
             ok: false,

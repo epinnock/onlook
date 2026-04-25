@@ -39,18 +39,19 @@ function makeFakeRelay(knownHashes: Iterable<string> = []): FakeRelay {
                 headers: { 'Content-Type': 'application/json' },
             });
         }
-        // /assets/upload/:hash
-        const uploadMatch = /\/assets\/upload\/([^/]+)$/.exec(url);
-        if (uploadMatch) {
+        // PUT /base-bundle/assets/:hash — canonical relay endpoint
+        // (retargeted from /assets/upload/:hash 2026-04-25 to match
+        // the relay's actual route added in v2 task #74).
+        const uploadMatch = /\/base-bundle\/assets\/([^/]+)$/.exec(url);
+        if (uploadMatch && (init?.method === 'PUT')) {
             const hash = decodeURIComponent(uploadMatch[1]!);
             known.add(hash);
             const mime = new Headers(init?.headers).get('Content-Type') ?? '';
             const body = init?.body as Uint8Array | undefined;
             uploads.push({ hash, mime, bytes: body?.byteLength ?? 0 });
-            return new Response(JSON.stringify({ uri: `https://r2/assets/${hash}` }), {
-                status: 202,
-                headers: { 'Content-Type': 'application/json' },
-            });
+            // Relay's PUT returns no body; the editor derives the GET URI
+            // from the request URL.
+            return new Response(null, { status: 201 });
         }
         // /push/:id
         if (/\/push\/[^/]+$/.test(url)) {
@@ -222,7 +223,7 @@ describe('asset pipeline integration (check → upload → push)', () => {
                     headers: { 'Content-Type': 'application/json' },
                 });
             }
-            if (url.includes('/assets/upload/')) {
+            if (url.includes('/base-bundle/assets/') && init?.method === 'PUT') {
                 return new Response('server exploded', { status: 500 });
             }
             return new Response('unknown', { status: 404 });
