@@ -448,6 +448,41 @@ export function useMobilePreviewStatus(
     // before the relayWs is connected).
     relayWsClientRef.current = relayWsClient;
 
+    // Phase 11b reconnect-recovery — when the phone connects mid-session
+    // and the handshake completes, the editor's accumulated edits never
+    // reached the relay because the compatibility gate fail-closed every
+    // pushOverlayV1 call while compat='unknown'. Trigger a manual
+    // pipeline.sync() on the unknown→ok transition so the latest file
+    // state lands on the freshly-handshook phone. Same recovery shape as
+    // services/expo-relay/reconnect-replayer.ts but via the pipeline
+    // (which knows how to build the overlay) rather than a separate
+    // re-push helper.
+    //
+    // Skipped on initial 'unknown' (no transition yet). Skipped when no
+    // file system or pipeline is available. Errors swallowed — a manual
+    // re-sync failing must not surface a confusing error in the UI; the
+    // next regular file-edit sync will pick up.
+    const prevAbiCompatRef = useRef<typeof abiCompatibility>('unknown');
+    useEffect(() => {
+        const prev = prevAbiCompatRef.current;
+        prevAbiCompatRef.current = abiCompatibility;
+        if (prev === abiCompatibility) return;
+        if (abiCompatibility !== 'ok') return;
+        const fs = opts.fileSystem;
+        const pipeline = pipelineRef.current;
+        if (!fs || !pipeline) return;
+        // Fire-and-forget. The file-watch effect already handles error
+        // surfacing for regular edits; this catch-up sync is best-effort.
+        pipeline
+            .sync({ fileSystem: fs })
+            .catch((err) => {
+                console.warn(
+                    '[mobile-preview] reconnect re-sync failed (will retry on next edit):',
+                    err,
+                );
+            });
+    }, [abiCompatibility, opts.fileSystem]);
+
     // Derive sessionId from the ready-state manifestUrl so dev-panel
     // callers can filter streams by session without re-implementing
     // parseManifestUrl. Null on non-ready states (idle/opening/failed)
