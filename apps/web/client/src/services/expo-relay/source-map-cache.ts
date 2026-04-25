@@ -100,6 +100,76 @@ export interface WithSourceMapDecorationOptions {
 }
 
 /**
+ * Buffer-replace variant of {@link withSourceMapDecoration} for callers
+ * that own a buffered messages list (the dev panel via
+ * `RelayWsClient.snapshot().messages`). The double-delivery middleware
+ * shape doesn't fit a FIFO buffer — pushing twice creates duplicate
+ * rows. This helper instead schedules an in-place replace via a
+ * `replaceMatching` callback after the cache resolves.
+ *
+ * Wire shape:
+ *
+ *   wireBufferDecorationOnError({
+ *       cache,
+ *       resolveMapUrl,
+ *       replaceMatching: (predicate, replacer) =>
+ *           relayWsClient.replaceMessageMatching(predicate, replacer),
+ *   })
+ *
+ * The returned function is the `onError` handler to plug into
+ * `subscribeRelayEvents`'s handlers (or the equivalent slot on a
+ * higher-level hook). It does NOT push to the buffer itself — it
+ * assumes the buffer was already populated by the existing onAny
+ * dispatch path. It only schedules the decoration swap.
+ */
+export interface WireBufferDecorationOptions {
+    readonly cache: SourceMapCache;
+    readonly resolveMapUrl: (msg: ErrorMessage) => string | null;
+    /**
+     * Buffer mutation primitive. Production callers pass
+     * `relayWsClient.replaceMessageMatching` here; tests pass a spy.
+     * Returns boolean from the underlying call but the result is
+     * ignored — a missed match (FIFO eviction between push and
+     * replace) is silently dropped.
+     */
+    readonly replaceMatching: (
+        predicate: (msg: ErrorMessage) => boolean,
+        replacer: (msg: ErrorMessage) => ErrorMessage,
+    ) => unknown;
+}
+
+export function wireBufferDecorationOnError(
+    opts: WireBufferDecorationOptions,
+): (msg: ErrorMessage) => void {
+    return (msg) => {
+        // Match-by-(sessionId, timestamp) — both are required fields on
+        // ErrorMessage and the relay's fan-out preserves them verbatim,
+        // so identity is unambiguous within a session.
+        const url = opts.resolveMapUrl(msg);
+        if (url === null) return; // No URL known yet (Phase 9 prereq); fail-soft.
+        opts.cache
+            .get(url)
+            .then((map) => {
+                if (map === null) return;
+                const decorated = decorateErrorMessageWithSourceMap(msg, map);
+                if (decorated === msg) return; // No frame match; nothing to swap.
+                opts.replaceMatching(
+                    (other) =>
+                        other.type === 'onlook:error' &&
+                        other.sessionId === msg.sessionId &&
+                        other.timestamp === msg.timestamp,
+                    () => decorated,
+                );
+            })
+            .catch(() => {
+                // The cache itself swallows fetch errors (returns null), so
+                // a throw here is unexpected. Silent drop — operator already
+                // sees the undecorated entry in the buffer.
+            });
+    };
+}
+
+/**
  * Wrap an `(ErrorMessage) => void` handler so it gets two delivery hops:
  *
  *   1. **Synchronous undecorated delivery** — the wrapped handler fires

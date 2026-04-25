@@ -9,6 +9,7 @@ import type { ErrorMessage } from '@onlook/mobile-client-protocol';
 
 import {
     createSourceMapCache,
+    wireBufferDecorationOnError,
     withSourceMapDecoration,
     type SourceMapCache,
 } from '../source-map-cache';
@@ -257,5 +258,138 @@ describe('withSourceMapDecoration', () => {
         // 3 undecorated + 3 decorated = 6 deliveries; 1 fetch.
         expect(receivedAll).toHaveLength(6);
         expect(fake.callCount()).toBe(1);
+    });
+});
+
+describe('wireBufferDecorationOnError', () => {
+    let cache: SourceMapCache;
+    afterEach(() => {
+        cache?.clear();
+    });
+
+    test('replaces the matching buffer entry when map resolves', async () => {
+        const fake = makeFakeFetch(new Map([[MAP_URL, sampleMap]]));
+        cache = createSourceMapCache({ fetchImpl: fake.fetchImpl });
+        const replaceCalls: Array<{ predicateMatched: boolean; replaced: ErrorMessage }> = [];
+        const onError = wireBufferDecorationOnError({
+            cache,
+            resolveMapUrl: () => MAP_URL,
+            replaceMatching: (predicate, replacer) => {
+                // Simulate a buffer entry matching by (sessionId, timestamp).
+                const probe = makeErrMsg({ timestamp: 1, stack: 'at bundle.js:1:0' });
+                const matched = predicate(probe);
+                if (matched) {
+                    replaceCalls.push({ predicateMatched: true, replaced: replacer(probe) });
+                }
+                return matched;
+            },
+        });
+
+        const msg = makeErrMsg({ timestamp: 1, stack: 'at bundle.js:1:0' });
+        onError(msg);
+        await new Promise((r) => setTimeout(r, 20));
+
+        expect(replaceCalls).toHaveLength(1);
+        expect(replaceCalls[0]!.replaced.source).toEqual({
+            fileName: 'App.tsx',
+            lineNumber: 1,
+            columnNumber: 0,
+        });
+    });
+
+    test('skips replace when resolveMapUrl returns null (Phase 9 prereq fail-soft)', async () => {
+        const fake = makeFakeFetch(new Map());
+        cache = createSourceMapCache({ fetchImpl: fake.fetchImpl });
+        const replaceCalls: number[] = [];
+        const onError = wireBufferDecorationOnError({
+            cache,
+            resolveMapUrl: () => null,
+            replaceMatching: () => {
+                replaceCalls.push(1);
+                return true;
+            },
+        });
+
+        onError(makeErrMsg({ timestamp: 1, stack: 'at bundle.js:1:0' }));
+        await new Promise((r) => setTimeout(r, 20));
+
+        expect(replaceCalls).toEqual([]); // never invoked
+        expect(fake.callCount()).toBe(0); // no fetch attempted
+    });
+
+    test('skips replace when fetch returns null map', async () => {
+        const fake = makeFakeFetch(new Map<string, RawSourceMap | 'fail'>([[MAP_URL, 'fail']]));
+        cache = createSourceMapCache({ fetchImpl: fake.fetchImpl });
+        const replaceCalls: number[] = [];
+        const onError = wireBufferDecorationOnError({
+            cache,
+            resolveMapUrl: () => MAP_URL,
+            replaceMatching: () => {
+                replaceCalls.push(1);
+                return true;
+            },
+        });
+
+        onError(makeErrMsg({ timestamp: 1, stack: 'at bundle.js:1:0' }));
+        await new Promise((r) => setTimeout(r, 20));
+
+        expect(replaceCalls).toEqual([]);
+    });
+
+    test('skips replace when no frame matches in the stack', async () => {
+        const fake = makeFakeFetch(new Map([[MAP_URL, sampleMap]]));
+        cache = createSourceMapCache({ fetchImpl: fake.fetchImpl });
+        const replaceCalls: number[] = [];
+        const onError = wireBufferDecorationOnError({
+            cache,
+            resolveMapUrl: () => MAP_URL,
+            replaceMatching: () => {
+                replaceCalls.push(1);
+                return true;
+            },
+        });
+
+        // No stack on the message → decorate returns input unchanged → no swap.
+        onError(makeErrMsg({ timestamp: 1, stack: undefined }));
+        await new Promise((r) => setTimeout(r, 20));
+
+        expect(replaceCalls).toEqual([]);
+    });
+
+    test('predicate matches by (sessionId, timestamp) identity', async () => {
+        const fake = makeFakeFetch(new Map([[MAP_URL, sampleMap]]));
+        cache = createSourceMapCache({ fetchImpl: fake.fetchImpl });
+        let captured: ((m: ErrorMessage) => boolean) | null = null;
+        const onError = wireBufferDecorationOnError({
+            cache,
+            resolveMapUrl: () => MAP_URL,
+            replaceMatching: (predicate) => {
+                captured = predicate;
+                return true;
+            },
+        });
+
+        const msg = makeErrMsg({
+            sessionId: 'sess-X',
+            timestamp: 42,
+            stack: 'at bundle.js:1:0',
+        });
+        onError(msg);
+        await new Promise((r) => setTimeout(r, 20));
+
+        expect(captured).not.toBeNull();
+        const predicate = captured!;
+        // Match: same (sessionId, timestamp), correct type.
+        expect(
+            predicate(makeErrMsg({ sessionId: 'sess-X', timestamp: 42 })),
+        ).toBe(true);
+        // No match: different timestamp.
+        expect(
+            predicate(makeErrMsg({ sessionId: 'sess-X', timestamp: 99 })),
+        ).toBe(false);
+        // No match: different sessionId.
+        expect(
+            predicate(makeErrMsg({ sessionId: 'sess-Y', timestamp: 42 })),
+        ).toBe(false);
     });
 });
