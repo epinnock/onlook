@@ -126,9 +126,12 @@ export interface WireBufferDecorationOptions {
     readonly cache: SourceMapCache;
     readonly resolveMapUrl: (msg: ErrorMessage) => string | null;
     /**
-     * Buffer mutation primitive. Production callers pass
-     * `relayWsClient.replaceMessageMatching` here; tests pass a spy.
-     * Returns boolean from the underlying call but the result is
+     * Buffer mutation primitive. Production callers pass an adapter
+     * around `relayWsClient.replaceMessageMatching` (see
+     * `use-mobile-preview-status.tsx`) — the adapter widens the
+     * predicate/replacer to the full message union the buffer
+     * actually holds (`WsMessage | OverlayAckMessage`); tests pass a
+     * spy. Returns boolean from the underlying call but the result is
      * ignored — a missed match (FIFO eviction between push and
      * replace) is silently dropped.
      */

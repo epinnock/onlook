@@ -28,6 +28,11 @@ import type { RelayWsClient } from '@/services/expo-relay/relay-ws-client';
 import type { MobilePreviewPipeline, MobilePreviewVfs } from '@/services/mobile-preview';
 import { renderQrSvg } from '@/services/expo-relay';
 import { parseManifestUrl } from '@/services/expo-relay/manifest-url';
+import { emitOverlayAckTelemetry } from '@/services/expo-relay/overlay-telemetry-sink';
+import {
+    createSourceMapCache,
+    wireBufferDecorationOnError,
+} from '@/services/expo-relay/source-map-cache';
 import {
     buildMobilePreviewBundle,
     createMobilePreviewPipeline,
@@ -423,6 +428,30 @@ export function useMobilePreviewStatus(
         platform: 'ios',
         aliases: [],
     });
+    // Phase 11b row #35 source-map decoration —
+    // `lastOverlayMetaSourceMapUrl` ref is set by the production
+    // pipeline call site after a successful pushOverlayV1 with a
+    // populated `meta.sourceMapUrl`. Today the v1 push branch in
+    // `two-tier.ts:317` omits sourceMap pending Phase 9 R2 upload —
+    // so this ref stays null and decoration is a fail-soft no-op
+    // (see wireBufferDecorationOnError tests). When R2 upload lands,
+    // the pipeline updates this ref via a deps callback (next tick's
+    // wire-up); decoration starts working automatically with no
+    // changes here. Per-session ref because a different sessionId
+    // means a different overlay history — we never want to apply
+    // session-A's map URL to session-B's error.
+    const lastOverlayMetaSourceMapUrlRef = useRef<string | null>(null);
+    // Reset the URL ref on session change for the same reason
+    // abiCompatibility resets — a different phone connection means a
+    // fresh overlay timeline.
+    useEffect(() => {
+        lastOverlayMetaSourceMapUrlRef.current = null;
+    }, [manifestUrlForRelay]);
+    // Cache + handler are stable across renders. The cache is owned at
+    // the hook scope (one per editor session) so identical map URLs
+    // share fetches; the handler is the pre-built closure that the
+    // useRelayWsClient handlers slot expects.
+    const sourceMapCacheRef = useRef(createSourceMapCache());
     // Reset the cached compatibility every time the manifestUrl
     // changes — a different session means a different phone, so
     // last-write-wins from a stale connection must not leak through.
@@ -430,9 +459,44 @@ export function useMobilePreviewStatus(
         setAbiCompatibility('unknown');
         setPhoneHello(null);
     }, [manifestUrlForRelay]);
+    // Compose the source-map decoration handler. The closure captures
+    // `relayWsClientRef` (declared above) for the buffer-replace
+    // primitive — useState-driven re-render isn't required because
+    // `replaceMessageMatching` mutates the buffer in place; the
+    // dev-panel reads via `getSnapshot()` which sees the updated
+    // entry on the next snapshot call.
+    const decorationOnError = useCallback(
+        wireBufferDecorationOnError({
+            cache: sourceMapCacheRef.current,
+            resolveMapUrl: () => lastOverlayMetaSourceMapUrlRef.current,
+            // Adapter: widen the predicate/replacer from ErrorMessage to
+            // the buffer's full message union. RelayWsClient.replaceMessageMatching
+            // operates on `WsMessage | OverlayAckMessage`; we narrow with
+            // the predicate's `m.type === 'onlook:error'` check, which the
+            // helper sets up internally before invoking us.
+            replaceMatching: (predicate, replacer) => {
+                const c = relayWsClientRef.current;
+                if (c === null) return false;
+                return c.replaceMessageMatching(
+                    (m) => m.type === 'onlook:error' && predicate(m),
+                    (m) =>
+                        m.type === 'onlook:error' ? replacer(m) : m,
+                );
+            },
+        }),
+        [],
+    );
     const { client: relayWsClient } = useRelayWsClient({
         manifestUrl: manifestUrlForRelay,
         editorCapabilities: editorCapabilities.current,
+        // Preserve the default `onOverlayAck` PostHog telemetry by
+        // explicitly setting it alongside the new onError. Replacing
+        // the entire handlers object DROPS defaults (see
+        // useRelayWsClient header docstring).
+        handlers: {
+            onOverlayAck: emitOverlayAckTelemetry,
+            onError: decorationOnError,
+        },
         onAbiCompatibility: useCallback(
             (result: 'ok' | OnlookRuntimeError, hello: AbiHelloMessage) => {
                 setAbiCompatibility(result);
