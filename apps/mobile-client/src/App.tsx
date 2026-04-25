@@ -13,6 +13,9 @@ import { consoleRelay } from './debug/consoleRelay';
 import { ConsoleStreamer } from './debug/consoleStreamer';
 import { exceptionCatcher } from './debug/exceptionCatcher';
 import { ExceptionStreamer } from './debug/exceptionStreamer';
+import { fetchPatch } from './debug/fetchPatch';
+import { xhrPatch } from './debug/xhrPatch';
+import { NetworkStreamer } from './debug/networkStreamer';
 import { dynamicWsSender } from './relay/wsSender';
 
 /**
@@ -48,9 +51,17 @@ export default function App() {
      */
     const consoleStreamerRef = useRef<ConsoleStreamer | null>(null);
     const exceptionStreamerRef = useRef<ExceptionStreamer | null>(null);
+    const networkStreamerRef = useRef<NetworkStreamer | null>(null);
     useEffect(() => {
         consoleRelay.install();
         exceptionCatcher.install();
+        // fetch + XHR patches for network observability (MC5.3 + MC5.4).
+        // Both are global-prototype patches so they install once at app
+        // boot. uninstall() restores originals on teardown so fast-refresh
+        // / unit-test re-mounts don't double-patch.
+        fetchPatch.install();
+        xhrPatch.install();
+
         const cs = new ConsoleStreamer(dynamicWsSender, CONSOLE_BOOT_SESSION_ID);
         cs.start();
         consoleStreamerRef.current = cs;
@@ -65,11 +76,27 @@ export default function App() {
         es.start();
         exceptionStreamerRef.current = es;
 
+        // NetworkStreamer (MC5.5) — forwards completed fetch/XHR entries
+        // as `onlook:network` messages so the editor's MobileNetworkTab
+        // populates on a real session. Sources default to the
+        // `fetchPatch` / `xhrPatch` singletons we just installed.
+        const ns = new NetworkStreamer(
+            dynamicWsSender,
+            {},
+            { sessionId: CONSOLE_BOOT_SESSION_ID },
+        );
+        ns.start();
+        networkStreamerRef.current = ns;
+
         return () => {
             cs.stop();
             consoleStreamerRef.current = null;
             es.stop();
             exceptionStreamerRef.current = null;
+            ns.stop();
+            networkStreamerRef.current = null;
+            fetchPatch.uninstall();
+            xhrPatch.uninstall();
         };
     }, []);
 
@@ -95,6 +122,7 @@ export default function App() {
                     // `sessionId === CONSOLE_BOOT_SESSION_ID` if desired.
                     consoleStreamerRef.current?.setSessionId(result.sessionId);
                     exceptionStreamerRef.current?.setSessionId(result.sessionId);
+                    networkStreamerRef.current?.setSessionId(result.sessionId);
                     twoTierHandleRef.current?.stop();
                     twoTierHandleRef.current = startTwoTierBootstrap({
                         sessionId: result.sessionId,

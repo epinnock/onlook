@@ -256,3 +256,17 @@ A 54-commit autonomous session (PR #20) shipped four interrelated workstreams. M
 
 ### Documentation
 - mobile-client task queue MC5.7 status updated to reflect production-wired state.
+
+## [Unreleased] - 2026-04-25 — NetworkStreamer wiring (workstream F continued)
+
+### Changed
+- **`NetworkStreamer` constructor type** widened from concrete `OnlookRelayClient` to structural `WsSenderHandle` — same pattern as ConsoleStreamer (`6a6ceba0`). MC5.5 production wiring closed.
+
+### Added
+- **App.tsx wires fetch/XHR patches + NetworkStreamer at boot**: `fetchPatch.install()` + `xhrPatch.install()` patch the global prototypes once at boot; `new NetworkStreamer(dynamicWsSender, {}, {sessionId: 'pending'})` + `start()` subscribes to both patch sources and forwards completed entries as `onlook:network` messages via the shared registry. Cleanup teardown calls `uninstall()` on both patches so fast-refresh / unit-test re-mounts don't double-patch. Deeplink resolve rotates the session id via `networkStreamerRef.current?.setSessionId(result.sessionId)`.
+
+### Tests
+- mobile-client total stays at 490 (no new tests this commit — NetworkStreamer's existing 12 tests already cover the structural contract; the wire-in is one-line additions to App.tsx that don't add new behavior).
+
+### Documentation
+- mobile-client task queue MC5.5 status updated to reflect production-wired state. With this, **all three observability streamers (MC5.2 console, MC5.5 network, MC5.7 exceptions) are now production-wired** via the `dynamicWsSender` registry pattern — closes the entire mobile-client observability gap documented in `8c52ebf4`. TapHandler (MC4.14) remains gated on `findNodeAtPoint` (MC4.2, doesn't exist) — separate work.
