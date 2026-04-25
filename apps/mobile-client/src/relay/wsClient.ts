@@ -15,7 +15,7 @@
  */
 
 import { WsMessageSchema } from '@onlook/mobile-client-protocol';
-import type { WsMessage } from '@onlook/mobile-client-protocol';
+import type { AbiHelloMessage, WsMessage } from '@onlook/mobile-client-protocol';
 
 export type { WsMessage };
 
@@ -25,6 +25,19 @@ export interface RelayClientOptions {
     autoReconnect?: boolean;
     /** Maximum delay between reconnect attempts in milliseconds. Defaults to `30_000`. */
     maxReconnectDelay?: number;
+    /**
+     * Optional provider for the phone-side AbiHello message. Invoked on
+     * every successful WS open (initial connect + auto-reconnect) — Phase 11b
+     * requires the editor to receive a fresh hello on every reconnect because
+     * the binary version may have changed during a downtime window. Returning
+     * `null` skips the send (e.g. tests that don't need the handshake).
+     *
+     * The provider is intentionally a callback rather than a static field
+     * because the runtime capabilities (baseHash from the just-fetched
+     * manifest, Platform.OS, etc.) often aren't known at client construction.
+     * See `apps/mobile-client/src/relay/abiHello.ts::buildPhoneAbiHello`.
+     */
+    abiHelloProvider?: () => AbiHelloMessage | null;
 }
 
 const DEFAULT_RECONNECT_DELAY = 1_000;
@@ -38,6 +51,7 @@ export class OnlookRelayClient {
     private readonly wsUrl: string;
     private readonly autoReconnect: boolean;
     private readonly maxReconnectDelay: number;
+    private readonly abiHelloProvider: (() => AbiHelloMessage | null) | undefined;
     private ws: WebSocket | null = null;
     private listeners = new Set<(msg: WsMessage) => void>();
     private reconnectDelay = DEFAULT_RECONNECT_DELAY;
@@ -48,6 +62,7 @@ export class OnlookRelayClient {
         this.wsUrl = wsUrl;
         this.autoReconnect = options?.autoReconnect ?? true;
         this.maxReconnectDelay = options?.maxReconnectDelay ?? DEFAULT_MAX_RECONNECT_DELAY;
+        this.abiHelloProvider = options?.abiHelloProvider;
     }
 
     /** Whether the underlying WebSocket is currently in the OPEN state. */
@@ -73,6 +88,21 @@ export class OnlookRelayClient {
         ws.onopen = () => {
             // Reset backoff on successful connection.
             this.reconnectDelay = DEFAULT_RECONNECT_DELAY;
+            // Phase 11b: send the phone-side AbiHello on every open (initial
+            // and auto-reconnect) so the editor's `compatibility()` gate can
+            // resolve. Provider returning null skips the send. Both the
+            // provider call AND the send are wrapped in try/catch — a
+            // hello-send failure must not break the WS itself. The editor's
+            // gate stays 'unknown' on failure, which is the fail-closed
+            // behavior pushes already expect.
+            try {
+                const hello = this.abiHelloProvider?.();
+                if (hello && this.ws && this.ws.readyState === WebSocket.OPEN) {
+                    this.ws.send(JSON.stringify(hello));
+                }
+            } catch {
+                /* swallow — see comment above */
+            }
         };
 
         ws.onmessage = (event: MessageEvent) => {
