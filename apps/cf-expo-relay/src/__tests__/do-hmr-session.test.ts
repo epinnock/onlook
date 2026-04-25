@@ -938,4 +938,93 @@ describe('HmrSession AbiHello fan-out (Phase 11b prep)', () => {
         const lateJoiner = await openSocket(session);
         expect(lateJoiner.server.sent).toEqual([]);
     });
+
+    test('forwarded AbiHello emits hmr.abi-hello.fwd structured log', async () => {
+        const session = makeSession();
+        const sender = await openSocket(session);
+        await openSocket(session);
+
+        const infoLogs: string[] = [];
+        const origInfo = console.info;
+        console.info = ((msg: string) => {
+            if (typeof msg === 'string') infoLogs.push(msg);
+        }) as typeof console.info;
+        try {
+            sender.server.emit('message', JSON.stringify(phoneHello));
+        } finally {
+            console.info = origInfo;
+        }
+
+        const fwdLog = infoLogs.find((l) => l.includes('hmr.abi-hello.fwd'));
+        expect(fwdLog).toBeDefined();
+        const parsed = JSON.parse(fwdLog!) as {
+            event: string;
+            sessionId: string;
+            role: string;
+            abi: string;
+            rnVersion: string;
+            expoSdk: string;
+            platform: string;
+            aliasCount: number;
+            delivered: number;
+            sockets: number;
+        };
+        expect(parsed.event).toBe('hmr.abi-hello.fwd');
+        expect(parsed.sessionId).toBe('s');
+        expect(parsed.role).toBe('phone');
+        expect(parsed.abi).toBe('v1');
+        expect(parsed.rnVersion).toBe('0.81.6');
+        expect(parsed.expoSdk).toBe('54.0.0');
+        expect(parsed.platform).toBe('ios');
+        expect(parsed.aliasCount).toBe(2); // ['react', 'react-native']
+        expect(parsed.delivered).toBe(1); // sender excluded
+        expect(parsed.sockets).toBe(2);
+    });
+
+    test('replay-on-connect emits hmr.abi-hello.replay structured log', async () => {
+        const session = makeSession();
+        const editor = await openSocket(session);
+        editor.server.emit('message', JSON.stringify(editorHello));
+
+        const infoLogs: string[] = [];
+        const origInfo = console.info;
+        console.info = ((msg: string) => {
+            if (typeof msg === 'string') infoLogs.push(msg);
+        }) as typeof console.info;
+        try {
+            await openSocket(session);
+        } finally {
+            console.info = origInfo;
+        }
+
+        const replayLog = infoLogs.find((l) => l.includes('hmr.abi-hello.replay'));
+        expect(replayLog).toBeDefined();
+        const parsed = JSON.parse(replayLog!) as {
+            event: string;
+            editorReplayed: boolean;
+            phoneReplayed: boolean;
+            sockets: number;
+        };
+        expect(parsed.event).toBe('hmr.abi-hello.replay');
+        expect(parsed.editorReplayed).toBe(true);
+        expect(parsed.phoneReplayed).toBe(false);
+        expect(parsed.sockets).toBe(2);
+    });
+
+    test('replay log NOT emitted when nothing to replay', async () => {
+        const session = makeSession();
+        const infoLogs: string[] = [];
+        const origInfo = console.info;
+        console.info = ((msg: string) => {
+            if (typeof msg === 'string') infoLogs.push(msg);
+        }) as typeof console.info;
+        try {
+            await openSocket(session);
+        } finally {
+            console.info = origInfo;
+        }
+        // No prior hellos stored → nothing replayed → no log line.
+        const replayLog = infoLogs.find((l) => l.includes('hmr.abi-hello.replay'));
+        expect(replayLog).toBeUndefined();
+    });
 });

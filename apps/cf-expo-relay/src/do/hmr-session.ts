@@ -239,11 +239,30 @@ export class HmrSession extends DurableObject<Env> {
      */
     private replayLastAbiHellos(socket: WebSocket): void {
         if (socket.readyState !== WebSocket.OPEN) return;
+        let editorReplayed = false;
+        let phoneReplayed = false;
         if (this.lastEditorHelloPayload !== null) {
             socket.send(this.lastEditorHelloPayload);
+            editorReplayed = true;
         }
         if (this.lastPhoneHelloPayload !== null) {
             socket.send(this.lastPhoneHelloPayload);
+            phoneReplayed = true;
+        }
+        if (editorReplayed || phoneReplayed) {
+            // Operators tracing "phone hello dropped vs replayed" can
+            // correlate this with the matching hmr.abi-hello.fwd line —
+            // a fresh socket joining mid-soak should show a replay log
+            // before its own hello fwd if the counterpart was already
+            // connected.
+            console.info(
+                JSON.stringify({
+                    event: 'hmr.abi-hello.replay',
+                    editorReplayed,
+                    phoneReplayed,
+                    sockets: this.sockets.size,
+                }),
+            );
         }
     }
 
@@ -367,10 +386,32 @@ export class HmrSession extends DurableObject<Env> {
             } else {
                 this.lastPhoneHelloPayload = payload;
             }
+            let delivered = 0;
             for (const socket of this.sockets) {
                 if (socket === sender || socket.readyState !== WebSocket.OPEN) continue;
                 socket.send(payload);
+                delivered += 1;
             }
+            // Structured log mirroring the hmr.push.v1 shape so operators
+            // grepping the Workers tail / log drain can correlate handshake
+            // activity with downstream gate state. Phase 11b soak signal —
+            // a healthy session has 1 editor hello + 1 phone hello fanned
+            // out to delivered=1 each. Stuck handshakes show role=phone
+            // hellos with delivered=0 (editor not connected yet).
+            console.info(
+                JSON.stringify({
+                    event: 'hmr.abi-hello.fwd',
+                    sessionId: helloParse.data.sessionId,
+                    role: helloParse.data.role,
+                    abi: helloParse.data.abi,
+                    rnVersion: helloParse.data.runtime.rnVersion,
+                    expoSdk: helloParse.data.runtime.expoSdk,
+                    platform: helloParse.data.runtime.platform,
+                    aliasCount: helloParse.data.runtime.aliases.length,
+                    delivered,
+                    sockets: this.sockets.size,
+                }),
+            );
             return;
         }
 
