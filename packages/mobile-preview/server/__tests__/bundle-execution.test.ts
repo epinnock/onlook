@@ -237,3 +237,70 @@ describe('bundle execution (Expo Go / browser-preview default mode): runtime.js 
         expect(sandbox.__modules).toBeUndefined();
     });
 });
+
+// Regression guard for the 2026-04-25 Expo Go blank-screen fix (PR #20).
+// Before: entry.js gated runtime.js on `typeof window !== 'undefined'`. Hermes
+// (Expo Go AND mobile-client) doesn't have window at prepend time, so the
+// gate skipped runtime.js even when the host hadn't opted out via
+// __noOnlookRuntime — leaving Expo Go with no _initReconciler and a blank
+// screen logged "B13 ERROR: _initReconciler not found".
+//
+// This describe block re-evaluates the bundle in a sandbox that mirrors
+// Expo Go's environment exactly: no `window`, no `__noOnlookRuntime`. The
+// fix's contract is that runtime.js must still load there, so React,
+// renderApp, and _initReconciler all need to be present.
+describe('bundle execution (Expo Go regression guard): no window, no opt-out flag', () => {
+    if (!existsSync(BUNDLE_PATH)) {
+        test.skip('bundle.js not built — run `bun run build:runtime` in packages/mobile-preview first', () => {
+            /* skipped */
+        });
+        return;
+    }
+
+    const bundle = readFileSync(BUNDLE_PATH, 'utf8');
+
+    // Deliberately do NOT call buildSandbox(false), which sets `window` on
+    // the sandbox. We need the literal Expo Go shape: Hermes-style globals
+    // present, but `window` absent at prepend time and `__noOnlookRuntime`
+    // unset. This is what Expo Go SDK 54 + bridgeless looks like to the
+    // bundle's runtime prelude.
+    const sandbox: Record<string, unknown> = {
+        nativeFabricUIManager: {
+            registerEventHandler: () => {},
+        },
+        nativeLoggingHook: (_msg: string, _level: number) => {},
+        RN$registerCallableModule: (_name: string, _factory: () => unknown) => {},
+    };
+    const context = createContext(sandbox);
+
+    let evalError: Error | null = null;
+    try {
+        runInContext(bundle, context, { filename: 'bundle.js', timeout: 5000 });
+    } catch (err) {
+        evalError = err instanceof Error ? err : new Error(String(err));
+    }
+
+    test('bundle evaluates without throwing', () => {
+        expect(evalError).toBeNull();
+    });
+
+    test('runtime.js loaded (regression: window-check would have skipped it)', () => {
+        // The literal symptom of the original bug: shell.js's
+        // RN$AppRegistry.runApplication logs "B13 ERROR: _initReconciler
+        // not found" when this assertion fails. Keeping it as the
+        // regression's headline test.
+        expect(typeof sandbox._initReconciler).toBe('function');
+    });
+
+    test('React is exposed for shell.js default-screen render', () => {
+        expect(sandbox.React).toBeDefined();
+    });
+
+    test('renderApp is exposed for shell.js default-screen render', () => {
+        expect(typeof sandbox.renderApp).toBe('function');
+    });
+
+    test('createElement is exposed for shell.js default-screen render', () => {
+        expect(typeof sandbox.createElement).toBe('function');
+    });
+});
