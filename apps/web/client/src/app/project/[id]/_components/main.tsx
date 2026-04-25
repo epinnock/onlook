@@ -4,6 +4,7 @@ import { PreviewServiceWorkerRegister } from '@/components/preview/preview-sw-re
 import { useEditorEngine } from '@/components/store/editor';
 import { SubscriptionModal } from '@/components/ui/pricing-modal';
 import { SettingsModalWithProjects } from '@/components/ui/settings-modal/with-project';
+import { wireOnlookSelectToIdeManager } from '@/services/expo-relay/wireOnlookSelectToIdeManager';
 import { EditorAttributes } from '@onlook/constants';
 import { EditorMode } from '@onlook/models';
 import { Button } from '@onlook/ui/button';
@@ -54,6 +55,20 @@ export const Main = observer(() => {
             window.removeEventListener('wheel', handleGlobalWheel);
         };
     }, []);
+
+    // Tap-to-source production wiring (v2 task #85). Subscribes the
+    // editor's IdeManager to the `onlook:select` channel so phone taps
+    // arriving via the relay drive the existing `_codeNavigationOverride`
+    // MobX state — same path as `openCodeBlock` but bypassing the OID
+    // metadata lookup because the phone already resolved the source
+    // location via injected `__source` at build time.
+    //
+    // Cleanup unsubscribes on unmount or editor-engine swap; the
+    // receiver is a module-scoped EventTarget so multiple subscribers
+    // coexist safely (e.g. dev-panel logging hooks).
+    useEffect(() => {
+        return wireOnlookSelectToIdeManager(editorEngine.ide);
+    }, [editorEngine.ide]);
 
     if (error) {
         return (
