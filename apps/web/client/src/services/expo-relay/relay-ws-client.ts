@@ -25,15 +25,20 @@
  */
 
 import type {
+    AbiHelloMessage,
     ConsoleMessage,
     ErrorMessage,
     NetworkMessage,
+    OnlookRuntimeError,
     OverlayAckMessage,
+    RuntimeCapabilities,
     SelectMessage,
     TapMessage,
     WsMessage,
 } from '@onlook/mobile-client-protocol';
 
+import { ABI_VERSION, checkAbiCompatibility } from '@onlook/mobile-client-protocol';
+import { startEditorAbiHandshake, type AbiHandshakeHandle } from './abi-hello';
 import { subscribeRelayEvents, type RelayEventHandlers } from './relay-events';
 
 const DEFAULT_MESSAGE_BUFFER = 500;
@@ -70,6 +75,29 @@ export interface RelayWsClientOptions {
     readonly reconnectMaxMs?: number;
     /** Called on every state transition — telemetry-only; pure observer. */
     readonly onStateChange?: (state: RelayWsOpenState) => void;
+    /**
+     * Editor capability handshake (Phase 11b prep). When set, the client
+     * arms `startEditorAbiHandshake` on every WS open and re-arms on
+     * auto-reconnect — sending the editor's hello immediately and listening
+     * for the phone's. Push-overlay sites should gate sends on
+     * {@link onAbiCompatibility} resolving to `'ok'`.
+     *
+     * Omit when the caller does not yet need the gate (e.g. legacy
+     * `'two-tier'` pipeline) — the handshake is a no-op without
+     * `editorCapabilities`.
+     */
+    readonly editorCapabilities?: RuntimeCapabilities;
+    /**
+     * Fires every time `compatibility()` would change — once per phone
+     * hello received. Use this to flip a `canPushV1` flag in the editor's
+     * mobile-preview pipeline. Symmetric to `onPhoneHello` in
+     * `AbiHandshakeOptions`; the wrapper hides the handshake handle so
+     * callers don't have to poll.
+     */
+    readonly onAbiCompatibility?: (
+        result: 'ok' | OnlookRuntimeError,
+        phoneHello: AbiHelloMessage,
+    ) => void;
 }
 
 export interface RelayMessageSnapshot {
@@ -103,6 +131,7 @@ export class RelayWsClient {
     private reconnectAttempts = 0;
     private reconnectTimer: unknown = undefined;
     private subscription: ReturnType<typeof subscribeRelayEvents> | null = null;
+    private handshake: AbiHandshakeHandle | null = null;
     private disconnected = false;
 
     constructor(private readonly opts: RelayWsClientOptions) {
@@ -144,6 +173,8 @@ export class RelayWsClient {
         }
         this.subscription?.cancel();
         this.subscription = null;
+        this.handshake?.cancel();
+        this.handshake = null;
         const ws = this.socket;
         this.socket = null;
         try {
@@ -169,11 +200,14 @@ export class RelayWsClient {
         ws.addEventListener('open', () => {
             this.reconnectAttempts = 0;
             this.setState('open');
+            this.armAbiHandshake(ws);
         });
         ws.addEventListener('close', () => {
             this.socket = null;
             this.subscription?.cancel();
             this.subscription = null;
+            this.handshake?.cancel();
+            this.handshake = null;
             if (this.disconnected) return;
             this.setState('closed');
             this.scheduleReconnect();
@@ -196,6 +230,39 @@ export class RelayWsClient {
                 },
             },
         });
+    }
+
+    /**
+     * Arm the editor-side AbiHello handshake on a freshly-opened socket.
+     * No-op when `editorCapabilities` is not configured (legacy callers
+     * stay opt-in until Phase 11b's pipeline default flip lands). Wraps
+     * the immediate `ws.send` in try/catch — a hello-send failure must
+     * not break the WS itself; the editor's `compatibility()` handle just
+     * stays `'unknown'` and pushes already fail-closed on that state.
+     */
+    private armAbiHandshake(ws: WebSocket): void {
+        const caps = this.opts.editorCapabilities;
+        if (!caps) return;
+        try {
+            this.handshake = startEditorAbiHandshake({
+                ws: ws as unknown as Parameters<typeof startEditorAbiHandshake>[0]['ws'],
+                sessionId: this.opts.sessionId,
+                capabilities: caps,
+                onPhoneHello: (phone) => {
+                    // `startEditorAbiHandshake` invokes `onPhoneHello`
+                    // BEFORE it sets its internal `compatibility()` status,
+                    // so polling the handle here would always see
+                    // 'unknown'. Re-derive the same result locally —
+                    // `checkAbiCompatibility` is pure, so the two derivations
+                    // are guaranteed to agree.
+                    const compat = checkAbiCompatibility(ABI_VERSION, phone.runtime);
+                    this.opts.onAbiCompatibility?.(compat ?? 'ok', phone);
+                },
+            });
+        } catch {
+            // Send/listener wiring failure must not wedge the WS.
+            this.handshake = null;
+        }
     }
 
     private scheduleReconnect(): void {
