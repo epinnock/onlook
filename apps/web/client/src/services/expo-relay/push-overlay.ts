@@ -40,6 +40,18 @@ export interface OverlaySource {
     readonly sourceMap?: string;
 }
 
+/**
+ * Telemetry category tag — surfaced on every emitted event so the Phase 11b
+ * soak dashboard can chart failure populations independently. Today only
+ * `'compat-gate'` is used (Phase 11b fail-closed); future categories should
+ * be additive enums rather than string redefinition so existing dashboard
+ * queries don't drift.
+ *
+ * Absent on success and on the default failure path (network/validation/5xx) —
+ * dashboard treats undefined as the implicit `'standard'` bucket.
+ */
+export type PushOverlayTelemetryCategory = 'compat-gate';
+
 export interface PushOverlayTelemetry {
     readonly sessionId: string;
     readonly attempts: number;
@@ -49,6 +61,7 @@ export interface PushOverlayTelemetry {
     readonly status?: number;
     readonly ok: boolean;
     readonly error?: string;
+    readonly category?: PushOverlayTelemetryCategory;
 }
 
 export interface PushOverlayOptions {
@@ -452,6 +465,7 @@ export async function pushOverlayV1(
                 bytes: 0,
                 ok: false,
                 error,
+                category: 'compat-gate',
             });
             return result;
         }

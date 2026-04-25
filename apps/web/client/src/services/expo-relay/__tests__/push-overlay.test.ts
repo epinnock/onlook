@@ -450,10 +450,43 @@ describe('pushOverlayV1', () => {
             if (result.ok) return;
             expect(result.attempts).toBe(0);
             expect(result.error).toContain('handshake has not completed');
-            // Telemetry sees the failure.
+            // Telemetry sees the failure with the compat-gate category so
+            // the dashboard can chart Phase 11b fail-closed events
+            // independently of network/validation failures.
             expect(events).toHaveLength(1);
             expect(events[0]!.ok).toBe(false);
             expect(events[0]!.error).toContain('handshake has not completed');
+            expect(events[0]!.category).toBe('compat-gate');
+        });
+
+        test('OnlookRuntimeError gate path is also tagged compat-gate in telemetry', async () => {
+            const events: PushOverlayTelemetry[] = [];
+            const result = await pushOverlayV1({
+                relayBaseUrl: 'https://r',
+                sessionId: 's',
+                overlay: { code: 'm', buildDurationMs: 0 },
+                onTelemetry: (e) => events.push(e),
+                compatibility: () => ({ kind: 'abi-mismatch', message: 'v0' }),
+            });
+            expect(result.ok).toBe(false);
+            expect(events).toHaveLength(1);
+            expect(events[0]!.category).toBe('compat-gate');
+        });
+
+        test('non-gate failures do NOT carry the compat-gate category', async () => {
+            // sessionId/code/fetch failures should leave category undefined
+            // so the dashboard's 'standard' (implicit) bucket stays clean.
+            const events: PushOverlayTelemetry[] = [];
+            await pushOverlayV1({
+                relayBaseUrl: 'https://r',
+                sessionId: '', // invalid → fails BEFORE the gate
+                overlay: { code: 'm', buildDurationMs: 0 },
+                onTelemetry: (e) => events.push(e),
+                compatibility: () => 'ok',
+            });
+            expect(events).toHaveLength(1);
+            expect(events[0]!.ok).toBe(false);
+            expect(events[0]!.category).toBeUndefined();
         });
 
         test('fails-closed with kind+message when gate returns OnlookRuntimeError', async () => {
