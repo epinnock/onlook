@@ -25,11 +25,11 @@ import { parseManifestUrl } from '@/services/expo-relay/manifest-url';
 import {
     buildMobilePreviewBundle,
     createMobilePreviewPipeline,
-    getMobilePreviewPipelineKind,
     pushMobilePreviewUpdate,
     resolveMobilePreviewPipelineConfig,
     shouldSyncMobilePreviewPath,
 } from '@/services/mobile-preview';
+import { isAnyMobilePreviewOverlayPipelineEnabled } from '@/services/mobile-preview/pipeline-flag';
 import { registerTwoTierEsbuildServiceFactory } from '@/services/mobile-preview/pipelines/two-tier';
 import { useRelayWsClient } from './use-relay-ws-client';
 
@@ -227,7 +227,13 @@ export function useMobilePreviewStatus(
                 // Two-tier path: drive through the pipeline abstraction so
                 // the browser-bundler worker + /push client take over. The
                 // shim path stays as-is for legacy consumers.
-                if (getMobilePreviewPipelineKind() === 'two-tier') {
+                // Phase 11a routes both 'two-tier' (legacy push shape) and
+                // 'overlay-v1' (ABI v1 push shape) through the same TwoTier
+                // pipeline class — the inner sync() flag picks which push
+                // function fires. Without this kind-aware gate, env=overlay-v1
+                // silently fell back to the shim path and pushOverlayV1 was
+                // unreachable from production.
+                if (isAnyMobilePreviewOverlayPipelineEnabled()) {
                     ensureTwoTierEsbuildFactoryRegistered();
                     if (!pipelineRef.current) {
                         pipelineRef.current = createMobilePreviewPipeline(

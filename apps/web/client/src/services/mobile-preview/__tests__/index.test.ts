@@ -244,4 +244,48 @@ describe('createMobilePreviewPipeline', () => {
         );
         expect(pipeline.kind).toBe('shim');
     });
+
+    // Pre-Phase-11b bug fix: env=overlay-v1 used to fall through to shim
+    // because resolveMobilePreviewPipelineConfig only mapped the literal
+    // 'two-tier' kind. Per Phase 11a ADR, overlay-v1 IS a sub-mode of the
+    // TwoTier pipeline (the inner sync() flag picks v1 vs legacy push
+    // shape), so the construction config must be the same.
+    test("env='overlay-v1' resolves to a two-tier-shaped config (not shim)", () => {
+        mockEnv.NEXT_PUBLIC_MOBILE_PREVIEW_PIPELINE = 'overlay-v1';
+        const config = resolveMobilePreviewPipelineConfig();
+        expect(config.kind).toBe('two-tier');
+        if (config.kind !== 'two-tier') return;
+        expect(config.builderBaseUrl).toBe('https://builder.test');
+        expect(config.relayBaseUrl).toBe('https://relay.test');
+    });
+
+    test("env='overlay-v1' creates the TwoTier pipeline (not shim)", () => {
+        mockEnv.NEXT_PUBLIC_MOBILE_PREVIEW_PIPELINE = 'overlay-v1';
+        const pipeline = createMobilePreviewPipeline();
+        expect(pipeline.kind).toBe('two-tier');
+        expect(pipeline.capabilities).toEqual({
+            liveUpdates: true,
+            onlookDeepLink: true,
+        });
+    });
+
+    test("getMobilePreviewPipelineCapabilities('overlay-v1') matches TwoTier", () => {
+        expect(getMobilePreviewPipelineCapabilities('overlay-v1')).toEqual({
+            liveUpdates: true,
+            onlookDeepLink: true,
+        });
+    });
+
+    test("env='overlay-v1' threads compatibilityProvider through to the pipeline", () => {
+        mockEnv.NEXT_PUBLIC_MOBILE_PREVIEW_PIPELINE = 'overlay-v1';
+        let calls = 0;
+        const pipeline = createMobilePreviewPipeline(undefined, {
+            compatibilityProvider: () => {
+                calls += 1;
+                return 'ok';
+            },
+        });
+        expect(pipeline.kind).toBe('two-tier');
+        expect(calls).toBe(0); // lazy — only sync() invokes it
+    });
 });

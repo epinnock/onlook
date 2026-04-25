@@ -160,9 +160,14 @@ export function resolveMobilePreviewPipelineConfig(
 ): MobilePreviewPipelineConfig {
     const kind = options.kind ?? getMobilePreviewPipelineKind();
 
-    if (kind === 'two-tier') {
+    // `'overlay-v1'` is a sub-mode of the TwoTier pipeline per Phase 11a
+    // ADR — same builder/relay construction, the inner sync() flag picks
+    // v1 vs legacy push shape via `isMobilePreviewOverlayV1PipelineEnabled`.
+    // Without this branch, env=overlay-v1 silently fell back to the shim
+    // path and the v1 push shape was unreachable in production.
+    if (kind === 'two-tier' || kind === 'overlay-v1') {
         return {
-            kind,
+            kind: 'two-tier',
             builderBaseUrl:
                 options.builderBaseUrl ?? env.NEXT_PUBLIC_CF_ESM_BUILDER_URL ?? '',
             relayBaseUrl:
@@ -227,7 +232,11 @@ export function createMobilePreviewPipelineFromConfig(
 export function getMobilePreviewPipelineCapabilities(
     kind: MobilePreviewPipelineKind = getMobilePreviewPipelineKind(),
 ): MobilePreviewPipelineCapabilities {
-    if (resolveMobilePreviewPipelineKind(kind) === 'two-tier') {
+    // `'overlay-v1'` shares the TwoTier pipeline's capabilities — only
+    // the inner push wire shape differs. See `resolveMobilePreviewPipelineConfig`
+    // for the canonical kind-mapping.
+    const resolved = resolveMobilePreviewPipelineKind(kind);
+    if (resolved === 'two-tier' || resolved === 'overlay-v1') {
         return twoTierMobilePreviewCapabilities;
     }
 
