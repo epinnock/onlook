@@ -781,32 +781,32 @@ Goal: console relay, network inspector, error boundary, in-app dev menu. All flo
   - Files: `apps/mobile-client/src/components/DevMenu.tsx`
   - Deps: MCF1
   - Validate: `bun --filter @onlook/mobile-client typecheck`
-  - Status: Done — modal overlay with slide-up animation, dark theme, action list with destructive support
+  - Status: Done — modal overlay with slide-up animation, dark theme, action list with destructive support. **2026-04-25 production-wired in `d19177b5`** — App.tsx renders the modal next to AppRouter; opens via DevMenuTrigger gesture (MC5.10).
 
 - **MC5.10** — Dev menu trigger: three-finger long-press gesture handler
   - Files: `apps/mobile-client/src/components/DevMenuTrigger.tsx`
   - Deps: MC5.9
   - Validate: `bun --filter @onlook/mobile-client typecheck`
   - Note: Maestro can simulate multi-finger gestures on iOS Simulator. If the agent discovers it can't for Android, this task gets an Android `device-only` follow-up.
-  - Status: Done — PanResponder-based three-finger long-press (800ms) gesture handler, transparent wrapper component
+  - Status: Done — PanResponder-based three-finger long-press (800ms) gesture handler, transparent wrapper component. **2026-04-25 production-wired in `d19177b5`** — wraps `<AppRouter />` + `<OverlayHost />` in App.tsx; on trigger sets `devMenuVisible=true`.
 
 - **MC5.11** — Dev menu action: reload bundle
   - Files: `apps/mobile-client/src/actions/reloadBundle.ts`, `apps/mobile-client/src/actions/index.ts`
   - Deps: MC5.9, MC2.8
   - Validate: `bun test apps/mobile-client/src/actions/__tests__/reloadBundle.test.ts && bun --filter @onlook/mobile-client typecheck`
-  - Status: Done — `createReloadAction()` returns DevMenuAction; `reloadApp()` standalone helper. Tries `globalThis.OnlookRuntime.reloadBundle()` first, falls back to RN `DevSettings.reload()`. 5 tests pass, typecheck clean.
+  - Status: Done — `createReloadAction()` returns DevMenuAction; `reloadApp()` standalone helper. Tries `globalThis.OnlookRuntime.reloadBundle()` first, falls back to RN `DevSettings.reload()`. 5 tests pass, typecheck clean. **2026-04-25 production-wired in `d19177b5`**.
 
 - **MC5.12** — Dev menu action: clear async storage
   - Files: `apps/mobile-client/src/actions/clearStorage.ts`, `apps/mobile-client/src/actions/index.ts`
   - Deps: MC5.9
   - Validate: `bun test apps/mobile-client/src/actions/__tests__/clearStorage.test.ts && bun --filter @onlook/mobile-client typecheck`
-  - Status: Done — `createClearStorageAction()` returns destructive DevMenuAction; `clearAllStorage()` standalone helper wipes recent sessions (MC3.8 `clearRecentSessions`) plus `onlook_relay_host_override` and `onlook_dev_menu_enabled` (MC3.10 SettingsScreen keys) and logs `[onlook-runtime] storage cleared`. 5 tests pass, typecheck clean.
+  - Status: Done — `createClearStorageAction()` returns destructive DevMenuAction; `clearAllStorage()` standalone helper wipes recent sessions (MC3.8 `clearRecentSessions`) plus `onlook_relay_host_override` and `onlook_dev_menu_enabled` (MC3.10 SettingsScreen keys) and logs `[onlook-runtime] storage cleared`. 5 tests pass, typecheck clean. **2026-04-25 production-wired in `d19177b5`**.
 
 - **MC5.13** — Dev menu action: toggle inspector overlay ✅
   - Files: `apps/mobile-client/src/actions/toggleInspector.ts`
   - Deps: MC5.9
   - Validate: `bun test apps/mobile-client/src/actions/__tests__/toggleInspector.test.ts && bun --filter @onlook/mobile-client typecheck`
-  - Status: **Done** — 7 tests pass, plain-object observable with Set-based listener pattern
+  - Status: **Done** — 7 tests pass, plain-object observable with Set-based listener pattern. **2026-04-25 production-wired in `d19177b5`**. Note: the inspector overlay UI itself isn't wired (same root cause as MC4.14 TapHandler — gated on `findNodeAtPoint` / MC4.2 unimplemented), so the action runs without error but produces no visible effect today.
 
 - **MC5.14** — Dev menu action: copy session ID ✅
   - Files: `apps/mobile-client/src/actions/copySessionId.ts`, `apps/mobile-client/src/actions/index.ts`
