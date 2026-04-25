@@ -1,12 +1,29 @@
 # phase-9-51-e2e — browser + sim walkthrough
 
 Verifies the **Phase 9 #51 UI wire-in** (commit `38fd856c`) end-to-end:
-dev-login → /projects → editor renders → "Preview on device" → QR modal →
-`exp://` deep-link → iPhone 16 Pro simulator on the Mac mini farm mounts
-OnlookMobileClient.
+dev-login → /projects → editor renders → "Preview on device" → QR modal
+→ deep-link → iPhone 16 Pro simulator on the Mac mini farm.
 
 Committed alongside the 10 real bug fixes caught during the walkthrough
 itself (see `results.json` → `summary.bugs_fixed_during_verification`).
+
+## Two distinct preview paths in this repo (read first)
+
+The codebase has two separate preview pipelines with two different URL
+schemes — easy to confuse, especially because Expo Go is usually
+co-installed on the same simulator:
+
+| Path | URL scheme | App handler | Bundle | Documented in |
+|---|---|---|---|---|
+| Mobile-preview server (Expo Go testing) | `exp://192.168.0.14:8787/manifest/<hash>` | **Expo Go** (NOT OnlookMobileClient) | full-runtime `bundle.js` (~263KB, React + reconciler) | `plans/article-native-preview-from-browser.md` |
+| OnlookMobileClient (production) | `onlook://launch?session=<HASH>&relay=<URL>` | `com.onlook.mobile` (custom client) | slim `bundle-client-only.js` (~9KB, native React assumed) | `plans/adr/v2-pipeline-validation-findings.md` + `apps/cf-expo-relay/` |
+
+iOS routes URL schemes by last-installed-claimer. With Expo Go also on
+the sim, `exp://` deep-links go to **Expo Go**, not OnlookMobileClient,
+even when OnlookMobileClient is the foreground app. To test
+OnlookMobileClient specifically, always use the `onlook://` scheme — it
+maps cleanly via `parseOnlookDeepLink` in
+`apps/mobile-client/src/deepLink/parse.ts`.
 
 ## Layout
 
@@ -56,3 +73,29 @@ See `results.json` → `not_yet_verified_in_this_run`:
   external, not actionable from this repo.
 - MobX strict-mode warnings (`SessionManager.provider` mutated outside
   action) — pre-existing pattern, not in this session's scope.
+
+## Correction history
+
+The original `05-sim-mount.png` and `07-sim-post-rls-fix.png` were
+misinterpreted as "correct idle OverlayHost state." They actually
+captured the `exp://` URL being hijacked by Expo Go (also installed on
+the sim), with Expo Go failing to mount the mobile-preview server's
+full-runtime bundle (incompatible with bridgeless+new-arch). Replaced
+with:
+
+- `05-sim-launcher-fresh.png` — proper OnlookMobileClient launcher
+  (matches `plans/adr/assets/v2-pipeline/post-g-launcher.png`)
+- `07-sim-post-onlook-deeplink.png` — post-deep-link state via
+  `onlook://launch?session=<HASH>&relay=<URL>` (the scheme registered
+  by OnlookMobileClient itself); the launcher remains visible because
+  `qrToMount` correctly fails at the mount stage when pointed at the
+  mobile-preview server's full-runtime bundle.
+
+Originals archived as `_old-05-sim-mount-broken.png` and
+`_old-07-sim-post-rls-fix-broken.png` for traceability.
+
+The full visual mount + render flow (overlay actually rendering on
+the sim) is covered by Phase G's committed evidence in
+`plans/adr/assets/v2-pipeline/v2r-{hello,updated}.png`, captured
+against the cf-expo-relay path (smoke-e2e.sh 11/11). The mobile-
+preview server path tested here is for Expo Go, not OnlookMobileClient.
