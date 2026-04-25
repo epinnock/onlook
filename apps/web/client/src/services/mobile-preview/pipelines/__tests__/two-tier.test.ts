@@ -1237,7 +1237,11 @@ describe('TwoTierMobilePreviewPipeline.sync', () => {
             );
             await pipeline.sync({ fileSystem: makeVfs(FILES) });
             // Reset baseline — emulates session teardown / pipeline dispose.
-            pipeline.dispose();
+            // dispose is optional on the MobilePreviewPipeline interface, so
+            // the optional-chain call is the correct shape for the factory's
+            // return type even though the concrete TwoTierMobilePreviewPipeline
+            // class always implements it.
+            pipeline.dispose?.();
             await pipeline.sync({
                 fileSystem: makeVfs({ ...FILES, 'app.tsx': '/* changed */' }),
             });
