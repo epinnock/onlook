@@ -30,6 +30,7 @@ import {
 } from '../screens';
 import { qrToMount } from '../flow/qrToMount';
 import { parseOnlookDeepLink } from '../deepLink/parse';
+import { useDeepLinkHandler } from '../deepLink/handler';
 import { fetchManifest } from '../relay/manifestFetcher';
 import { fetchBundle } from '../relay/bundleFetcher';
 
@@ -190,6 +191,30 @@ export function extractRelayHostPort(
     } catch {
         return { relayHost: '192.168.0.17', relayPort: 8788 };
     }
+}
+
+/**
+ * Rebuild the canonical `onlook://<action>?session=…&relay=…` URL from a
+ * parsed deep-link record. Used by the AppRouter deep-link callback to feed
+ * the URL-pipeline runner (which re-parses the URL itself) without expanding
+ * the `useDeepLinkHandler` callback signature to also carry the raw URL.
+ *
+ * Returns `null` when sessionId or relay are absent — the pipeline cannot
+ * run without them, and silently dropping is preferable to surfacing a
+ * misleading error screen for an obviously incomplete link.
+ */
+export function buildDeepLinkPipelineUrl(parsed: {
+    action: string;
+    sessionId?: string;
+    relay?: string;
+}): string | null {
+    if (!parsed.sessionId || !parsed.relay) {
+        return null;
+    }
+    return (
+        `onlook://${parsed.action}?session=${encodeURIComponent(parsed.sessionId)}` +
+        `&relay=${encodeURIComponent(parsed.relay)}`
+    );
 }
 
 function buildUrlPipelineRunner(actions: NavActions) {
@@ -448,6 +473,29 @@ export default function AppRouter() {
         }, 1500);
         return () => clearTimeout(t);
     }, [navigate, goBack, resetTo]);
+
+    // Wire the platform deep-link channel (`Linking`) into the URL-pipeline
+    // runner so `onlook://launch?session=…&relay=…` (and the exp:// alias the
+    // parser normalises) auto-route to mount on cold-start AND warm-start.
+    // Without this, deep-links land silently on the launcher and require the
+    // user to re-paste the URL — which defeats the point of registering the
+    // scheme in Info.plist.
+    //
+    // The pipeline runner is a stable stringly-typed entry point that
+    // re-parses the URL itself, so we rebuild a canonical onlook:// URL from
+    // the validated parse instead of plumbing the raw URL through the hook
+    // (which would expand its public callback signature). The reconstruction
+    // is faithful because both schemes the parser accepts collapse to the
+    // same `{action, sessionId, relay}` shape.
+    const onDeepLink = useCallback(
+        (parsed: { action: string; sessionId?: string; relay?: string }) => {
+            const canonical = buildDeepLinkPipelineUrl(parsed);
+            if (canonical === null) return;
+            buildUrlPipelineRunner({ navigate, goBack, resetTo })(canonical);
+        },
+        [navigate, goBack, resetTo],
+    );
+    useDeepLinkHandler(onDeepLink);
 
     return (
         <NavigationContext.Provider value={contextValue}>
