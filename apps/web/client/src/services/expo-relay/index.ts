@@ -17,3 +17,4 @@ export * from './overlay-telemetry-sink';
 export * from './perf-guardrails';
 export * from './onlookSelectReceiver';
 export * from './wireOnlookSelectToIdeManager';
+export * from './source-map-cache';
