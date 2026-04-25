@@ -782,4 +782,151 @@ describe('TwoTierMobilePreviewPipeline.sync', () => {
             resetPipelineFlag();
         }
     });
+
+    // Phase 11b adoption — production push gates on the editor's
+    // RelayWsClient-derived compatibility provider. See ADR-0009 §"Pre-flip
+    // check": pushing v1 to a phone whose abi handshake has not completed
+    // would self-eval but render nothing — must fail-closed pre-network.
+    test('v1 branch: compatibilityProvider returning "ok" lets the push through', async () => {
+        pipelineFlagState.v1Enabled = true;
+        const relay = await startFakeRelay();
+        try {
+            const { service } = makeEsbuildService('module.exports = {};');
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                {
+                    esbuildService: service,
+                    createSessionId: () => 'v1-gate-ok',
+                    compatibilityProvider: () => 'ok',
+                },
+            );
+            await pipeline.sync({ fileSystem: makeVfs(FILES) });
+            expect(relay.pushes).toHaveLength(1);
+        } finally {
+            await relay.close();
+            resetPipelineFlag();
+        }
+    });
+
+    test('v1 branch: compatibilityProvider returning "unknown" fails-closed pre-network', async () => {
+        pipelineFlagState.v1Enabled = true;
+        const relay = await startFakeRelay();
+        try {
+            const { service } = makeEsbuildService('module.exports = {};');
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                {
+                    esbuildService: service,
+                    createSessionId: () => 'v1-gate-unknown',
+                    compatibilityProvider: () => 'unknown',
+                },
+            );
+            const statuses: Array<{ kind: string; message?: string }> = [];
+            await expect(
+                pipeline.sync({
+                    fileSystem: makeVfs(FILES),
+                    onStatus: (s) => statuses.push(s),
+                }),
+            ).rejects.toThrow(/handshake has not completed/);
+            // Gate fired BEFORE the network round-trip — no relay push body.
+            expect(relay.pushes).toHaveLength(0);
+            expect(statuses.some((s) => s.kind === 'error')).toBe(true);
+        } finally {
+            await relay.close();
+            resetPipelineFlag();
+        }
+    });
+
+    test('v1 branch: compatibilityProvider returning OnlookRuntimeError fails-closed', async () => {
+        pipelineFlagState.v1Enabled = true;
+        const relay = await startFakeRelay();
+        try {
+            const { service } = makeEsbuildService('module.exports = {};');
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                {
+                    esbuildService: service,
+                    createSessionId: () => 'v1-gate-mismatch',
+                    compatibilityProvider: () => ({
+                        kind: 'abi-mismatch',
+                        message: 'phone running v0',
+                    }),
+                },
+            );
+            await expect(
+                pipeline.sync({ fileSystem: makeVfs(FILES) }),
+            ).rejects.toThrow(/abi-mismatch/);
+            expect(relay.pushes).toHaveLength(0);
+        } finally {
+            await relay.close();
+            resetPipelineFlag();
+        }
+    });
+
+    test('v1 branch: omitted compatibilityProvider preserves legacy behavior (push proceeds)', async () => {
+        pipelineFlagState.v1Enabled = true;
+        const relay = await startFakeRelay();
+        try {
+            const { service } = makeEsbuildService('module.exports = {};');
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                {
+                    esbuildService: service,
+                    createSessionId: () => 'v1-gate-omitted',
+                    // no compatibilityProvider
+                },
+            );
+            await pipeline.sync({ fileSystem: makeVfs(FILES) });
+            expect(relay.pushes).toHaveLength(1);
+        } finally {
+            await relay.close();
+            resetPipelineFlag();
+        }
+    });
+
+    test('legacy branch ignores compatibilityProvider — gate is v1-only', async () => {
+        pipelineFlagState.v1Enabled = false;
+        const relay = await startFakeRelay();
+        try {
+            const { service } = makeEsbuildService('module.exports = {};');
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                {
+                    esbuildService: service,
+                    createSessionId: () => 'legacy-gate',
+                    // Even with a fail-closed provider the legacy push
+                    // still proceeds — the legacy `pushOverlay` doesn't
+                    // accept a `compatibility` option (no v1 envelope to
+                    // gate). This pins the documented behavior so a
+                    // future refactor doesn't silently expand the gate.
+                    compatibilityProvider: () => 'unknown',
+                },
+            );
+            await pipeline.sync({ fileSystem: makeVfs(FILES) });
+            expect(relay.pushes).toHaveLength(1);
+        } finally {
+            await relay.close();
+            resetPipelineFlag();
+        }
+    });
 });

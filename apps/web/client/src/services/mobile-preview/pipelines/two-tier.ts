@@ -22,7 +22,11 @@ import {
     evaluateBuildDuration,
     evaluatePushTelemetry,
 } from '@/services/expo-relay/perf-guardrails';
-import { pushOverlay, pushOverlayV1 } from '@/services/expo-relay/push-overlay';
+import {
+    pushOverlay,
+    pushOverlayV1,
+    type PushOverlayCompatibilityResult,
+} from '@/services/expo-relay/push-overlay';
 import {
     checkOverlaySize,
     createIncrementalBundler,
@@ -85,6 +89,17 @@ export interface TwoTierMobilePreviewPipelineDependencies {
     readonly createSessionId?: () => string;
     /** Incremental bundler override (defaults to a freshly-constructed one). */
     readonly incrementalBundler?: IncrementalBundler;
+    /**
+     * Phase 11b compatibility gate provider — typically
+     * `() => relayWsClient.getLastAbiCompatibility()`. When supplied, every
+     * v1 push is gated on this returning `'ok'`; `'unknown'` or an
+     * `OnlookRuntimeError` fails-closed before the network round-trip
+     * (see ADR-0009 §"Pre-flip check"). Omit to preserve today's
+     * behavior — legacy callers and tests that don't model the handshake
+     * stay on the unchanged path. Only consulted on the `useV1` branch;
+     * the legacy `pushOverlay` path doesn't have a v1 envelope to gate.
+     */
+    readonly compatibilityProvider?: () => PushOverlayCompatibilityResult;
 }
 
 export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-tier'> {
@@ -95,6 +110,9 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
     private readonly injectedService: BrowserBundlerEsbuildService | null;
     private readonly createSessionId: () => string;
     private readonly incremental: IncrementalBundler;
+    private readonly compatibilityProvider:
+        | (() => PushOverlayCompatibilityResult)
+        | null;
     private sessionId: string | null;
     private resolvedService: BrowserBundlerEsbuildService | null;
 
@@ -111,6 +129,7 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
                     ? crypto.randomUUID()
                     : `sess-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
         this.incremental = deps.incrementalBundler ?? createIncrementalBundler();
+        this.compatibilityProvider = deps.compatibilityProvider ?? null;
         this.sessionId = deps.sessionId ?? null;
         this.resolvedService = this.injectedService;
     }
@@ -343,6 +362,16 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
                               emitOverlayPerfGuardrail('overlay-v1', perfEvent),
                           );
                       },
+                      // Phase 11b safety: when a compatibility provider is
+                      // supplied (typically `() => relayWs.getLastAbiCompatibility()`)
+                      // the push fail-closes pre-network on `'unknown'` /
+                      // OnlookRuntimeError. Omitted -> today's behavior
+                      // unchanged. Only the v1 branch gets the gate; the
+                      // legacy `pushOverlay` below has no v1 envelope to
+                      // gate.
+                      ...(this.compatibilityProvider !== null
+                          ? { compatibility: this.compatibilityProvider }
+                          : {}),
                   })
                 : await pushOverlay({
                       relayBaseUrl,
