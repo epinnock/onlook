@@ -235,6 +235,18 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
                     externalSpecifiers: DEFAULT_BASE_EXTERNALS,
                     minify: false,
                     sourcemap: true,
+                    // Tap-to-source contract: phone-side TapHandler reads
+                    // `__source.{fileName,lineNumber,columnNumber}` off the
+                    // tapped element's props and dispatches an
+                    // `onlook:select` message that the editor's
+                    // `wireOnlookSelectToIdeManager` resolves to a
+                    // CodeMirror cursor jump (commit `9eda7ddb`). esbuild's
+                    // automatic JSX runtime does NOT emit `__source` (unlike
+                    // Babel's transform-react-jsx-source), so we need the
+                    // dedicated `createJsxSourcePlugin` here. Both v1 and
+                    // legacy branches benefit — tap-to-source is wrap-shape-
+                    // independent.
+                    injectJsxSource: true,
                 },
                 service,
             );

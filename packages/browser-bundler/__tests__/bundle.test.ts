@@ -50,6 +50,68 @@ describe('bundleBrowserProject', () => {
         });
     });
 
+    test('injectJsxSource: true wires onlook-jsx-source plugin BEFORE virtual-fs-load', async () => {
+        // Plugin order matters in esbuild — first plugin to claim an
+        // .tsx/.jsx file in onLoad wins. jsx-source must precede
+        // virtual-fs-load so the __source-injected contents reach esbuild
+        // rather than the raw source.
+        let captured: BrowserBundlerBuildOptions | undefined;
+        const service: BrowserBundlerEsbuildService = {
+            async build(options) {
+                captured = options;
+                return {
+                    outputFiles: [{ path: 'out.js', text: 'module.exports = {};' }],
+                };
+            },
+        };
+
+        await bundleBrowserProject(
+            {
+                entryPoint: '/App.tsx',
+                files: [{ path: '/App.tsx', contents: 'export default null;' }],
+                externalSpecifiers: ['react'],
+                injectJsxSource: true,
+            },
+            service,
+        );
+
+        expect(captured?.plugins.map((plugin) => plugin.name)).toEqual([
+            'onlook-external-base-bundle-imports',
+            'virtual-fs-resolve',
+            'onlook-jsx-source',
+            'virtual-fs-load',
+        ]);
+    });
+
+    test('injectJsxSource defaults to false (omits the jsx-source plugin)', async () => {
+        // Backwards-compatible default. The browser-metro path uses sucrase
+        // for jsx-source injection, not this plugin — so the bundler stays
+        // off-by-default and only the v1 overlay path opts in.
+        let captured: BrowserBundlerBuildOptions | undefined;
+        const service: BrowserBundlerEsbuildService = {
+            async build(options) {
+                captured = options;
+                return {
+                    outputFiles: [{ path: 'out.js', text: 'module.exports = {};' }],
+                };
+            },
+        };
+
+        await bundleBrowserProject(
+            {
+                entryPoint: '/App.tsx',
+                files: [{ path: '/App.tsx', contents: 'export default null;' }],
+                externalSpecifiers: ['react'],
+                // No injectJsxSource passed → default false.
+            },
+            service,
+        );
+
+        expect(captured?.plugins.map((plugin) => plugin.name)).not.toContain(
+            'onlook-jsx-source',
+        );
+    });
+
     test('rejects empty output', async () => {
         await expect(
             bundleBrowserProject(
