@@ -93,8 +93,8 @@ intentionally deferred, and where a future contributor should pick up.
   `onOverlayAck`.
 - `preflight-formatter` — turns preflight issues into status-bar /
   error-panel renderings.
-- `perf-guardrails` — push-slow / build-slow / retried warnings.
-- `overlay-size-delta` — grow/shrink telemetry with thresholds.
+- `perf-guardrails` — six categories surfaced via `onlook_overlay_perf`: build-slow, push-slow, push-retried, large-overlay, plus session-relative size-grew (warn @ ≥20%) and size-shrunk (info @ ≥10 KB drop) wired in 2026-04-25.
+- `overlay-size-delta` — grow/shrink delta primitives (`computeOverlaySizeDelta`, threshold predicates); consumed by `evaluateSizeDelta` in `perf-guardrails`.
 
 ### Mobile client
 - **AppRouter** prefers `OnlookRuntime.mountOverlay` when `abi === 'v1'`.
