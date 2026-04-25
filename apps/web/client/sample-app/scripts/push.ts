@@ -41,7 +41,7 @@ import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 
-import { wrapOverlayV1 } from '../../../../../packages/browser-bundler/src/wrap-overlay-v1';
+import { wrapOverlayV1 } from '@onlook/browser-bundler';
 
 // Externals match the base bundle's alias-map keys (the runtime resolves
 // these via `OnlookRuntime.require`). Keep in sync with
