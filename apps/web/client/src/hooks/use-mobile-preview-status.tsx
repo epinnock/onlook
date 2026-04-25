@@ -273,6 +273,19 @@ export function useMobilePreviewStatus(
                                 compatibilityProvider: () =>
                                     relayWsClientRef.current?.getLastAbiCompatibility() ??
                                     'unknown',
+                                // Phase 9 R2 source-map upload — when
+                                // result.sourceMap is present, the pipeline
+                                // PUTs it to /base-bundle/assets/<sha256>
+                                // and calls this back with the resulting
+                                // URI. Stored into the ref the
+                                // wireBufferDecorationOnError resolver
+                                // reads, so onlook:error decoration starts
+                                // mapping `bundle.js:line:col` frames
+                                // back to original source — closes the
+                                // row #35 receive-chain end-to-end.
+                                onSourceMapUploaded: (url: string) => {
+                                    lastOverlayMetaSourceMapUrlRef.current = url;
+                                },
                             },
                         );
                     }

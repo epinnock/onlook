@@ -150,9 +150,15 @@ export type MobilePreviewPipelineOptions = CreateMobilePreviewPipelineOptions;
  * Phase 11b: pass `compatibilityProvider: () => relayWs.getLastAbiCompatibility()`
  * so v1 pushes are gated on the editor's handshake state. Only consumed
  * by the two-tier branch; the shim branch ignores it.
+ *
+ * Phase 9 R2 source-map upload: pass `onSourceMapUploaded` to capture
+ * the R2 URI of each successfully-uploaded source map. Production
+ * caller threads this into a hook-level ref consumed by the source-map
+ * decoration receive-chain. Only consumed by the two-tier branch.
  */
 export interface CreateMobilePreviewPipelineDeps {
     readonly compatibilityProvider?: () => PushOverlayCompatibilityResult;
+    readonly onSourceMapUploaded?: (sourceMapUrl: string) => void;
 }
 
 export function resolveMobilePreviewPipelineConfig(
@@ -222,6 +228,9 @@ export function createMobilePreviewPipelineFromConfig(
         return createTwoTierMobilePreviewPipeline(config, {
             ...(deps.compatibilityProvider !== undefined
                 ? { compatibilityProvider: deps.compatibilityProvider }
+                : {}),
+            ...(deps.onSourceMapUploaded !== undefined
+                ? { onSourceMapUploaded: deps.onSourceMapUploaded }
                 : {}),
         });
     }

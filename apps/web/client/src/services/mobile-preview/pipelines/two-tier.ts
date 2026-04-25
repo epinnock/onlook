@@ -27,6 +27,7 @@ import {
     pushOverlayV1,
     type PushOverlayCompatibilityResult,
 } from '@/services/expo-relay/push-overlay';
+import { uploadAssetBytes } from '@/services/expo-relay/asset-uploader';
 import {
     checkOverlaySize,
     createIncrementalBundler,
@@ -100,6 +101,26 @@ export interface TwoTierMobilePreviewPipelineDependencies {
      * the legacy `pushOverlay` path doesn't have a v1 envelope to gate.
      */
     readonly compatibilityProvider?: () => PushOverlayCompatibilityResult;
+    /**
+     * Phase 9 R2 source-map upload — when supplied, the v1 push branch
+     * uploads `result.sourceMap` (JSON) via {@link uploadAssetBytes} to
+     * the relay's `/base-bundle/assets/<sha256>` endpoint and passes the
+     * resulting URI as `overlay.sourceMap` so the OverlayUpdateMessage
+     * carries `meta.sourceMapUrl`. The fired callback informs the
+     * hook-level resolver (see `lastOverlayMetaSourceMapUrlRef` in
+     * `useMobilePreviewStatus`) so the source-map decoration receive-chain
+     * (commits `0b09549f`..`be9586be`) starts mapping
+     * `bundle.js:line:col` frames back to original source.
+     *
+     * Omit on legacy / shim contexts and on tests that don't model R2
+     * — the v1 branch falls through to the no-sourceMap pushOverlayV1
+     * path verbatim, preserving today's behavior.
+     *
+     * Wired by `useMobilePreviewStatus` against the same relay base URL
+     * the relay-ws-client uses; the upload + push share the relay so
+     * the URI is reachable to the phone via the same R2 binding.
+     */
+    readonly onSourceMapUploaded?: (sourceMapUrl: string) => void;
 }
 
 export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-tier'> {
@@ -112,6 +133,9 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
     private readonly incremental: IncrementalBundler;
     private readonly compatibilityProvider:
         | (() => PushOverlayCompatibilityResult)
+        | null;
+    private readonly onSourceMapUploaded:
+        | ((sourceMapUrl: string) => void)
         | null;
     private sessionId: string | null;
     private resolvedService: BrowserBundlerEsbuildService | null;
@@ -130,6 +154,7 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
                     : `sess-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
         this.incremental = deps.incrementalBundler ?? createIncrementalBundler();
         this.compatibilityProvider = deps.compatibilityProvider ?? null;
+        this.onSourceMapUploaded = deps.onSourceMapUploaded ?? null;
         this.sessionId = deps.sessionId ?? null;
         this.resolvedService = this.injectedService;
     }
@@ -332,19 +357,46 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
             const sessionId = this.sessionId ?? this.createSessionId();
             this.sessionId = sessionId;
 
+            // Phase 9 R2 source-map upload — when result.sourceMap exists
+            // AND a relay base URL is configured, upload the map JSON to
+            // /base-bundle/assets/<sha256> and pass the resulting URI as
+            // overlay.sourceMap so the OverlayUpdateMessage carries
+            // meta.sourceMapUrl. The hook-level resolver then returns this
+            // URL for incoming onlook:error decoration. Best-effort: a
+            // failed upload (network blip / 5xx / 413-over-cap) falls
+            // through to a no-sourceMap push so the overlay still mounts;
+            // the operator just doesn't get mapped frames for errors
+            // produced by this overlay.
+            let sourceMapUri: string | undefined;
+            if (useV1 && result.sourceMap) {
+                try {
+                    const upload = await uploadAssetBytes({
+                        relayBaseUrl,
+                        sessionId,
+                        bytes: new TextEncoder().encode(result.sourceMap),
+                        mime: 'application/json',
+                    });
+                    if (upload.ok) {
+                        sourceMapUri = upload.uri;
+                        this.onSourceMapUploaded?.(upload.uri);
+                    }
+                } catch {
+                    // Silent best-effort. Push proceeds without
+                    // sourceMap — Phase 11b row #35 receive-chain
+                    // fail-softs to undecorated frames.
+                }
+            }
+
             const pushResult = useV1
                 ? await pushOverlayV1({
                       relayBaseUrl,
                       sessionId,
                       overlay: {
                           code: wrapped.code,
-                          // sourceMap intentionally omitted on the v1 branch:
-                          // OverlayUpdateMessage's meta.sourceMapUrl is a URL
-                          // (fetched via fetchOverlaySourceMap on the editor
-                          // side when a runtime error arrives), not inline
-                          // source-map JSON. Uploading the map to R2 + passing
-                          // that URL lives with Phase 9 editor wiring.
                           buildDurationMs,
+                          ...(sourceMapUri !== undefined
+                              ? { sourceMap: sourceMapUri }
+                              : {}),
                       },
                       // Empty asset manifest is valid per pushOverlayV1. Full
                       // Phase 7 asset wiring lands in Phase 9 editor work —
