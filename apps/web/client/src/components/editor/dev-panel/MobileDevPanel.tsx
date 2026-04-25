@@ -28,12 +28,20 @@
  * is intentionally not exposed — parent reference uses Tabs' default
  * uncontrolled semantics).
  */
-import type { OverlayAckMessage, WsMessage } from '@onlook/mobile-client-protocol';
+import type {
+    AbiHelloMessage,
+    OverlayAckMessage,
+    WsMessage,
+} from '@onlook/mobile-client-protocol';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@onlook/ui/tabs';
 import { cn } from '@onlook/ui/utils';
 
 import type { PreflightSummary } from '@/services/expo-relay/preflight-formatter';
 import { EVAL_LATENCY_TARGET_MS } from '@/services/expo-relay/overlay-telemetry-sink';
+import {
+    AbiCompatibilityIndicator,
+    type AbiCompatibilityState,
+} from './AbiCompatibilityIndicator';
 import { MobileConsoleTab } from './MobileConsoleTab';
 import { MobileNetworkTab } from './MobileNetworkTab';
 import { filterOverlayAcks, MobileOverlayAckTab, summarizeAcks } from './MobileOverlayAckTab';
@@ -56,6 +64,21 @@ export interface MobileDevPanelProps {
     sessionId?: string;
     /** Initial tab. Defaults to 'console'. */
     defaultTab?: MobileDevPanelTabKey;
+    /**
+     * Phase 11b — when supplied, renders an AbiCompatibilityIndicator
+     * alongside the tab strip showing the editor's view of the AbiHello
+     * handshake state. Pass `RelayWsClient.getLastAbiCompatibility()`'s
+     * result directly. Omit on legacy / shim contexts where the
+     * handshake isn't running. See ADR-0009 §"Pre-flip check".
+     */
+    abiCompatibility?: AbiCompatibilityState;
+    /**
+     * Optional phone-side AbiHello surfaced via the indicator's hover
+     * title. Pass the most recent message captured via
+     * `RelayWsClientOptions.onAbiCompatibility`. Null when no hello
+     * has arrived yet (paired with `abiCompatibility === 'unknown'`).
+     */
+    phoneHello?: AbiHelloMessage | null;
     className?: string;
     /** Optional class applied to each TabsContent container. */
     panelClassName?: string;
@@ -97,12 +120,32 @@ export function derivePreflightIssueCount(summary: PreflightSummary | null): num
     return summary.byKind['unsupported-native'].length + summary.byKind['unknown-specifier'].length;
 }
 
+/**
+ * Pure helper — returns whether the AbiCompatibilityIndicator should
+ * render given the prop value. Tests this so the visibility contract
+ * stays pinned without exercising the Radix Tabs render path (the
+ * surrounding tests already document why).
+ *
+ * Visibility rule: render iff `abiCompatibility` is supplied (any of
+ * `'unknown' | 'ok' | OnlookRuntimeError`). Omitting the prop means
+ * the caller is on a legacy / shim context that does not run the
+ * handshake, and the indicator should be invisible — not a stale
+ * 'unknown' badge implying a stuck handshake.
+ */
+export function deriveAbiIndicatorVisible(
+    abiCompatibility: AbiCompatibilityState | undefined,
+): boolean {
+    return abiCompatibility !== undefined;
+}
+
 export function MobileDevPanel({
     messages,
     acks,
     preflightSummary,
     sessionId,
     defaultTab = 'console',
+    abiCompatibility,
+    phoneHello,
     className,
     panelClassName,
 }: MobileDevPanelProps) {
@@ -118,7 +161,11 @@ export function MobileDevPanel({
             data-testid="mobile-dev-panel"
             className={cn('flex h-full flex-col bg-neutral-950', className)}
         >
-            <TabsList data-testid="mobile-dev-panel-tabs" className="shrink-0 bg-neutral-900">
+            <div
+                data-testid="mobile-dev-panel-header"
+                className="flex shrink-0 items-center bg-neutral-900"
+            >
+            <TabsList data-testid="mobile-dev-panel-tabs" className="bg-neutral-900">
                 <TabsTrigger value="console" data-testid="mobile-dev-panel-tab-console">
                     Console
                 </TabsTrigger>
@@ -157,6 +204,14 @@ export function MobileDevPanel({
                     ) : null}
                 </TabsTrigger>
             </TabsList>
+            {abiCompatibility !== undefined ? (
+                <AbiCompatibilityIndicator
+                    state={abiCompatibility}
+                    phoneHello={phoneHello ?? null}
+                    className="ml-auto"
+                />
+            ) : null}
+            </div>
             <TabsContent
                 value="console"
                 data-testid="mobile-dev-panel-panel-console"
