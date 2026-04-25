@@ -29,15 +29,13 @@ function makeFakeRelay(knownHashes: Iterable<string> = []): FakeRelay {
     const pushes: FakeRelay['pushes'] = [];
     const fetchImpl: FakeRelay['fetchImpl'] = async (input, init) => {
         const url = typeof input === 'string' ? input : (input as Request).url;
-        // /assets/check
-        if (url.endsWith('/assets/check')) {
-            const body = typeof init?.body === 'string' ? JSON.parse(init.body) : {};
-            const hashes: string[] = Array.isArray(body.hashes) ? body.hashes : [];
-            const present = hashes.filter((h) => known.has(h));
-            return new Response(JSON.stringify({ known: present }), {
-                status: 200,
-                headers: { 'Content-Type': 'application/json' },
-            });
+        // HEAD /base-bundle/assets/:hash — per-hash asset-check
+        // (retargeted from POST /assets/check 2026-04-25 to match
+        // the relay's actual route from v2 task #65).
+        const headMatch = /\/base-bundle\/assets\/([^/]+)$/.exec(url);
+        if (headMatch && init?.method === 'HEAD') {
+            const hash = decodeURIComponent(headMatch[1]!);
+            return new Response(null, { status: known.has(hash) ? 200 : 404 });
         }
         // PUT /base-bundle/assets/:hash — canonical relay endpoint
         // (retargeted from /assets/upload/:hash 2026-04-25 to match
@@ -217,11 +215,10 @@ describe('asset pipeline integration (check → upload → push)', () => {
 
         const failingFetch: FakeRelay['fetchImpl'] = async (input, init) => {
             const url = typeof input === 'string' ? input : (input as Request).url;
-            if (url.includes('/assets/check')) {
-                return new Response(JSON.stringify({ known: [] }), {
-                    status: 200,
-                    headers: { 'Content-Type': 'application/json' },
-                });
+            // HEAD /base-bundle/assets/<hash> — per-hash asset-check;
+            // 404 means "unknown" so the editor proceeds to upload.
+            if (url.includes('/base-bundle/assets/') && init?.method === 'HEAD') {
+                return new Response(null, { status: 404 });
             }
             if (url.includes('/base-bundle/assets/') && init?.method === 'PUT') {
                 return new Response('server exploded', { status: 500 });
