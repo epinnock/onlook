@@ -205,3 +205,26 @@ ADRs shipped:
 - `plans/adr/v2-pipeline-validation-findings.md` — 8 findings from simulator validation
 - `plans/adr/overlay-host-architecture.md` — OverlayHost-in-App.tsx decision
 - `plans/adr/cf-expo-relay-events-channel.md` — /events wire contract
+
+## [Unreleased] - 2026-04-25 — Phase 11b prep + tap-to-source
+
+A 54-commit autonomous session (PR #20) shipped four interrelated workstreams. Mobile-client commits below; full session map in `MEMORY.md`'s `project_session_2026_04_25.md`.
+
+### Added
+- **`src/relay/abiHello.ts`** (`b3d7e769`): `buildPhoneAbiHello` builder mirroring the editor-side `buildEditorAbiHello`. Produces a `role: 'phone'` AbiHelloMessage from supplied RuntimeCapabilities.
+- **`OnlookRelayClient.abiHelloProvider` option** (`b2bb133c`): canonical-class WS client now fires the AbiHello on every WS open via a caller-supplied provider. Wraps both the build + send in try/catch — a hello-send failure cannot wedge the WS; the editor's gate just stays `'unknown'` (fail-closed).
+- **AppRouter Spike B WS path fires AbiHello** (`e6237acd`): the production WS workaround that bypasses `OnlookRelayClient` (see `project_approuter_spike_b_ws.md` memory) was wired separately so the handshake actually works in today's binary.
+- **`useDeepLinkHandler` wired into AppRouter** (`f8d70396`): `onlook://launch?session=…&relay=…` now auto-routes through the URL pipeline on cold/warm-start. The handler module existed but no production caller consumed it.
+- **`buildDeepLinkPipelineUrl` helper** (`f8d70396`): pure helper for canonical-URL reconstruction; covered by 7 unit tests round-tripping through the deep-link parser.
+- **CodeMirror-native tap-to-source path** (`9eda7ddb` + `47a01022`): new `IdeManager.openCodeLocation(fileName, line, column)` method drives the existing `_codeNavigationOverride` MobX state. `wireOnlookSelectToIdeManager(ide)` glue helper wired in `Main`'s `useEffect` so phone taps land on the editor's CodeMirror `EditorView` via the same path `openCodeBlock` uses.
+
+### Removed
+- **Stale Monaco-shaped helper** (`2be936c8`): `wireCursorJump.ts` + `monacoCursorJump.ts` + their test file — the codebase uses CodeMirror's `EditorView`, not Monaco, so the helper could never have fired. Replaced by the CodeMirror-native path above.
+
+### Tests
+- **+34 mobile-client tests** (471 total): new coverage at `abiHello.test.ts` (7 tests), `buildDeepLinkPipelineUrl.test.ts` (7 tests), `wireOnlookSelectToIdeManager.test.ts` (6 tests), `openCodeLocation.test.ts` (9 tests; documented MobX class-stub-vs-object-literal quirk inline), plus AbiHello mock additions across `AppRouter-mount-overlay.test.ts` + `extract-relay-host-port.test.ts` + `buildDeepLinkPipelineUrl.test.ts`.
+
+### Documentation
+- v2 task queue rows #35, #85, #89-94 updated; mobile-client task queue MC4.17 (CodeMirror-native shipped), MC4.18 (precondition unblocked), MC2.5 (validate note refreshed).
+- ADR-0009 (Phase 11) updated with the safety-chain shipped status.
+- 4 new memory files capture durable lessons (audit pattern, MobX stub quirk, CodeMirror not Monaco, AppRouter Spike B WS bypass).
