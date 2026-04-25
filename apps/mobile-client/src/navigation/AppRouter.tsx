@@ -17,7 +17,8 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { Platform, View, StyleSheet } from 'react-native';
+import { buildPhoneAbiHello } from '../relay/abiHello';
 import {
     CrashScreen,
     ErrorScreen,
@@ -382,9 +383,47 @@ function buildUrlPipelineRunner(actions: NavActions) {
                     const wsUrl = `ws://${relayHost}:${relayPort}`;
                     slog('ws (native): connecting to ' + wsUrl);
                     const ws = new WSCtor(wsUrl);
+                    // Phase 11b handshake: send phone-side AbiHello on every
+                    // open so the editor's `compatibility()` gate resolves
+                    // instead of staying 'unknown' and rejecting overlay
+                    // pushes by default. RuntimeCapabilities are best-effort
+                    // here — `baseHash`/`aliases` get refined when base-bundle
+                    // wiring lands; today the editor only gates on the `abi`
+                    // string equality (see `checkAbiCompatibility`).
+                    const wsAny = ws as unknown as { send?: (data: string) => void };
+                    const sendAbiHello = (): void => {
+                        try {
+                            const platformOS: 'ios' | 'android' =
+                                Platform.OS === 'android' ? 'android' : 'ios';
+                            const hello = buildPhoneAbiHello({
+                                sessionId: parsed.sessionId!,
+                                capabilities: {
+                                    abi: 'v1',
+                                    // Until base-bundle wiring lands, use the
+                                    // sessionId as a stable non-empty
+                                    // placeholder. The editor does not gate
+                                    // on baseHash; it's surfaced for telemetry
+                                    // + future cache-coherency checks only.
+                                    baseHash: parsed.sessionId!,
+                                    rnVersion: '0.81.6',
+                                    expoSdk: '54.0.0',
+                                    platform: platformOS,
+                                    aliases: [],
+                                },
+                            });
+                            if (typeof wsAny.send === 'function') {
+                                wsAny.send(JSON.stringify(hello));
+                                slog('ws (native): sent abiHello');
+                            }
+                        } catch (err: unknown) {
+                            const m = err instanceof Error ? err.message : String(err);
+                            slog('ws (native): abiHello send err ' + m);
+                        }
+                    };
                     ws.onopen = () => {
                         gt.wsConnected = true;
                         slog('ws (native): OPEN');
+                        sendAbiHello();
                     };
                     ws.onmessage = (ev) => {
                         try {

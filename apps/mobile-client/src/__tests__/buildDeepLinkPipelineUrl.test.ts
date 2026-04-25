@@ -17,6 +17,7 @@ mock.module('react-native', () => ({
     Pressable: () => null,
     ScrollView: () => null,
     Switch: () => null,
+    Platform: { OS: 'ios' },
     AppState: { addEventListener: () => ({ remove: () => undefined }) },
     DevSettings: { addMenuItem: () => undefined, reload: () => undefined },
 }));
