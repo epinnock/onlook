@@ -381,12 +381,24 @@ function htmlShell(branchId, frameId) {
                     s.type = 'importmap';
                     s.textContent = JSON.stringify(im || { imports: {} });
                     document.head.appendChild(s);
-                    var b = document.createElement('script');
-                    b.src = 'bundle.js';
-                    b.onerror = function () {
-                        console.error('[preview] failed to load bundle.js');
-                    };
-                    document.body.appendChild(b);
+                    // Defer bundle.js append so the browser has a tick to
+                    // register the importmap before bundle.js's IIFE issues
+                    // any dynamic import. Without this delay, the very
+                    // first `import('https://esm.sh/...?bundle&external=...')`
+                    // can fire while the importmap is still parsing,
+                    // and any nested bare specifier inside that module
+                    // (e.g. react-native-web's `import 'react-dom/client'`)
+                    // hits "Failed to resolve module specifier". Caught
+                    // 2026-04-25 with the externalized-react fix that
+                    // makes nested bare-import resolution actually load-bearing.
+                    setTimeout(function () {
+                        var b = document.createElement('script');
+                        b.src = 'bundle.js';
+                        b.onerror = function () {
+                            console.error('[preview] failed to load bundle.js');
+                        };
+                        document.body.appendChild(b);
+                    }, 0);
                 })
                 .catch(function (err) {
                     console.error('[preview] failed to fetch importmap.json:', err);
