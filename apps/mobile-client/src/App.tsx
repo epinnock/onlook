@@ -11,6 +11,8 @@ import {
 import { OverlayHost } from './overlay/OverlayHost';
 import { consoleRelay } from './debug/consoleRelay';
 import { ConsoleStreamer } from './debug/consoleStreamer';
+import { exceptionCatcher } from './debug/exceptionCatcher';
+import { ExceptionStreamer } from './debug/exceptionStreamer';
 import { dynamicWsSender } from './relay/wsSender';
 
 /**
@@ -45,17 +47,29 @@ export default function App() {
      * the App component (e.g. fast refresh in dev) doesn't double-patch.
      */
     const consoleStreamerRef = useRef<ConsoleStreamer | null>(null);
+    const exceptionStreamerRef = useRef<ExceptionStreamer | null>(null);
     useEffect(() => {
         consoleRelay.install();
-        const streamer = new ConsoleStreamer(
-            dynamicWsSender,
-            CONSOLE_BOOT_SESSION_ID,
-        );
-        streamer.start();
-        consoleStreamerRef.current = streamer;
+        exceptionCatcher.install();
+        const cs = new ConsoleStreamer(dynamicWsSender, CONSOLE_BOOT_SESSION_ID);
+        cs.start();
+        consoleStreamerRef.current = cs;
+
+        // Pair to ConsoleStreamer — forwards exceptions captured by
+        // `exceptionCatcher` (RN ErrorUtils + window.onerror) as
+        // `onlook:error` messages. Matches the producer the editor's
+        // source-map decoration receive-chain
+        // (`wireBufferDecorationOnError` in use-mobile-preview-status.tsx,
+        // wired via 5da582fe + 3b18789d) was already waiting for.
+        const es = new ExceptionStreamer(dynamicWsSender, CONSOLE_BOOT_SESSION_ID);
+        es.start();
+        exceptionStreamerRef.current = es;
+
         return () => {
-            streamer.stop();
+            cs.stop();
             consoleStreamerRef.current = null;
+            es.stop();
+            exceptionStreamerRef.current = null;
         };
     }, []);
 
@@ -80,6 +94,7 @@ export default function App() {
                     // editor MobileConsoleTab can filter them out via
                     // `sessionId === CONSOLE_BOOT_SESSION_ID` if desired.
                     consoleStreamerRef.current?.setSessionId(result.sessionId);
+                    exceptionStreamerRef.current?.setSessionId(result.sessionId);
                     twoTierHandleRef.current?.stop();
                     twoTierHandleRef.current = startTwoTierBootstrap({
                         sessionId: result.sessionId,

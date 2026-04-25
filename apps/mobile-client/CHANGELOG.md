@@ -243,4 +243,16 @@ A 54-commit autonomous session (PR #20) shipped four interrelated workstreams. M
 - **+11 mobile-client tests** (482 total, was 471): `wsSender.test.ts` covering register/unregister/replace, `dynamicWsSender` connectivity reflection, send delegation including the latest-wins case after replacement, and throw-on-empty-registry. Existing `ConsoleStreamer` tests pass unchanged — the structural cast in the test fake is now redundant but harmless.
 
 ### Documentation
-- mobile-client task queue MC5.2 status updated from "Done (primitive only — production wiring NOT shipped)" to "Done (production-wired via wsSender registry)" pending follow-up commit. NetworkStreamer (MC5.5) and ExceptionCatcher (MC5.7) wiring deferred — NetworkStreamer needs fetch/xhr patch installation; ExceptionCatcher has no streamer companion yet.
+- mobile-client task queue MC5.2 status updated from "Done (primitive only — production wiring NOT shipped)" to "Done (production-wired via wsSender registry)" pending follow-up commit. NetworkStreamer (MC5.5) wiring deferred — needs fetch/xhr patch installation.
+
+## [Unreleased] - 2026-04-25 — ExceptionStreamer wiring (workstream F continued)
+
+### Added
+- **`src/debug/exceptionStreamer.ts`**: pairs to ConsoleStreamer — subscribes to `exceptionCatcher.onException` (MC5.7) and forwards each captured exception as an `onlook:error` wire message via `WsSenderHandle`. Maps `ExceptionEntry` → `ErrorMessage` shape, promoting kind to `'react'` when `componentStack` is present (ErrorBoundary captures). Disconnect-resilient: 50-entry local buffer drains opportunistically on the next successful send. 8 unit tests covering forward shapes, kind promotion, disconnect/throw buffering, sessionId rotation, idempotent start, stop unsubscribe, and 50-cap drop-oldest behavior.
+- **App.tsx wires ExceptionStreamer alongside ConsoleStreamer**: `exceptionCatcher.install()` patches `globalThis.ErrorUtils.setGlobalHandler` + `window.onerror`; ExceptionStreamer subscribes via `dynamicWsSender` and forwards via the same shared registry. Closes the producer half of the source-map decoration chain — the editor's `wireBufferDecorationOnError` (use-mobile-preview-status.tsx, wired via 5da582fe + 3b18789d) was correctly receiving but had no producer until now.
+
+### Tests
+- **+8 mobile-client tests** (490 total, was 482): `exceptionStreamer.test.ts`.
+
+### Documentation
+- mobile-client task queue MC5.7 status updated to reflect production-wired state.
