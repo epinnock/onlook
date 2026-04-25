@@ -179,7 +179,10 @@ export const projectRouter = createTRPCRouter({
         }),
     list: protectedProcedure
         .input(z.object({
-            limit: z.number().optional(),
+            // Pagination size — positive integer, capped to prevent a
+            // caller from requesting a billion rows. `.int()` rejects
+            // NaN/Infinity/fractional which would break downstream SQL.
+            limit: z.number().int().positive().max(1000).optional(),
             excludeProjectId: z.string().optional(),
         }).optional())
         .query(async ({ ctx, input }) => {

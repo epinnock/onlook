@@ -15,18 +15,23 @@
  * the wrong architecture for the browser-only target — see
  * `plans/article-native-preview-from-browser.md`.
  */
-
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import type { QrModalStatus } from '@/components/ui/qr-modal';
+import type { RelayWsClient } from '@/services/expo-relay/relay-ws-client';
+import type { MobilePreviewPipeline, MobilePreviewVfs } from '@/services/mobile-preview';
 import { renderQrSvg } from '@/services/expo-relay';
+import { parseManifestUrl } from '@/services/expo-relay/manifest-url';
 import {
     buildMobilePreviewBundle,
+    createMobilePreviewPipeline,
+    getMobilePreviewPipelineKind,
     pushMobilePreviewUpdate,
+    resolveMobilePreviewPipelineConfig,
     shouldSyncMobilePreviewPath,
-    type MobilePreviewVfs,
 } from '@/services/mobile-preview';
-
-import type { QrModalStatus } from '@/components/ui/qr-modal';
+import { registerTwoTierEsbuildServiceFactory } from '@/services/mobile-preview/pipelines/two-tier';
+import { useRelayWsClient } from './use-relay-ws-client';
 
 export interface UseMobilePreviewStatusOptions {
     /**
@@ -48,6 +53,27 @@ export interface UseMobilePreviewStatusResult {
     open: () => Promise<void>;
     close: () => void;
     retry: () => Promise<void>;
+    /**
+     * Relay WS client opened against `/hmr/:sessionId` when `status`
+     * is `'ready'` and a valid manifestUrl is available. Null
+     * otherwise. Exposed so dev-panel surfaces (MobileDevPanel,
+     * MobileOverlayAckTab) can tap `.snapshot()` for live data.
+     *
+     * Phase 11b Q5b eval-latency telemetry (`emitOverlayAckTelemetry`)
+     * fires as the default `onOverlayAck` handler — no additional
+     * wire-in needed for the PostHog soak signal to start flowing.
+     */
+    relayWsClient: RelayWsClient | null;
+    /**
+     * Preview session id — the bundleHash extracted from the ready-
+     * state manifestUrl. Null unless `status.kind === 'ready'` AND the
+     * URL is well-formed. MobileDevPanel uses this to filter its tabs
+     * so the console / network / acks streams only show events from
+     * the currently-connected session (stale ids from a prior boot are
+     * dropped). Resolves the Phase 9 TODO previously documented in
+     * `MobilePreviewDevPanelContainer.extractSessionId`.
+     */
+    sessionId: string | null;
 }
 
 interface MobilePreviewStatusResponse {
@@ -56,12 +82,40 @@ interface MobilePreviewStatusResponse {
     manifestUrl: string | null;
 }
 
+// Lazy-initialized esbuild-wasm service. The browser-bundler runs its
+// bundle inside a Web Worker in production; here we initialize once per
+// editor tab and share across pipeline instances.
+let twoTierEsbuildFactoryRegistered = false;
+function ensureTwoTierEsbuildFactoryRegistered(): void {
+    if (twoTierEsbuildFactoryRegistered) return;
+    twoTierEsbuildFactoryRegistered = true;
+    registerTwoTierEsbuildServiceFactory(async () => {
+        const esbuild = (await import('esbuild-wasm')) as typeof import('esbuild-wasm');
+        await esbuild.initialize({ wasmURL: '/esbuild.wasm' });
+        return {
+            async build(options) {
+                const result = await esbuild.build(options as Parameters<typeof esbuild.build>[0]);
+                return {
+                    outputFiles: result.outputFiles?.map((f) => ({
+                        path: f.path,
+                        text: f.text,
+                    })),
+                    warnings: result.warnings,
+                };
+            },
+        };
+    });
+}
+
 export function useMobilePreviewStatus(
     opts: UseMobilePreviewStatusOptions,
 ): UseMobilePreviewStatusResult {
     const [status, setStatus] = useState<QrModalStatus>({ kind: 'idle' });
     const [isOpen, setIsOpen] = useState(false);
     const didPushRef = useRef(false);
+    // Stable pipeline ref across renders — creating a new pipeline per
+    // push discards the incremental-rebuild cache inside TwoTier.
+    const pipelineRef = useRef<MobilePreviewPipeline | null>(null);
 
     const open = useCallback(async () => {
         setIsOpen(true);
@@ -71,8 +125,7 @@ export function useMobilePreviewStatus(
         if (!baseUrl) {
             setStatus({
                 kind: 'error',
-                message:
-                    'Missing mobile preview server URL — set NEXT_PUBLIC_MOBILE_PREVIEW_URL.',
+                message: 'Missing mobile preview server URL — set NEXT_PUBLIC_MOBILE_PREVIEW_URL.',
             });
             return;
         }
@@ -102,7 +155,16 @@ export function useMobilePreviewStatus(
             }
 
             const qrSvg = await renderQrSvg(body.manifestUrl);
-            setStatus({ kind: 'ready', manifestUrl: body.manifestUrl, qrSvg });
+            // Shim path doesn't mint Onlook deep-links the way the
+            // two-tier pipeline does — the manifest URL IS what the phone
+            // scans / opens. Pass it as onlookUrl so the QrModalBody's
+            // "Copy Onlook URL" button copies the scannable URL.
+            setStatus({
+                kind: 'ready',
+                manifestUrl: body.manifestUrl,
+                onlookUrl: body.manifestUrl,
+                qrSvg,
+            });
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             setStatus({
@@ -154,20 +216,30 @@ export function useMobilePreviewStatus(
             pushInFlight = true;
 
             try {
-                const bundle = await buildMobilePreviewBundle(fileSystem);
-                await pushMobilePreviewUpdate({
-                    serverBaseUrl: baseUrl,
-                    code: bundle.code,
-                });
-                didPushRef.current = true;
+                // Two-tier path: drive through the pipeline abstraction so
+                // the browser-bundler worker + /push client take over. The
+                // shim path stays as-is for legacy consumers.
+                if (getMobilePreviewPipelineKind() === 'two-tier') {
+                    ensureTwoTierEsbuildFactoryRegistered();
+                    if (!pipelineRef.current) {
+                        pipelineRef.current = createMobilePreviewPipeline(
+                            resolveMobilePreviewPipelineConfig(),
+                        );
+                    }
+                    await pipelineRef.current.sync({ fileSystem });
+                    didPushRef.current = true;
+                } else {
+                    const bundle = await buildMobilePreviewBundle(fileSystem);
+                    await pushMobilePreviewUpdate({
+                        serverBaseUrl: baseUrl,
+                        code: bundle.code,
+                    });
+                    didPushRef.current = true;
+                }
             } catch (error) {
-                const message =
-                    error instanceof Error ? error.message : String(error);
+                const message = error instanceof Error ? error.message : String(error);
 
-                console.error(
-                    '[mobile-preview] Failed to build/push preview bundle:',
-                    error,
-                );
+                console.error('[mobile-preview] Failed to build/push preview bundle:', error);
 
                 // Surface the error in the QR modal only on the very first
                 // push attempt and only while the modal is actually open.
@@ -208,12 +280,30 @@ export function useMobilePreviewStatus(
         // watchDirectory signal fires during initial hydration but misses
         // some subsequent writes (e.g. inline code edits), which is why
         // auto-push previously stopped working after the first render.
-        const stopWatching = fileSystem.watchDirectory('/', (event) => {
-            if (!shouldSyncMobilePreviewPath(event.path)) {
-                return;
-            }
-            schedulePush();
-        });
+        //
+        // Guard against an uninitialized file system — CodeFileSystem
+        // throws synchronously from `watchDirectory` before its underlying
+        // provider session has started. When a user lands on a project
+        // whose sandbox hasn't booted yet, we still render the preview
+        // button but defer the subscription; the BroadcastChannel branch
+        // below remains the primary push signal in that window.
+        let stopWatching: (() => void) | null = null;
+        let fileSystemReady = false;
+        try {
+            stopWatching = fileSystem.watchDirectory('/', (event) => {
+                if (!shouldSyncMobilePreviewPath(event.path)) {
+                    return;
+                }
+                schedulePush();
+            });
+            fileSystemReady = true;
+        } catch (err) {
+            console.warn(
+                '[mobile-preview] watchDirectory unavailable (fileSystem not initialized); ' +
+                    'falling back to BroadcastChannel signal.',
+                err,
+            );
+        }
 
         let bundleChannel: BroadcastChannel | null = null;
         if (typeof BroadcastChannel !== 'undefined') {
@@ -225,21 +315,27 @@ export function useMobilePreviewStatus(
                     }
                 };
             } catch (err) {
-                console.error(
-                    '[mobile-preview] Failed to open BroadcastChannel:',
-                    err,
-                );
+                console.error('[mobile-preview] Failed to open BroadcastChannel:', err);
             }
         }
 
-        schedulePush();
+        // Only fire the initial push when the filesystem was actually
+        // available — otherwise pushLatestBundle immediately trips on
+        // fileSystem.listAll() for the same "File system not initialized"
+        // reason, logging a misleading error on every render. The
+        // BroadcastChannel onmessage path below will kick off the first
+        // push once the canvas iframe hydrates and broadcasts its first
+        // bundle event.
+        if (fileSystemReady) {
+            schedulePush();
+        }
 
         return () => {
             disposed = true;
             if (pushTimer) {
                 clearTimeout(pushTimer);
             }
-            stopWatching();
+            stopWatching?.();
             bundleChannel?.close();
         };
         // `isOpen` is intentionally read inside the effect (for the
@@ -248,5 +344,27 @@ export function useMobilePreviewStatus(
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [opts.fileSystem, opts.serverBaseUrl]);
 
-    return { status, isOpen, open, close, retry };
+    // Phase 9 Task A / ADR-0009 Q5b — open a RelayWsClient whenever
+    // the status is ready AND the modal is open. The hook is inert
+    // when `manifestUrl` is null (parseManifestUrl returns null on
+    // invalid input). `emitOverlayAckTelemetry` fires as the default
+    // ack handler, so Phase 11b PostHog signal flows for free with no
+    // additional wire-in. Gated on `isOpen` to avoid opening a
+    // long-lived WS in the background when the modal is closed.
+    const manifestUrlForRelay =
+        isOpen && status.kind === 'ready' && status.manifestUrl ? status.manifestUrl : null;
+    const { client: relayWsClient } = useRelayWsClient({
+        manifestUrl: manifestUrlForRelay,
+    });
+
+    // Derive sessionId from the ready-state manifestUrl so dev-panel
+    // callers can filter streams by session without re-implementing
+    // parseManifestUrl. Null on non-ready states (idle/opening/failed)
+    // or on malformed URLs — same nullability contract as relayWsClient.
+    const sessionId =
+        status.kind === 'ready' && status.manifestUrl
+            ? (parseManifestUrl(status.manifestUrl)?.bundleHash ?? null)
+            : null;
+
+    return { status, isOpen, open, close, retry, relayWsClient, sessionId };
 }

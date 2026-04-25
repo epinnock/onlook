@@ -52,12 +52,19 @@ export interface ManifestRouteEnv {
     ESM_CACHE_URL: string;
 }
 
+export interface TwoTierManifestRouteParams {
+    readonly sessionId: string;
+    readonly platform: ExpoPlatform;
+}
+
 /** Shape of `meta.json` we care about; the rest is ignored on purpose. */
 interface MetaJson {
     builtAt?: string;
 }
 
 const HEX64 = /^[0-9a-f]{64}$/;
+const TWO_TIER_SESSION_ID = /^[a-zA-Z0-9_-]{1,128}$/;
+const TWO_TIER_MANIFEST_ROUTE = /^\/manifest\/([^/]+)$/;
 
 /**
  * Resolve the target platform for the manifest's `launchAsset.url` from
@@ -87,6 +94,28 @@ export function resolvePlatform(request: Request): ExpoPlatform {
     }
 
     return 'android';
+}
+
+/**
+ * Parse the future workers-only `GET /manifest/:sessionId` route without
+ * changing today's strict 64-hex cf-esm manifest route. A 64-hex segment is
+ * intentionally treated as legacy and returns null.
+ */
+export function parseTwoTierManifestRoute(
+    request: Request,
+): TwoTierManifestRouteParams | null {
+    const url = new URL(request.url);
+    const match = url.pathname.match(TWO_TIER_MANIFEST_ROUTE);
+    const sessionId = match?.[1];
+
+    if (!sessionId || HEX64.test(sessionId) || !TWO_TIER_SESSION_ID.test(sessionId)) {
+        return null;
+    }
+
+    return {
+        sessionId,
+        platform: resolvePlatform(request),
+    };
 }
 
 /**
@@ -145,13 +174,21 @@ export async function handleManifest(
         }
     }
 
-    // Compute the relay's public host:port from the incoming request URL
-    // so the manifest's `extra.expoClient.hostUri` and
-    // `extra.expoGo.debuggerHost` reflect the host the phone is talking
-    // to. The phone uses these for HMR socket / log streaming endpoints.
+    // Compute the relay's public host:port AND protocol from the incoming
+    // request URL so the manifest's `extra.expoClient.hostUri`,
+    // `extra.expoGo.debuggerHost`, and `launchAsset.url` reflect the host
+    // the phone is actually talking to (including cleartext HTTP in local
+    // LAN dev — the previous hardcoded `https://` on launchAsset.url hung
+    // the Onlook mobile client's bundle fetch under Hermes/URLSession
+    // because the dev relay only listens on HTTP).
     let relayHostUri: string | undefined;
+    let relayProtocol: 'http' | 'https' = 'https';
+    let formatJson = false;
     try {
-        relayHostUri = new URL(request.url).host;
+        const parsedUrl = new URL(request.url);
+        relayHostUri = parsedUrl.host;
+        relayProtocol = parsedUrl.protocol === 'http:' ? 'http' : 'https';
+        formatJson = parsedUrl.searchParams.get('format') === 'json';
     } catch {
         // request.url should always parse, but be defensive.
         relayHostUri = undefined;
@@ -164,7 +201,28 @@ export async function handleManifest(
         builtAt: builtAt ?? new Date().toISOString(),
         platform,
         relayHostUri,
+        protocol: relayProtocol,
     });
+
+    const manifestJson = JSON.stringify(manifest);
+
+    // `?format=json` opt-out: the Onlook mobile client uses this to bypass
+    // the multipart envelope, because RN's fetch + multipart/mixed response
+    // combination hangs on `response.text()` in the iOS 18.6 sim even when
+    // Content-Length is set correctly. Expo Go itself continues to get the
+    // multipart form (the default) for dev-server signature-bypass compat.
+    if (formatJson) {
+        return new Response(manifestJson, {
+            status: 200,
+            headers: {
+                'Content-Type': 'application/json; charset=utf-8',
+                'Cache-Control': 'private, max-age=0',
+                Connection: 'close',
+                'expo-protocol-version': '0',
+                'expo-sfv-version': '0',
+            },
+        });
+    }
 
     // Wrap the manifest in a multipart/mixed envelope. The boundary is
     // derived from the bundle hash so it's deterministic per response.
@@ -172,7 +230,6 @@ export async function handleManifest(
     // Content-Type — expo-cli sets both, and Expo Go's parser may
     // assert if either is missing.
     const boundary = `formdata-${bundleHash.slice(0, 16)}`;
-    const manifestJson = JSON.stringify(manifest);
     const body =
         `--${boundary}\r\n` +
         `Content-Disposition: form-data; name="manifest"\r\n` +

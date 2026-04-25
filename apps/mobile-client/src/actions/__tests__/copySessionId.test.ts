@@ -10,12 +10,17 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { rnMockStubs } from '../../__tests__/helpers/rnMock';
 
 // ── Mock react-native BEFORE dynamic import ──
 const clipboardCalls: string[] = [];
 const alertCalls: Array<{ title: string; message?: string }> = [];
 
+// Shared `rnMockStubs()` provides comprehensive coverage so this file's
+// mock doesn't corrupt subsequent test files. Local overrides capture
+// what THIS test needs to observe.
 mock.module('react-native', () => ({
+    ...rnMockStubs(),
     Alert: {
         alert: (title: string, message?: string) => {
             alertCalls.push({ title, message });
@@ -26,14 +31,6 @@ mock.module('react-native', () => ({
             clipboardCalls.push(value);
         },
     },
-    // Shims used by the DevMenuAction type's import graph.
-    Modal: {},
-    Pressable: {},
-    SafeAreaView: {},
-    ScrollView: {},
-    StyleSheet: { create: (s: Record<string, unknown>) => s },
-    Text: {},
-    View: {},
 }));
 
 // Dynamic import so the mock takes effect.

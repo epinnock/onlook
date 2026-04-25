@@ -66,41 +66,221 @@ function extractManifestJson(contentType: string, body: string): string {
  *   `{ ok: false, error }` on network error, non-200 status, JSON parse
  *   failure, or Zod validation failure. Never throws.
  */
-export async function fetchManifest(relayHost: string): Promise<ManifestResult> {
-    let response: Response;
+/**
+ * XHR-based request — bypasses the RN fetch implementation that hangs on
+ * `response.text()` in the iOS 18.6 sim even when the upstream response is
+ * complete with Content-Length known. RN's XMLHttpRequest goes through
+ * RCTNetworking directly and resolves when the full body has arrived, so
+ * timers keep firing normally and the Promise settles.
+ */
+interface XhrResult {
+    status: number;
+    statusText: string;
+    body: string;
+    contentType: string;
+}
+
+declare const XMLHttpRequest: {
+    new (): {
+        open(method: string, url: string, async?: boolean): void;
+        setRequestHeader(name: string, value: string): void;
+        getResponseHeader(name: string): string | null;
+        send(body?: string | null): void;
+        abort(): void;
+        readyState: number;
+        status: number;
+        statusText: string;
+        responseText: string;
+        onreadystatechange: (() => void) | null;
+        ontimeout: (() => void) | null;
+        onerror: ((ev: unknown) => void) | null;
+        onabort: (() => void) | null;
+        timeout: number;
+    };
+};
+
+function nlog(msg: string): void {
+    // Prefer __onlookDirectLog (installed by cpp/OnlookRuntimeInstaller, a
+    // private channel RN's bridge doesn't touch) over nativeLoggingHook
+    // (which RN bridgeless appears to overwrite sometime after our native
+    // installer runs). Falls through to nativeLoggingHook if the direct
+    // channel isn't there yet, then to nothing at all.
     try {
-        response = await fetch(relayHost, {
-            method: 'GET',
-            headers: {
-                Accept: 'multipart/mixed,application/expo+json,application/json',
-            },
-        });
+        const gt = globalThis as unknown as {
+            __onlookDirectLog?: (m: string, level: number) => void;
+            nativeLoggingHook?: (m: string, level: number) => void;
+        };
+        const channel = gt.__onlookDirectLog ?? gt.nativeLoggingHook;
+        channel?.(`[OM-manifest] ${msg}`, 1);
+    } catch { /* intentionally swallowed: diagnostic path must never throw */ }
+}
+
+function xhrGet(url: string, headers: Record<string, string>, timeoutMs: number): Promise<XhrResult> {
+    return new Promise((resolve, reject) => {
+        nlog(`xhrGet enter url=${url.slice(0, 120)}`);
+        const xhrCtor = (globalThis as unknown as { XMLHttpRequest?: unknown }).XMLHttpRequest;
+        nlog(`typeof XMLHttpRequest=${typeof xhrCtor}`);
+        const xhr = new XMLHttpRequest();
+        nlog('xhr constructed');
+        let settled = false;
+        const settle = (fn: () => void) => {
+            if (settled) return;
+            settled = true;
+            fn();
+        };
+        xhr.open('GET', url, true);
+        for (const [k, v] of Object.entries(headers)) {
+            xhr.setRequestHeader(k, v);
+        }
+        xhr.timeout = timeoutMs;
+        xhr.onreadystatechange = () => {
+            nlog(`readyState=${xhr.readyState} status=${xhr.status}`);
+            if (xhr.readyState === 4) {
+                settle(() =>
+                    resolve({
+                        status: xhr.status,
+                        statusText: xhr.statusText,
+                        body: xhr.responseText,
+                        contentType: xhr.getResponseHeader('content-type') ?? '',
+                    }),
+                );
+            }
+        };
+        xhr.ontimeout = () => { nlog('ontimeout'); settle(() => reject(new Error(`XHR timed out after ${timeoutMs}ms`))); };
+        xhr.onerror = () => { nlog('onerror'); settle(() => reject(new Error('XHR error'))); };
+        xhr.onabort = () => { nlog('onabort'); settle(() => reject(new Error('XHR aborted'))); };
+        nlog('xhr.send()');
+        xhr.send();
+        nlog('xhr.send() returned');
+    });
+}
+
+/**
+ * Fetch the manifest via whatwg-fetch. Used as the test-environment path
+ * (bun has no XMLHttpRequest constructor) AND as the default path on any
+ * platform where the host's fetch implementation is well-behaved. In the
+ * iOS 18.6 sim under Hermes/URLSession, fetch hangs on `response.text()`
+ * for keep-alive HTTP/1.1 responses — so sim callers use `xhrGet` below
+ * instead. The branch happens via `hasXMLHttpRequest()` in fetchManifest.
+ */
+async function fetchViaFetch(
+    url: string,
+    headers: Record<string, string>,
+): Promise<XhrResult> {
+    const response = await fetch(url, { method: 'GET', headers });
+    const body = await response.text();
+    return {
+        status: response.status,
+        statusText: response.statusText,
+        body,
+        contentType: response.headers.get('content-type') ?? '',
+    };
+}
+
+/** Env-detect: XMLHttpRequest is provided by RN but not by bun-test. */
+function hasXMLHttpRequest(): boolean {
+    return (
+        typeof (globalThis as { XMLHttpRequest?: unknown }).XMLHttpRequest ===
+        'function'
+    );
+}
+
+/**
+ * Env-detect: `OnlookRuntime.httpGet` is installed by cpp/OnlookRuntime.cpp
+ * when the native side is linked in. Bypasses RCTNetworking entirely by
+ * going straight to NSURLSession, which sidesteps the event-dispatch bug
+ * documented in task #81.
+ */
+function hasOnlookHttpGet(): boolean {
+    const gt = globalThis as {
+        OnlookRuntime?: { httpGet?: unknown };
+    };
+    return typeof gt.OnlookRuntime?.httpGet === 'function';
+}
+
+/**
+ * Sync JSI GET via the native OnlookRuntime.httpGet. Blocks the JS thread
+ * for the request duration — acceptable for small (<100KB) manifest fetches
+ * that take <200ms. Shape-matches `XhrResult` so downstream code doesn't
+ * need to care which path was used.
+ */
+function fetchViaJsiHttpGet(
+    url: string,
+    headers: Record<string, string>,
+): XhrResult {
+    const gt = globalThis as {
+        OnlookRuntime?: {
+            httpGet?: (
+                url: string,
+                headers?: Record<string, string>,
+            ) => {
+                ok: boolean;
+                status: number;
+                body: string;
+                contentType: string;
+                error?: string;
+            };
+        };
+    };
+    const r = gt.OnlookRuntime!.httpGet!(url, headers);
+    if (r.error) {
+        throw new Error(r.error);
+    }
+    return {
+        status: r.status,
+        statusText: r.ok ? 'OK' : 'Error',
+        body: r.body,
+        contentType: r.contentType,
+    };
+}
+
+export async function fetchManifest(relayHost: string): Promise<ManifestResult> {
+    // Request the relay's `?format=json` bypass path so the response is
+    // plain `application/json` instead of the multipart/mixed envelope
+    // Expo Go expects. Pins `platform=ios` explicitly since the relay
+    // defaults to android without an Expo-Platform header.
+    const separator = relayHost.includes('?') ? '&' : '?';
+    const url = `${relayHost}${separator}format=json&platform=ios`;
+
+    // Transport priority:
+    //   1. OnlookRuntime.httpGet — sync JSI call into NSURLSession, bypasses
+    //      RN's broken RCTNetworking event dispatch (task #81). ONLY works
+    //      when the native binary is built with commit introducing httpGet.
+    //   2. XMLHttpRequest — RN's bridged XHR. Broken on bridgeless iOS 18.6
+    //      (send() returns but readyState events never fire — verified in
+    //      fire-16 with [onlook-js] breadcrumbs), but fine as a fallback on
+    //      other RN targets.
+    //   3. fetch — used by the bun-test environment (no XMLHttpRequest
+    //      constructor) and as last-resort on unknown platforms.
+    const reqHeaders = { Accept: 'application/json', 'Expo-Platform': 'ios' };
+    let xhr: XhrResult;
+    try {
+        nlog(`transport pick hasOnlook=${hasOnlookHttpGet()} hasXHR=${hasXMLHttpRequest()}`);
+        if (hasOnlookHttpGet()) {
+            xhr = fetchViaJsiHttpGet(url, reqHeaders);
+        } else if (hasXMLHttpRequest()) {
+            xhr = await xhrGet(url, reqHeaders, 10000);
+        } else {
+            xhr = await fetchViaFetch(url, reqHeaders);
+        }
     } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         return { ok: false, error: `Network error: ${message}` };
     }
 
-    if (!response.ok) {
+    if (xhr.status < 200 || xhr.status >= 300) {
         return {
             ok: false,
-            error: `HTTP ${response.status}: ${response.statusText}`,
+            error: `HTTP ${xhr.status}: ${xhr.statusText}`,
         };
     }
 
-    let body: string;
-    try {
-        body = await response.text();
-    } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        return { ok: false, error: `Failed to read response body: ${message}` };
-    }
+    const body = xhr.body;
+    const contentType = xhr.contentType;
 
     let jsonString: string;
     try {
-        jsonString = extractManifestJson(
-            response.headers.get('content-type') ?? '',
-            body,
-        );
+        jsonString = extractManifestJson(contentType, body);
     } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         return { ok: false, error: message };

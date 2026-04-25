@@ -7,7 +7,7 @@
         "push": "supabase db push",
         "reset": "supabase db reset",
         "db:gen": "supabase gen types --lang=typescript --local --schema public > ../../packages/supabase/src/types/db.ts",
-        "test": "cd supabase/functions/api && deno test",
+        "test": "[ -d supabase/functions/api ] && (cd supabase/functions/api && deno test) || echo '[backend] no edge-function tests — supabase/functions/api absent'",
         "status": "supabase status -o json"
     },
     "dependencies": {},

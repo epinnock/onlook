@@ -16,6 +16,7 @@
         "format": "eslint --fix .",
         "clean": "rm -rf node_modules",
         "bundle-runtime": "bun run scripts/bundle-runtime.ts",
+        "mobile:screenshot-diff": "bun run scripts/screenshot-diff.ts",
         "mobile:build:ios": "bun run scripts/run-build.ts",
         "mobile:install:device": "bun run scripts/install-device.ts",
         "mobile:audit:size": "bun run scripts/run-audit-size.ts",
@@ -31,6 +32,7 @@
     },
     "dependencies": {
         "@onlook/mobile-client-protocol": "*",
+        "@onlook/mobile-preview": "*",
         "expo": "~54.0.33",
         "expo-camera": "~17.0.10",
         "expo-haptics": "~15.0.8",

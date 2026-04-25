@@ -1,0 +1,41 @@
+{
+    "name": "@onlook/base-bundle-builder",
+    "description": "Base bundle builder for Onlook",
+    "main": "./src/index.ts",
+    "type": "module",
+    "module": "src/index.ts",
+    "types": "src/index.ts",
+    "version": "0.0.0",
+    "private": true,
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/onlook-dev/onlook.git"
+    },
+    "scripts": {
+        "clean": "rm -rf node_modules",
+        "lint": "eslint . --max-warnings 0",
+        "format": "eslint --fix .",
+        "typecheck": "tsc --noEmit",
+        "base-bundle:build": "bun ./src/cli.ts base-bundle:build"
+    },
+    "bin": {
+        "onlook-base-bundle": "./src/cli.ts"
+    },
+    "keywords": [
+        "onlook",
+        "base-bundle-builder"
+    ],
+    "author": {
+        "name": "Onlook",
+        "email": "contact@onlook.com"
+    },
+    "license": "Apache-2.0",
+    "homepage": "https://onlook.com",
+    "devDependencies": {
+        "@onlook/eslint": "*",
+        "@onlook/typescript": "*",
+        "eslint": "^9.0.0",
+        "typescript": "^5.5.4"
+    },
+    "dependencies": {}
+}

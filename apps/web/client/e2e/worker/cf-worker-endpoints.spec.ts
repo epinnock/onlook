@@ -15,11 +15,24 @@ const WORKER_URL = process.env.CF_WORKER_URL || 'http://localhost:8787';
 let workerAvailable = false;
 
 async function isWorkerRunning(): Promise<boolean> {
+    // Strengthen the probe: /health is often served by some stray local
+    // server (another wrangler instance, a static file server, etc) even
+    // when the sandbox worker itself isn't running. Also verify that
+    // POST /sandbox/create responds with the expected shape — if it
+    // 404s the sandbox routes, this isn't our worker and we should skip.
     try {
-        const res = await fetch(`${WORKER_URL}/health`, {
+        const healthRes = await fetch(`${WORKER_URL}/health`, {
             signal: AbortSignal.timeout(2000),
         });
-        return res.ok;
+        if (!healthRes.ok) return false;
+
+        const createRes = await fetch(`${WORKER_URL}/sandbox/create`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({}),
+            signal: AbortSignal.timeout(2000),
+        });
+        return createRes.ok;
     } catch {
         return false;
     }

@@ -68,10 +68,23 @@ function findRepoRoot(): string {
 
 function defaultOptions(): Options {
     const root = findRepoRoot();
+    // Default to the mobile-client-only bundle (shell.js only, ~9 KB) rather
+    // than the full bundle.js (~258 KB with React + reconciler). The full
+    // runtime is dead weight on the mobile client — it's gated off at boot
+    // via `globalThis.__noOnlookRuntime = true` — so we save the bytes at
+    // build time. See plans/adr/v2-pipeline-validation-findings.md #3 + #5.
+    // Expo Go / mobile-preview harness keeps using the full bundle via
+    // `--source=packages/mobile-preview/runtime/bundle.js`.
     return {
         dryRun: false,
         skipMissing: false,
-        sourcePath: join(root, 'packages', 'mobile-preview', 'runtime', 'bundle.js'),
+        sourcePath: join(
+            root,
+            'packages',
+            'mobile-preview',
+            'runtime',
+            'bundle-client-only.js',
+        ),
         iosDest: join(
             root,
             'apps',

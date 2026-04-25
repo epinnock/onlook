@@ -107,8 +107,14 @@ const OK_BUNDLE: BundleResult = {
 
 type GlobalWithRuntime = typeof globalThis & {
     OnlookRuntime?: {
+        abi?: string;
         runApplication?: (source: string, props: { sessionId: string }) => void;
         reloadBundle?: () => void;
+        mountOverlay?: (
+            source: string,
+            props?: Readonly<Record<string, unknown>>,
+            assets?: unknown,
+        ) => void;
     };
 };
 
@@ -251,7 +257,7 @@ describe('qrToMount', () => {
 
         const result = await qrToMount(VALID_BARCODE);
 
-        expect(result).toEqual({ ok: true, sessionId: 'sess-42' });
+        expect(result).toEqual({ ok: true, sessionId: 'sess-42', relay: OK_PARSE.relay });
         expect(runApplication).toHaveBeenCalledTimes(1);
         // Bundle source + props must be forwarded verbatim.
         expect(runApplication.mock.calls[0]?.[0]).toBe(
@@ -289,7 +295,7 @@ describe('qrToMount', () => {
         const result = await qrToMount(VALID_BARCODE);
 
         // Mount succeeded — persistence failure is non-fatal and only warned.
-        expect(result).toEqual({ ok: true, sessionId: 'sess-42' });
+        expect(result).toEqual({ ok: true, sessionId: 'sess-42', relay: OK_PARSE.relay });
         expect(warnSpy).toHaveBeenCalled();
     });
 
@@ -317,8 +323,8 @@ describe('qrToMount', () => {
         const second = await qrToMount(VALID_BARCODE);
 
         // Both scans must succeed end-to-end.
-        expect(first).toEqual({ ok: true, sessionId: 'sess-42' });
-        expect(second).toEqual({ ok: true, sessionId: 'sess-42' });
+        expect(first).toEqual({ ok: true, sessionId: 'sess-42', relay: OK_PARSE.relay });
+        expect(second).toEqual({ ok: true, sessionId: 'sess-42', relay: OK_PARSE.relay });
 
         // Scan #1 mounts via runApplication exactly once.
         expect(runApplication).toHaveBeenCalledTimes(1);
@@ -361,5 +367,129 @@ describe('qrToMount', () => {
         }
         expect(runApplication).toHaveBeenCalledTimes(1);
         expect(reloadBundle).toHaveBeenCalledTimes(1);
+    });
+
+    // ─── ABI v1 mountOverlay fast path — task #14 ──────────────────────────
+
+    test('ABI v1: routes through OnlookRuntime.mountOverlay when abi === "v1"', async () => {
+        const mountOverlay = mock(() => {});
+        (globalThis as GlobalWithRuntime).OnlookRuntime = {
+            abi: 'v1',
+            mountOverlay,
+        };
+
+        const result = await qrToMount(VALID_BARCODE);
+        expect(result.ok).toBe(true);
+        expect(mountOverlay).toHaveBeenCalledTimes(1);
+        const call = mountOverlay.mock.calls[0] ?? [];
+        expect(call[0]).toBe(OK_BUNDLE.source);
+        // `relay` is a full URL; shell.js's _tryConnectWebSocket expects a
+        // bare hostname, so qrToMount extracts `URL.hostname` before passing
+        // it through as `relayHost`. Port is extracted too so the overlay's
+        // props match AppRouter's initial-mount + twoTierBootstrap's
+        // subsequent-mount shape (all three pass {sessionId, relayHost,
+        // relayPort}).
+        expect(call[1]).toEqual({
+            sessionId: OK_PARSE.sessionId,
+            relayHost: 'localhost',
+            relayPort: 8787,
+        });
+    });
+
+    test('ABI v1: relayHost + relayPort extract from a full URL with scheme/port/path', async () => {
+        const mountOverlay = mock(() => {});
+        (globalThis as GlobalWithRuntime).OnlookRuntime = {
+            abi: 'v1',
+            mountOverlay,
+        };
+        parseReturn = {
+            action: 'launch',
+            sessionId: 'sess-lan',
+            relay: 'http://192.168.0.17:18999/manifest/' + 'a'.repeat(64),
+        };
+
+        await qrToMount(VALID_BARCODE);
+        const call = mountOverlay.mock.calls[0] ?? [];
+        const props = call[1] as { relayHost: string; relayPort: number };
+        expect(props.relayHost).toBe('192.168.0.17');
+        expect(props.relayPort).toBe(18999);
+    });
+
+    test('ABI v1: relayPort defaults to 80 (http) or 443 (https/wss) when URL port omitted', async () => {
+        const mountOverlay = mock(() => {});
+        (globalThis as GlobalWithRuntime).OnlookRuntime = {
+            abi: 'v1',
+            mountOverlay,
+        };
+        parseReturn = {
+            action: 'launch',
+            sessionId: 'sess-https',
+            relay: 'https://relay.onlook.com/manifest/abc',
+        };
+
+        await qrToMount(VALID_BARCODE);
+        const call = mountOverlay.mock.calls[0] ?? [];
+        const props = call[1] as { relayHost: string; relayPort: number };
+        expect(props.relayHost).toBe('relay.onlook.com');
+        expect(props.relayPort).toBe(443);
+    });
+
+    test('ABI v1: relayHost passes through unchanged when relay is not a parseable URL', async () => {
+        const mountOverlay = mock(() => {});
+        (globalThis as GlobalWithRuntime).OnlookRuntime = {
+            abi: 'v1',
+            mountOverlay,
+        };
+        parseReturn = {
+            action: 'launch',
+            sessionId: 'sess-raw',
+            relay: 'not-a-url',
+        };
+
+        await qrToMount(VALID_BARCODE);
+        const call = mountOverlay.mock.calls[0] ?? [];
+        expect((call[1] as { relayHost: string }).relayHost).toBe('not-a-url');
+    });
+
+    test('ABI v1: subsequent scans also route through mountOverlay — no runApplication/reloadBundle dance', async () => {
+        const mountOverlay = mock(() => {});
+        (globalThis as GlobalWithRuntime).OnlookRuntime = {
+            abi: 'v1',
+            mountOverlay,
+        };
+
+        await qrToMount(VALID_BARCODE);
+        await qrToMount(VALID_BARCODE);
+        expect(mountOverlay).toHaveBeenCalledTimes(2);
+    });
+
+    test('ABI v1: mountOverlay throwing surfaces a mount stage error', async () => {
+        (globalThis as GlobalWithRuntime).OnlookRuntime = {
+            abi: 'v1',
+            mountOverlay: () => {
+                throw new Error('overlay boom');
+            },
+        };
+
+        const result = await qrToMount(VALID_BARCODE);
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+            expect(result.stage).toBe('mount');
+            expect(result.error).toContain('mountOverlay threw');
+        }
+    });
+
+    test('ABI v1: falls back to runApplication when abi is not "v1"', async () => {
+        const mountOverlay = mock(() => {});
+        const runApplication = mock(() => {});
+        (globalThis as GlobalWithRuntime).OnlookRuntime = {
+            abi: 'v0',
+            mountOverlay,
+            runApplication,
+        };
+
+        await qrToMount(VALID_BARCODE);
+        expect(mountOverlay).toHaveBeenCalledTimes(0);
+        expect(runApplication).toHaveBeenCalledTimes(1);
     });
 });

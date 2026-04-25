@@ -83,20 +83,24 @@ describe('MCP App Utils', () => {
     });
 
     describe('resolveUiResourceUri', () => {
-        it('resolves ui:// URI against MCP server URL', () => {
+        // Commit 1ca2e19a changed the semantics: widget HTMLs are now served
+        // from the MCP server's origin at the widget filename path, not via
+        // a `/_mcp/ui/<server>/<widget>` proxy prefix. The tests were not
+        // updated at the time; aligning them here with the live behavior.
+        it('strips ui:// and the server-name segment, resolves against origin', () => {
             const result = resolveUiResourceUri(
                 'ui://charts/interactive',
                 'https://mcp.example.com',
             );
-            expect(result).toBe('https://mcp.example.com/_mcp/ui/charts/interactive');
+            expect(result).toBe('https://mcp.example.com/interactive');
         });
 
-        it('strips trailing slash from server URL', () => {
+        it('handles MCP server URL with /mcp path by stripping to origin', () => {
             const result = resolveUiResourceUri(
                 'ui://widget/form',
-                'https://mcp.example.com/',
+                'https://mcp.example.com/mcp',
             );
-            expect(result).toBe('https://mcp.example.com/_mcp/ui/widget/form');
+            expect(result).toBe('https://mcp.example.com/form');
         });
 
         it('returns raw URI when no server URL provided', () => {

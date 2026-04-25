@@ -54,14 +54,20 @@ export class GrepTool extends ClientTool {
             .describe('Show line numbers in output (requires output_mode: "content")'),
         '-A': z
             .number()
+            .int()
+            .nonnegative()
             .optional()
             .describe('Number of lines to show after each match (requires output_mode: "content")'),
         '-B': z
             .number()
+            .int()
+            .nonnegative()
             .optional()
             .describe('Number of lines to show before each match (requires output_mode: "content")'),
         '-C': z
             .number()
+            .int()
+            .nonnegative()
             .optional()
             .describe(
                 'Number of lines to show before and after each match (requires output_mode: "content")',
@@ -70,7 +76,12 @@ export class GrepTool extends ClientTool {
             .boolean()
             .optional()
             .describe('Enable multiline mode where . matches newlines and patterns can span lines'),
-        head_limit: z.number().optional().describe('Limit output to first N lines/entries'),
+        head_limit: z
+            .number()
+            .int()
+            .positive()
+            .optional()
+            .describe('Limit output to first N lines/entries'),
         branchId: BRANCH_ID_SCHEMA,
     });
     static readonly icon = Icons.MagnifyingGlass;

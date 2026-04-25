@@ -6,17 +6,12 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { rnMockStubs } from '../../__tests__/helpers/rnMock';
 
-// ── Mock react-native modules required by the DevMenuAction type import chain ──
-mock.module('react-native', () => ({
-    Modal: {},
-    Pressable: {},
-    SafeAreaView: {},
-    ScrollView: {},
-    StyleSheet: { create: (s: Record<string, unknown>) => s },
-    Text: {},
-    View: {},
-}));
+// ── Mock react-native via the shared comprehensive stub ──
+// See src/__tests__/helpers/rnMock.ts for why comprehensive coverage is
+// required (bun's mock.module is process-wide without restore).
+mock.module('react-native', () => rnMockStubs());
 
 // Import after mocks are installed.
 const {

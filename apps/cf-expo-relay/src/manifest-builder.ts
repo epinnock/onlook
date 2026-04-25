@@ -101,6 +101,13 @@ export interface BuildManifestInput {
      * but harmless for unit tests that don't validate it).
      */
     relayHostUri?: string;
+    /**
+     * Protocol used for launchAsset.url and asset URLs. Defaults to 'https'
+     * to preserve production behavior; local LAN dev MUST pass 'http' or
+     * the sim's bundle fetch will hang on a TLS handshake to the plaintext
+     * relay port.
+     */
+    protocol?: 'http' | 'https';
 }
 
 export interface ExpoLaunchAsset {
@@ -193,6 +200,7 @@ export function buildManifest(input: BuildManifestInput): ExpoManifest {
     const platform: ExpoPlatform = input.platform ?? 'android';
     const relayHostUri =
         input.relayHostUri ?? extractHost(baseUrl) ?? 'expo-relay.onlook.dev';
+    const protocol: 'http' | 'https' = input.protocol ?? 'https';
 
     // launchAsset.url uses Metro's URL convention so Expo Go's URL parser
     // sees a familiar shape. The hash is embedded in the entry filename
@@ -215,7 +223,7 @@ export function buildManifest(input: BuildManifestInput): ExpoManifest {
         // accepted but didn't match expo-cli's wire format.
         key: 'bundle',
         contentType: fields.launchAsset.contentType,
-        url: `https://${relayHostUri}/${bundleHash}.${platform === 'ios' ? 'ios' : 'android'}.bundle?${bundleQuery.toString()}`,
+        url: `${protocol}://${relayHostUri}/${bundleHash}.${platform === 'ios' ? 'ios' : 'android'}.bundle?${bundleQuery.toString()}`,
     };
 
     const assets: ExpoAsset[] = fields.assets.map((asset) => ({

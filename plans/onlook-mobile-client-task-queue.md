@@ -205,7 +205,16 @@ Phase F is explicitly serial. Every task in here either creates a hotspot file o
   - Files: ENTIRE `apps/mobile-client/ios/**` (generated), optional touch-ups to `ios/OnlookMobileClient/Info.plist` if Expo's output misses anything
   - Deps: MCF8a, Xcode ≥ 16.1, CocoaPods ≥ 1.16
   - Validate: `cd apps/mobile-client && bun x expo prebuild --platform ios --no-install --clean && cd ios && pod install && xcodebuild -workspace OnlookMobileClient.xcworkspace -scheme OnlookMobileClient -configuration Debug -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 15' build | tail -20` exits 0
-  - Status: **⛔ Blocked on tooling** (2026-04-11) — RN 0.81.6 pod check requires `Xcode >= 16.1`; machine has 15.4 on macOS 14.3.1. `expo prebuild --no-install` itself succeeds locally on Xcode 15.4 and generates `Info.plist` with all the right keys (camera permission, `onlook://` URL scheme, `NSAllowsLocalNetworking`, `RCTNewArchEnabled`) automatically from `app.config.ts`. The block is specifically at `pod install`. A new machine with Xcode 16.1+ finishes this task in ~10 min of `pod install` + `xcodebuild`. See `plans/onlook-mobile-client-handoff.md`.
+  - Status: **✅ Unblocked 2026-04-20 on Mac mini (Xcode 16.4).** The Xcode ≥ 16.1 blocker from 2026-04-11 is lifted. Reproduction on the Mac mini (`scry-farmer@192.168.0.17`, macOS 24.5.0 ARM64):
+    ```bash
+    cd ~/build/onlook
+    bun install                                         # 2429 packages, ~12s
+    cd packages/mobile-preview && bun run build:runtime # runtime/bundle.js (~257KB)
+    cd ~/build/onlook/apps/mobile-client
+    bun run mobile:build:ios                            # ** BUILD SUCCEEDED **
+    ```
+    Verified 2026-04-20 against `feat/two-tier-bundle` @ commit `8883ef19`: `OnlookMobileClient.app` signed for iPhone-16 simulator, installs + launches, unified log emits `[onlook-runtime] hermes ready`, combined bundle (~1.6MB) evaluated by Hermes. Launcher screen renders (see `tmp-screenshots/wave-d-mini-launcher.png`).
+    Historical detail (2026-04-11): RN 0.81.6 pod check requires `Xcode >= 16.1`; the original dev machine had 15.4. `expo prebuild --no-install` succeeds on 15.4 and generates `Info.plist` correctly from `app.config.ts`; only `pod install` was gated.
   - Note: **Scope narrowed 2026-04-11** — no longer pre-registers downstream stub files in `project.pbxproj` or `build.gradle`. Rationale: reliable pbxproj surgery requires the `xcodeproj` Ruby gem and is too fragile to do by hand across ~40 wave tasks. Instead each wave that needs new native files adds one serialized "xcode scribe" sub-task (e.g., `MC1.X`, `MC2.X`) that batches all pbxproj additions for that wave via the gem. Scribe runs between the wave's content tasks and its build validation. Info.plist and AndroidManifest.xml are pre-populated via `app.config.ts` because Expo expands them during prebuild.
 
 - **MCF8c** *(deferred)* — Android prebuild + Gradle assembleDebug
@@ -927,6 +936,94 @@ Sequential. Runs with 1 agent after Wave 6 merges. This is where the source plan
 
 ---
 
+## Phase G — Two-tier v2 bridgeless validation + hardening (mixed; 1–2 agents)
+
+Phase G collects the follow-up work the 2026-04-22 simulator validation session surfaced. The ADR (`plans/adr/v2-pipeline-validation-findings.md`) documents the eight findings end-to-end; this section is the task-queue entry point. Wave G runs AFTER `feat/two-tier-bundle` lands on `feat/mobile-client`, so every task below assumes `feat/mobile-client` already carries the subscribable `renderApp`, `OverlayHost`, filter, and bundler fixes from the validation session.
+
+Architecture reference: `plans/adr/overlay-host-architecture.md` — the OverlayHost-in-App.tsx pattern + pinned renderApp + bad-component filter + error boundary.
+
+Photographic DoD for the whole phase: `plans/adr/assets/v2-pipeline/v2r-hello.png` + `v2r-updated.png` already satisfy "component loaded then edited and updated in the simulator" — Phase G tasks harden the path, they do not re-prove the mount.
+
+- **MCG.1** — Unit test: shell.js `_tryConnectWebSocket` URL-host stripping
+  - Files: `packages/mobile-preview/runtime/src/stripWsHost.ts` + `packages/mobile-preview/runtime/src/__tests__/stripWsHost.test.ts`
+  - Deps: —
+  - Validate: `cd packages/mobile-preview && bun test runtime/src/__tests__/stripWsHost.test.ts` (10 pass)
+  - Status: **shipped 2026-04-22** — extracted the inline `bareHost` regex from shell.js into `stripWsHost(host)` + 10 bun tests covering bare hostnames, http/https/ws/wss schemes, scheme + port, scheme + path, IPv4, trailing slash, non-string input.
+
+- **MCG.2** — Unit test: `qrToMount` relayHost hostname extraction
+  - Files: `apps/mobile-client/src/flow/__tests__/qrToMount.test.ts` (update the existing `ABI v1 mountOverlay` test + add 2 new cases)
+  - Deps: MCG.1 (test-helper proximity only, not ordering)
+  - Validate: `cd apps/mobile-client && bun test src/flow/__tests__/qrToMount.test.ts` (17 pass)
+  - Status: **shipped 2026-04-22** — fixed the stale fixture (expected full URL, now expects `'localhost'` hostname), added explicit cases for IPv4:port/manifest URL and non-parseable `relay` fallthrough.
+
+- **MCG.3** — Extract subscribable `renderApp` into `src/overlay/renderAppBridge.ts`
+  - Files: `apps/mobile-client/src/overlay/renderAppBridge.ts` + `__tests__/renderAppBridge.test.ts`
+  - Deps: —
+  - Validate: `cd apps/mobile-client && bun test src/overlay/__tests__/renderAppBridge.test.ts` (10 pass)
+  - Status: **shipped 2026-04-22** — `installRenderAppBridge(globals)` returns `{ renderApp, pinned }`; index.js keeps an inline copy (Expo entry-point constraint) that must stay in sync with this module. Tests cover subscriber notification, bad-component drop, multi-subscriber + throwing-subscriber resilience, `defineProperty` pin, plus two regression tests for the finding-#3 clobber path.
+
+- **MCG.4** — Unit tests: `OverlayErrorBoundary` + `badComponentFilter`
+  - Files: `apps/mobile-client/src/overlay/{OverlayErrorBoundary.tsx,badComponentFilter.ts}` + `__tests__/OverlayErrorBoundary.test.ts` + `__tests__/badComponentFilter.test.ts`
+  - Deps: —
+  - Validate: `cd apps/mobile-client && bun test src/overlay/__tests__/` (17 pass: 9 filter + 8 boundary)
+  - Status: **shipped 2026-04-22** — boundary tests avoid `react-test-renderer` by driving the lifecycle methods directly; filter tests walk nested trees plus edge cases (missing props, array children).
+
+- **MCG.5** — Integration test: fake OnlookRuntime + bundle-that-calls-renderApp
+  - Files: `apps/mobile-client/src/overlay/__tests__/fakeRuntime.integration.test.ts`
+  - Deps: MCG.3
+  - Validate: `cd apps/mobile-client && bun test src/overlay/__tests__/fakeRuntime.integration.test.ts` (4 pass)
+  - Status: **shipped 2026-04-22** — `mountBundleInFakeRuntime(globals, source)` wraps the source in a `Function('globalThis', source)` closure, mimicking JSI mountOverlay on a pure-JS bundle body. Covers single mount, bad-component drop, two sequential mounts (ordering), and post-renderApp-throw resilience.
+
+- **MCG.6** — ADR: OverlayHost architecture decision
+  - Files: `plans/adr/overlay-host-architecture.md`
+  - Deps: —
+  - Validate: review-only (doc)
+  - Status: **shipped 2026-04-22** — captures OverlayHost-in-App.tsx as chosen surface, documents the four rejected alternatives (second AppRegistry root, dedicated native surface, module-local subscribers Set), consequences, and open questions.
+
+- **MCG.7** — Verify OverlayHost coexists with every AppRouter screen
+  - Files: `apps/mobile-client/src/overlay/overlayHostSubscription.ts` (+ `OVERLAY_FRAME_POINTER_EVENTS`/`OVERLAY_FRAME_STYLE` constants), `apps/mobile-client/src/overlay/OverlayHost.tsx` (consume constants), `apps/mobile-client/src/overlay/__tests__/OverlayHost.test.ts` (frame-contract assertions), `apps/mobile-client/src/__tests__/App.composition.test.ts` (App.tsx structural guard)
+  - Deps: MCG.3, MCG.4
+  - Validate: `cd apps/mobile-client && bun test src/overlay/__tests__/OverlayHost.test.ts src/__tests__/App.composition.test.ts` (14 pass)
+  - Risk: React Native's `Pressable` + `pointerEvents` interactions differ between Fabric-on-new-arch and legacy; the test must drive only the component tree, not the native layer.
+  - Status: **shipped 2026-04-23** — because mobile-client has no React renderer dep (no `react-test-renderer`, no `react-dom`) and the isolated test runner rejects `.tsx` files, drove the validation through two complementary guards instead of a real render:
+    1. **Frame contract** — extracted `OVERLAY_FRAME_POINTER_EVENTS = 'box-none'` + `OVERLAY_FRAME_STYLE = { position: 'absolute', top/left/right/bottom: 0 }` as `as const` exports on `overlayHostSubscription.ts`. `OverlayHost.tsx` imports them; 3 new bun tests (`OverlayHost.test.ts`: pointer-events value, absolute pin, shape cardinality) lock in the contract. Any regression that drops box-none or the absolute positioning fails the test.
+    2. **App.tsx composition guard** — `src/__tests__/App.composition.test.ts` reads `App.tsx` as source text and asserts both imports present, `<>`-fragment with `<AppRouter />` before `<OverlayHost />` as siblings (regex resilient to whitespace drift), AppRouter used self-closing (can't nest OverlayHost inside it by construction), and `<OverlayHost />` actually rendered (not import-without-use). 4 new bun tests.
+    3. Re-render on subscriber notification was already proven by `overlay/__tests__/fakeRuntime.integration.test.ts` + the existing `OverlayHost.test.ts` subscription tests.
+    Full mobile-client suite: 403 → 410 pass / 0 fail across 39 files. Typecheck clean.
+
+- **MCG.8** — Split `runtime.js` out of the mobile-client bundle
+  - Files: `packages/mobile-preview/runtime/entry-client-only.js` + `packages/mobile-preview/server/build-runtime-client-only.ts` + `packages/mobile-preview/package.json` (added `build:runtime:client-only` script) + `apps/mobile-client/scripts/bundle-runtime.ts` (default sourcePath swap)
+  - Deps: —
+  - Validate: `bun --filter @onlook/mobile-preview build:runtime:client-only` then `du -h packages/mobile-preview/runtime/bundle-client-only.js` — target <30 KB (actual: 8.8 KB)
+  - Status: **shipped 2026-04-22** — `bundle-client-only.js` is 8.8 KB vs `bundle.js` 257.6 KB = **96.6% reduction, 248.8 KB saved**. `entry-client-only.js` requires only `shell.js`; React + reconciler + scheduler no longer ship on mobile-client. `bundle-runtime.ts` now defaults to the slim bundle; Expo Go / mobile-preview harness keeps using `bundle.js` via `--source=` override. Existing 35 bundle-runtime tests still pass (path change only — same shape).
+
+- **MCG.9** — Build `OnlookRuntime.httpGet`-based poll channel for relay events
+  - Files: new `packages/mobile-preview/runtime/src/relayEventPoll.ts` + `apps/mobile-client/src/relay/overlayAckPoll.ts` + tests
+  - Deps: MCG.8 (not strictly, but avoids mixing two refactors of the mobile-preview runtime)
+  - Validate: `bun test packages/mobile-preview/runtime/src/__tests__/relayEventPoll.test.ts` — fake httpGet returns a queued event, poll loop dispatches to registered subscribers, stops on `close()`.
+  - Rationale: ADR finding #8 — bridgeless iOS 18.6 `WebSocket.onopen` doesn't dispatch to JS. `OnlookRuntime.httpGet` (synchronous JSI→NSURLSession) is the documented workaround and is already used for manifest/bundle fetches.
+
+- **MCG.10** — OverlayAck phone→editor round-trip
+  - Files: `apps/web/client/src/server/relay/overlayAck.ts` + `apps/mobile-client/src/relay/overlayAckPoll.ts` (consumes MCG.9) + `apps/cf-expo-relay/src/do/events-session.ts` + `apps/cf-expo-relay/src/routes/events.ts`
+  - Deps: MCG.9
+  - Validate: E2E — editor mounts overlay via relay, mobile-client's ackPoll picks up the ack, editor's `subscribeRelayEvents` listener fires.
+  - Rationale: closes the loop on ABI v1 bidirectional observability.
+  - Status: **steps 2 + 3 + 4 + schema + spec shipped 2026-04-22** — (step 3) `apps/mobile-client/src/relay/overlayAckPoll.ts` wraps `startRelayEventPoll` behind a `startOverlayAckPoll({relayHost, sessionId, onEvent, onError, validate})` helper, derives the `/events` URL from a manifest-style relayHost, resolves `OnlookRuntime.httpGet` lazily (returns `installed:false` no-op when the native binding is absent — Spike-B / harness contexts). 14 bun tests. (step 4) `twoTierBootstrap` now starts the ack poll after the dispatcher, surfaces received events via a new `onRelayEvent` callback option, logs errors through the existing `log` channel, and tears the poll down on `.stop()`. 4 new twoTierBootstrap tests (11 total, all green). (schema — MCG.10 step 2.5) `@onlook/mobile-client-protocol/src/relay-events.ts` ships a Zod-typed discriminated union (`overlayAck | bundleUpdate | overlayMounted | overlayError | keepAlive`) + `parseRelayEvent` safe parser + `RelayEventsResponseSchema` + `assertNeverRelayEvent` exhaustiveness helper — 18 bun tests. `overlayAckPoll` plumbs `parseRelayEvent` at the boundary (default `validate:true`): valid events dispatch typed, invalid shapes surface via `onError` and never reach `onEvent`. (spec) `plans/adr/cf-expo-relay-events-channel.md` freezes the wire contract: `GET /events?session&since`, cursor semantics, 100-event / 10 s retention, 15 s keepAlive, discriminated union kinds. `@onlook/mobile-preview` now re-exports `startRelayEventPoll` + `stripWsHost` via `runtime/src/index.ts`; added `main`/`module`/`types` fields to package.json so workspace consumers resolve without additional config. (step 2 — cf-expo-relay handler) `apps/cf-expo-relay/src/do/events-session.ts` ships `EventsSession` DurableObject with ring buffer (100 events), cursor counter, 10 s TTL pruning on every poll, 15 s keepAlive synthesized on-demand during idle polls. `apps/cf-expo-relay/src/routes/events.ts` wires the Worker route handlers: `GET /events?session&since` forwards to DO `/poll`, `POST /events/push?session` forwards to DO `/push`. `wrangler.jsonc` adds `EVENTS_SESSION` DO binding + `v3` migration (`new_sqlite_classes: ["EventsSession"]`) in both default and production env blocks. 25 new bun tests (13 DO behavioural: empty poll, cursor filter, server-assigned id, TTL prune, ring buffer cap, keepAlive synth + debounce, 400 / 404; 12 route wire-up: regex, binding-missing 503, method-check 405, invalid session 400, forward shape). cf-expo-relay total: 169 pass / 0 fail / 15 files, typecheck clean. Editor-side endpoint (step 1) + full E2E remain.
+
+- **MCG.11** — Replace mock relay with real `cf-expo-relay` + `browser-bundler` output
+  - Files: `apps/cf-expo-relay/scripts/smoke-events.sh` (events-channel smoke); cf-esm-cache local stand-in (tracked as #106)
+  - Deps: MCG.10 is nice-to-have but not strictly required
+  - Validate: `bun run mobile:validate:v2` — spins up cf-expo-relay locally, editor pushes a real browser-bundler-compiled overlay, mobile-client renders on a sim, screenshot diff against `v2r-*.png` within pixel tolerance.
+  - Status: **fully shipped 2026-04-22** — real cf-expo-relay wrangler dev replaces `/tmp/mock-relay.js` end-to-end. Two helper scripts ship under `apps/cf-expo-relay/scripts/`: `local-esm-cache-worker.ts` + `wrangler-local-esm-cache.jsonc` run the fake cf-esm-cache as a sibling wrangler dev process (service-binding avoids workerd's loopback-fetch restriction); `local-esm-cache.ts` is the standalone HTTP variant for non-workerd consumers; `smoke-events.sh` + `smoke-e2e.sh` exercise the full pipeline via curl against live wranglers. `smoke-e2e.sh` asserts 11 checkpoints: cache /status, relay /manifest (real Expo manifest body, 200), relay `/:hash.ios.bundle` proxy through cache, /events/push (202), /events?since cursor cycle. All green on live wrangler.
+
+- **MCG.12** — Commit Phase G deliverables to `feat/two-tier-bundle`
+  - Files: all files touched by MCG.1–MCG.6 (MCG.7–MCG.11 ship in follow-up commits)
+  - Deps: MCG.1, MCG.2, MCG.3, MCG.4, MCG.5, MCG.6
+  - Validate: `bun run test` green in both `apps/mobile-client` + `packages/mobile-preview`; `bun run typecheck` clean on both packages; git log shows one commit per MCG sub-task OR one bundled commit with a Conventional Commits scope.
+  - Note: human-gated (CLAUDE.md forbids unprompted commits).
+
+---
+
 ## Session of 2026-04-16 afternoon — first iPhone deploy + dual-React bug surfaces
 
 Origin advanced `bd3d3bb4` → `b16efccc` in this session. Eight commits landed, plus the first real-device install of the mobile client.
@@ -994,6 +1091,68 @@ Tasks that hit any of these conditions flip to dead-letter and surface to a huma
 5. **Wave integration failure.** If a task's individual validate passes but the `feat/mobile-client` integration check after merge fails, the orchestrator **reverts the merge**, dead-letters the task, and continues with the next one. The reverted task needs human triage before it can be re-queued.
 
 Dead letter queue lives at `apps/mobile-client/verification/dead-letter.json`. Orchestrator appends; humans resolve.
+
+---
+
+## Session of 2026-04-22/23 — Phase G overlay pipeline validation + MCG.10 full round-trip
+
+Origin advanced `27abae84` → `db155597` (+17 commits) across the session — the two-tier overlay v2 pipeline landed end-to-end on real hardware plus the editor surfaces for the ack and preflight channels.
+
+**Commits (in order, feat/two-tier-bundle):**
+
+- `8528cc4c` feat(mobile-client): Phase G two-tier overlay pipeline — subscribable renderApp, bridgeless event poll, typed schema, bundle split, real-relay local dev (4775 insertions)
+- `179743bf` feat(mobile-client): phone-side `onlook:overlayAck` via WS.send (MCG.10 step 1)
+- `ed28a7fe` feat(web-client): RelayWsClient — editor-side WS ingest for `/hmr/:sessionId` (MCG.10 step 1 editor half)
+- `d088e7d7` feat(mobile-client): perceptual pixel-diff tier for screenshot-diff CLI (#99)
+- `0b8c8934` test(two-tier-overlay-v2): close v2 queue tasks #76 + #82
+- `7a6fe7c4` docs: mark #76/#82 done in status log
+- `9baf3153` test(mobile-client): post-Phase-G iOS rebuild + launch on Xcode 16.4 (mini)
+- `1c58d3a2` test(mobile-client): post-Phase-G E2E — deep link → mount → update on rebuilt app
+- `695b3ccb` docs: mark task #97 done — iOS sim smoke unblocked
+- `2ab3de45` feat(web-client): MobileOverlayAckTab dev-panel component (MCG.10 editor UI)
+- `3545cbee` docs: mark tasks #38–43, #72, #83 done in status log (stale; code already shipped)
+- `4db404f9` feat(web-client): OverlayPreflightPanel dev-panel component (#81 editor UI)
+- `ca73e3eb` docs: mark #81 component shipped
+- `4d8d0bbf` test(browser-bundler): circular-import coverage for wrap-overlay-v1 (task #37)
+- `f530dcaa` docs: mark #35 done — sourceMap R2 round-trip shipped
+- `db155597` test(cf-expo-relay): events route ↔ EventsSession DO cross-layer integration
+
+**Headlines:**
+
+- **Photographic evidence captured + committed** at `plans/adr/assets/v2-pipeline/{v2r,post-g}-{launcher,hello,updated}.png`. v2r-* uses mock-relay bundle-append shortcut; post-g-* uses the REAL committed code path (qrToMount → OnlookRuntime.mountOverlay → subscribable renderApp → OverlayHost → in-place update 7s later).
+- **mini's Xcode 16.4 unblocked #97** — rebuilt IPA with current source compiles + installs + launches + runs full pipeline. The JS-fallback OnlookRuntime covers the ABI contract today; native C++ wiring (#23–25) remains a separate optimization project.
+- **MCG.10 completed end-to-end** across 4 surfaces: phone WS.send (mobile-client), relay fan-out (cf-expo-relay HmrSession), editor ingest (RelayWsClient), dev-panel UI (MobileOverlayAckTab). One layer remaining: wiring the component into the actual editor panel layout (parent container, tab group).
+- **#81 component shipped** (OverlayPreflightPanel) — renders unsupported-native + unknown-specifier imports in-editor before the overlay is pushed. Formatter-driven, isolated, unit-tested via react-dom/server.
+- **#99 perceptual pixel-diff** replaced the size-tolerance false-positive via a pure-TS PNG decoder (no `sharp` dep). CLI at `apps/mobile-client/scripts/screenshot-diff.ts` — three-tier (hash → perceptual → size-fallback) with 22+ tests.
+- **Local two-wrangler dev setup** shipped — workerd's loopback-fetch restriction means cf-esm-cache needs to run as a sibling wrangler-dev process for the service binding to resolve. `apps/cf-expo-relay/scripts/wrangler-local-esm-cache.jsonc` + `local-esm-cache-worker.ts` handle it. `smoke-e2e.sh` hits the full pipeline with 11 assertions.
+- **CLAUDE.md Phase G section added** — 40+ lines of architecture + gotchas + key-file references so the next agent isn't starting from scratch.
+- **v2 queue status log 10 rows updated** — #35, #37, #38–43, #71, #72, #76, #81, #82, #83, #97 moved pending/partial → done with evidence pointers.
+
+**Test totals across touched packages:**
+
+| Package                   | Pass | Files |
+|---------------------------|------|-------|
+| mobile-client             |  447 |   46 |
+| cf-expo-relay             |  197 |   17 |
+| mobile-preview            |   94 |    8 |
+| mobile-client-protocol    |   98 |   10 |
+| web-client expo-relay     |  188 |   22 |
+| web-client dev-panel      |   23 |    3 (MobileOverlayAckTab + OverlayPreflightPanel added) |
+| browser-bundler           |  157 |   25 (+2 circular-import tests) |
+| browser-metro             |  103 |    8 |
+| base-bundle-builder       |   99 |   23 |
+
+**Typecheck state:** mobile-client + mobile-preview + mobile-client-protocol + cf-expo-relay all exit 0. web-client has pre-existing `packages/code-provider` errors unchanged by this session.
+
+**What remains on the v2 queue (explicitly still pending):**
+
+- Native C++ wiring (#23–25) — JS-fallback covers ABI today; native would be optimization
+- Phase 5 resolver INTEGRATION with multi-module overlays (#31 + #38–43 primitives are ready but need a Phase 5 resolveSpecifier helper wired into a multi-module wrap-overlay flow that doesn't exist yet)
+- Phase 6 pure-JS packages (#45–52) — lodash/zod/etc as overlay deps
+- Phase 7 asset pipeline (#54–68) — image/font/media/svg support, needs R2 upload wiring
+- Phase 10 inspector (#34 + #84–88) — `__source` injection needs a Babel plugin dep
+- Phase 11 migration cleanup (#89–94) — removing legacy `eval`/`bundle` paths, risky without sign-off
+- Perf + size gates (#98–100) — needs CI infrastructure decisions
 
 ---
 

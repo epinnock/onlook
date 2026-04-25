@@ -11,6 +11,10 @@ require('./shell.js');
 // `__turboModuleProxy` is also RN-only but is set LATE — too late for our
 // prepend check. `window` is set by browsers at startup, which is what we
 // need.
-if (typeof window !== 'undefined') {
+// Skip runtime.js entirely when the host sets `__noOnlookRuntime` — that
+// path is what the Onlook Mobile Client uses (bridgeless/new-arch Fabric
+// where `createView` from old-arch is absent). Expo Go / mobile-preview
+// harness leave the flag unset so runtime.js still loads there.
+if (typeof window !== 'undefined' && !globalThis.__noOnlookRuntime) {
   require('./runtime.js');
 }

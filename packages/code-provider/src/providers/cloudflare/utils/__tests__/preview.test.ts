@@ -43,7 +43,7 @@ describe('isPreviewReady', () => {
     it('returns true on 200 response', async () => {
         globalThis.fetch = mock(() =>
             Promise.resolve(new Response(null, { status: 200 })),
-        ) as typeof fetch;
+        ) as unknown as typeof fetch;
 
         const result = await isPreviewReady('https://example.com');
 
@@ -53,7 +53,7 @@ describe('isPreviewReady', () => {
     it('returns false on network error', async () => {
         globalThis.fetch = mock(() =>
             Promise.reject(new Error('network error')),
-        ) as typeof fetch;
+        ) as unknown as typeof fetch;
 
         const result = await isPreviewReady('https://example.com');
 
@@ -63,7 +63,7 @@ describe('isPreviewReady', () => {
     it('returns false on non-ok response', async () => {
         globalThis.fetch = mock(() =>
             Promise.resolve(new Response(null, { status: 503 })),
-        ) as typeof fetch;
+        ) as unknown as typeof fetch;
 
         const result = await isPreviewReady('https://example.com');
 
@@ -75,7 +75,7 @@ describe('waitForPreview', () => {
     it('returns false on timeout', async () => {
         globalThis.fetch = mock(() =>
             Promise.reject(new Error('not ready')),
-        ) as typeof fetch;
+        ) as unknown as typeof fetch;
 
         const result = await waitForPreview('https://example.com', 100);
 

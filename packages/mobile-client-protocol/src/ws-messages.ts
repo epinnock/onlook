@@ -51,8 +51,10 @@ export const TapMessageSchema = z.object({
     type: z.literal('onlook:tap'),
     sessionId: z.string().min(1),
     timestamp: z.number().int().nonnegative(),
-    x: z.number(),
-    y: z.number(),
+    // `.finite()` rejects NaN + ±Infinity — screen coordinates must be
+    // finite or the editor's tap-to-source hit-test would misbehave.
+    x: z.number().finite(),
+    y: z.number().finite(),
     /** Present when the inspector resolved a RN host component at the hit point. */
     reactTag: z.number().int().optional(),
 });
@@ -78,7 +80,11 @@ export const NetworkMessageSchema = z.object({
     method: z.string().min(1),
     url: z.string().url(),
     status: z.number().int().optional(),
-    durationMs: z.number().nonnegative().optional(),
+    // `.finite()` rejects Infinity — otherwise a phone timing glitch
+    // could poison network-latency p95 aggregates on the dev panel
+    // (MobileNetworkTab renders `Duration` as a column, same soak
+    // concern as overlayAck.mountDurationMs).
+    durationMs: z.number().finite().nonnegative().optional(),
     phase: z.enum(['start', 'end', 'error']),
     timestamp: z.number().int().nonnegative(),
 });

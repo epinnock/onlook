@@ -44,6 +44,17 @@ const config: ExpoConfig = {
             NSAppTransportSecurity: {
                 NSAllowsLocalNetworking: true,
             },
+            // iOS 14+ Local Network Privacy: without this key, apps
+            // silently fail to reach LAN/loopback even with
+            // NSAllowsLocalNetworking=true (the ATS exception). The
+            // two-tier preview flow needs to fetch manifest + bundle
+            // from cf-expo-relay over plain HTTP on the dev LAN
+            // (e.g. http://192.168.x.y:8787) and open a WebSocket to
+            // /hmr/:sessionId, both of which count as "local network"
+            // access. This description is shown in the iOS permission
+            // prompt the first time the app tries to reach the LAN.
+            NSLocalNetworkUsageDescription:
+                'Onlook Mobile Client connects to the Onlook editor running on your local network to fetch preview bundles and receive live overlays.',
         },
         // MCF8 pre-populates the URL scheme via expo's `scheme` field above;
         // that expands into CFBundleURLTypes during prebuild.
@@ -73,7 +84,15 @@ const config: ExpoConfig = {
     runtimeVersion: ONLOOK_RUNTIME_VERSION,
     extra: {
         eas: {
-            // Project ID lands in MC6.5 when TestFlight config is wired up.
+            // Intentionally empty until a maintainer runs `eas init` on a
+            // logged-in Mac. MC6.5 wired up the `eas.json` + TestFlight
+            // profiles, but the projectId can only be allocated by the
+            // interactive `eas init` step (Expo doesn't let CI create
+            // projects without human approval). First real `eas build`
+            // invocation will prompt for it; the resulting projectId
+            // should then be committed here. See
+            // `apps/mobile-client/docs/MC6.5-testflight.md` §§40-41, 94-95,
+            // 150-152 for the full handoff contract.
             projectId: '',
         },
     },

@@ -152,7 +152,13 @@ describe('CloudflareSandboxProvider', () => {
                 args: { path: '/workspace/app.tsx' },
             });
 
-            expect(result).toEqual({ content: 'hello world' });
+            // ReadFileOutput is `{ file: ReadFileOutputFile }` per the
+            // current code-provider interface (was a top-level `content`
+            // field pre-2026).
+            expect(result.file.type).toBe('text');
+            expect(result.file.path).toBe('/workspace/app.tsx');
+            expect(result.file.content).toBe('hello world');
+            expect(result.file.toString()).toBe('hello world');
             expect(fetchUrl()).toBe(`${WORKER_URL}/sandbox/file/read`);
 
             const body = fetchBody();
@@ -172,7 +178,9 @@ describe('CloudflareSandboxProvider', () => {
                 args: { path: '/workspace/index.ts', content: 'const x = 1;' },
             });
 
-            expect(result).toEqual({});
+            // WriteFileOutput is `{ success: boolean }` per the current
+            // code-provider interface.
+            expect(result).toEqual({ success: true });
             expect(fetchUrl()).toBe(`${WORKER_URL}/sandbox/file/write`);
 
             const body = fetchBody();
@@ -202,9 +210,12 @@ describe('CloudflareSandboxProvider', () => {
 
             expect(fetchUrl()).toBe(`${WORKER_URL}/sandbox/file/list`);
             expect(fetchBody().path).toBe('/workspace');
+            // ListFilesOutputFile is `{name, type, isSymlink}` per the
+            // current interface. `isSymlink` defaults false until the
+            // worker surfaces syscall-level info.
             expect(result.files).toEqual([
-                { path: '/workspace/app.tsx', type: 'file' },
-                { path: '/workspace/components', type: 'directory' },
+                { name: 'app.tsx', type: 'file', isSymlink: false },
+                { name: 'components', type: 'directory', isSymlink: false },
             ]);
         });
 
@@ -220,22 +231,25 @@ describe('CloudflareSandboxProvider', () => {
         });
     });
 
-    // 6. deleteFiles
+    // 6. deleteFiles — interface uses single-path per call
     describe('deleteFiles', () => {
-        test('calls exec with rm -rf for each path', async () => {
+        test('calls exec with rm for the supplied path (non-recursive default)', async () => {
             const provider = makeProvider();
             const result = await provider.deleteFiles({
-                args: { paths: ['/workspace/old.ts', '/workspace/tmp'] } as any,
+                args: { path: '/workspace/old.ts' },
             });
-
             expect(result).toEqual({});
-            expect(mockFetch).toHaveBeenCalledTimes(2);
+            expect(mockFetch).toHaveBeenCalledTimes(1);
+            const body = fetchBody();
+            expect(body.command).toBe('rm  -f "/workspace/old.ts"');
+        });
 
-            const body0 = fetchBody(0);
-            expect(body0.command).toBe('rm -rf "/workspace/old.ts"');
-
-            const body1 = fetchBody(1);
-            expect(body1.command).toBe('rm -rf "/workspace/tmp"');
+        test('adds -r when recursive:true is passed', async () => {
+            const provider = makeProvider();
+            await provider.deleteFiles({
+                args: { path: '/workspace/dir', recursive: true },
+            });
+            expect(fetchBody().command).toBe('rm -r -f "/workspace/dir"');
         });
     });
 
@@ -287,12 +301,12 @@ describe('CloudflareSandboxProvider', () => {
     describe('createTerminal', () => {
         test('returns a terminal with expected methods', async () => {
             const provider = makeProvider();
-            const { terminal } = await provider.createTerminal({
-                args: { id: 'my-term' },
-            } as any);
+            const { terminal } = await provider.createTerminal({} as never);
 
-            expect(terminal.id).toBe('my-term');
-            expect(terminal.name).toBe('cf-terminal-my-term');
+            // CreateTerminalInput is now `{}`; the id comes from an
+            // implementation default (was previously in the input shape).
+            expect(terminal.id).toBe('default');
+            expect(terminal.name).toBe('cf-terminal-default');
             expect(typeof terminal.open).toBe('function');
             expect(typeof terminal.write).toBe('function');
             expect(typeof terminal.run).toBe('function');
@@ -305,9 +319,9 @@ describe('CloudflareSandboxProvider', () => {
                 Promise.resolve(execResponse('output line', '')),
             );
             const provider = makeProvider();
-            const { terminal } = await provider.createTerminal({
-                args: { id: 't1' },
-            } as any);
+            // CreateTerminalInput is `{}` — id moved out of the input shape
+            // and is derived by the provider (default id == 'default').
+            const { terminal } = await provider.createTerminal({} as never);
 
             const received: string[] = [];
             terminal.onOutput((data) => received.push(data));
@@ -322,21 +336,13 @@ describe('CloudflareSandboxProvider', () => {
                 Promise.resolve(execResponse('run result', 'run err')),
             );
             const provider = makeProvider();
-            const { terminal } = await provider.createTerminal({
-                args: { id: 't2' },
-            } as any);
+            const { terminal } = await provider.createTerminal({} as never);
 
             const received: string[] = [];
             terminal.onOutput((data) => received.push(data));
 
             await terminal.run('npm test');
             expect(received).toEqual(['run resultrun err']);
-        });
-
-        test('uses default id when none provided', async () => {
-            const provider = makeProvider();
-            const { terminal } = await provider.createTerminal({} as any);
-            expect(terminal.id).toBe('default');
         });
     });
 
@@ -385,7 +391,9 @@ describe('CloudflareSandboxProvider', () => {
         test('parses stat JSON for a regular file', async () => {
             mockFetch.mockImplementationOnce(() =>
                 Promise.resolve(
-                    execResponse('{"size":1024,"isDir":"regular file"}\n'),
+                    execResponse(
+                        '{"size":1024,"isDir":"regular file","mtime":111,"ctime":222,"atime":333}\n',
+                    ),
                 ),
             );
             const provider = makeProvider();
@@ -393,10 +401,14 @@ describe('CloudflareSandboxProvider', () => {
                 args: { path: '/workspace/index.ts' },
             });
 
-            expect(result.stat).toEqual({
-                size: 1024,
-                isDirectory: false,
-            });
+            // StatFileOutput is flat per the current interface:
+            // `{ type, size?, mtime?, ctime?, atime?, isSymlink? }`.
+            // The pre-2026 shape was `{ stat: { size, isDirectory } }`.
+            expect(result.type).toBe('file');
+            expect(result.size).toBe(1024);
+            expect(result.mtime).toBe(111);
+            expect(result.ctime).toBe(222);
+            expect(result.atime).toBe(333);
 
             const body = fetchBody();
             expect(body.command).toContain('stat');
@@ -414,34 +426,35 @@ describe('CloudflareSandboxProvider', () => {
                 args: { path: '/workspace/src' },
             });
 
-            expect(result.stat).toEqual({
-                size: 4096,
-                isDirectory: true,
-            });
+            expect(result.type).toBe('directory');
+            expect(result.size).toBe(4096);
         });
 
-        test('returns null stat when file does not exist', async () => {
+        test('throws when file does not exist', async () => {
+            // Current contract: statFile on a missing path throws — callers
+            // that want a probe-style "does it exist?" should catch. The
+            // pre-2026 shape returned `{ stat: null }`.
             mockFetch.mockImplementationOnce(() =>
                 Promise.resolve(execResponse('{"error":true}\n')),
             );
             const provider = makeProvider();
-            const result = await provider.statFile({
-                args: { path: '/workspace/missing.ts' },
-            });
-
-            expect(result.stat).toBeNull();
+            await expect(
+                provider.statFile({
+                    args: { path: '/workspace/missing.ts' },
+                }),
+            ).rejects.toThrow(/no stat available/);
         });
 
-        test('returns null stat on unparseable output', async () => {
+        test('throws on unparseable output', async () => {
             mockFetch.mockImplementationOnce(() =>
                 Promise.resolve(execResponse('not json')),
             );
             const provider = makeProvider();
-            const result = await provider.statFile({
-                args: { path: '/workspace/bad' },
-            });
-
-            expect(result.stat).toBeNull();
+            await expect(
+                provider.statFile({
+                    args: { path: '/workspace/bad' },
+                }),
+            ).rejects.toThrow(/unparseable stat output/);
         });
     });
 

@@ -143,12 +143,20 @@ describe('bundle execution (Hermes mode): runtime.js skipped, React from main.js
         expect(sandbox._initReconciler).toBeUndefined();
     });
 
-    test('sandbox.RN$AppRegistry is undefined (shell.js B13 block skipped in Hermes)', () => {
-        // In Hermes mode, shell.js early-returns after installing
-        // OnlookRuntime + OnlookInspector TurboModules. The B13
-        // RN$AppRegistry shadow would break RN's real AppRegistry, so
-        // it's deliberately skipped. Main.jsbundle provides the real one.
-        expect(sandbox.RN$AppRegistry).toBeUndefined();
+    test('sandbox.RN$AppRegistry shadow is installed by shell.js (harmless in Hermes)', () => {
+        // shell.js at line ~229 unconditionally sets
+        // `globalThis.RN$AppRegistry = { runApplication: ... }`. On device
+        // this is shadowed by main.jsbundle's real AppRegistry which loads
+        // first, so the shell's version is dead code. In this VM sandbox
+        // there's no main.jsbundle to take precedence, so we observe the
+        // shadow directly. Was previously asserted `toBeUndefined` based
+        // on an incorrect comment claiming the B13 block was Hermes-gated;
+        // shell.js has never actually had that gate.
+        expect(sandbox.RN$AppRegistry).toBeDefined();
+        expect(
+            typeof (sandbox.RN$AppRegistry as { runApplication?: unknown })
+                ?.runApplication,
+        ).toBe('function');
     });
 
     // --- IIFE containment assertions ---------------------------------------

@@ -32,7 +32,11 @@ export const feedbacksRelations = relations(feedbacks, ({ one }) => ({
 
 const attachmentSchema = z.object({
     name: z.string(),
-    size: z.number().min(0),
+    // File size in bytes — must be an integer ≥ 0 and within a
+    // reasonable upper bound (256 MiB) to prevent a caller from
+    // submitting absurd values. `.int()` rejects NaN/Infinity/
+    // fractional which would be meaningless for a byte count.
+    size: z.number().int().min(0).max(256 * 1024 * 1024),
     type: z.string(),
     url: z.string().url(),
     uploadedAt: z.string(),
@@ -43,7 +47,10 @@ export const feedbackInsertSchema = createInsertSchema(feedbacks, {
     email: z.string().email('Invalid email format').optional(),
     pageUrl: z.url('Invalid URL format').optional(),
     attachments: z.array(attachmentSchema).default([]),
-    metadata: z.record(z.string(), z.any()).default({}),
+    // `z.unknown()` is safer than `z.any()` — forces consumers to
+    // narrow before use. `z.any()` silently accepts undefined/Symbol
+    // and doesn't give you any type safety on the consumer side.
+    metadata: z.record(z.string(), z.unknown()).default({}),
 });
 
 export const feedbackSubmitSchema = feedbackInsertSchema.pick({

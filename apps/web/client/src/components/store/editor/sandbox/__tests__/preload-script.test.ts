@@ -1,7 +1,10 @@
 import type { Provider } from '@onlook/code-provider';
 import { ProjectType } from '@onlook/constants';
 import { describe, expect, it } from 'bun:test';
-import { detectProjectTypeFromProvider } from '../preload-script';
+import {
+    detectProjectTypeFromProvider,
+    EXPO_PRELOAD_ENTRY_CANDIDATES,
+} from '../preload-script';
 
 type RootEntry = { type: string; name: string };
 
@@ -67,5 +70,47 @@ describe('detectProjectTypeFromProvider', () => {
         const provider = createProviderStub({ files: [] });
         const result = await detectProjectTypeFromProvider(provider, 'sandbox-xyz', 'code_sandbox');
         expect(result).toBe(ProjectType.NEXTJS);
+    });
+});
+
+describe('EXPO_PRELOAD_ENTRY_CANDIDATES', () => {
+    // Regression for commit 52adddc5. The injector iterates this list
+    // in order and stops at the first hit. Must cover every entry
+    // variant browser-metro's entry-resolver.ts would pick up — else
+    // the preload script never injects for that branch and tap-to-
+    // source / selector-overlay silently break.
+    it('covers all seven TS/JS entry-file variants', () => {
+        expect([...EXPO_PRELOAD_ENTRY_CANDIDATES].sort()).toEqual(
+            [
+                'App.js',
+                'App.jsx',
+                'App.tsx',
+                'index.js',
+                'index.jsx',
+                'index.ts',
+                'index.tsx',
+            ].sort(),
+        );
+    });
+
+    it('prefers index.* over App.* (matches browser-metro entry-resolver precedence)', () => {
+        const indexIndex = EXPO_PRELOAD_ENTRY_CANDIDATES.findIndex((f) =>
+            f.startsWith('index.'),
+        );
+        const appIndex = EXPO_PRELOAD_ENTRY_CANDIDATES.findIndex((f) => f.startsWith('App.'));
+        expect(indexIndex).toBeLessThan(appIndex);
+    });
+
+    it('prefers .tsx over .js at each level', () => {
+        // .tsx must appear before .js within both the index.* and App.* groups.
+        const tsxIdx = EXPO_PRELOAD_ENTRY_CANDIDATES.indexOf('index.tsx');
+        const jsIdx = EXPO_PRELOAD_ENTRY_CANDIDATES.indexOf('index.js');
+        expect(tsxIdx).toBeGreaterThanOrEqual(0);
+        expect(jsIdx).toBeGreaterThanOrEqual(0);
+        expect(tsxIdx).toBeLessThan(jsIdx);
+
+        const appTsxIdx = EXPO_PRELOAD_ENTRY_CANDIDATES.indexOf('App.tsx');
+        const appJsIdx = EXPO_PRELOAD_ENTRY_CANDIDATES.indexOf('App.js');
+        expect(appTsxIdx).toBeLessThan(appJsIdx);
     });
 });

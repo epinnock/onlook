@@ -184,18 +184,23 @@ function jsBundle(source: string): Response {
 }
 
 /**
- * Route a fetch URL through the fake relay. Unknown paths return 404 so the
- * test fails loudly instead of silently accepting wrong URLs.
+ * Route a fetch URL through the fake relay. Matches by URL prefix so
+ * query-string additions from callers (e.g. fetchManifest's
+ * `?format=json&platform=ios` bypass) don't cause spurious 404s — the
+ * test only cares about the canonical base URL routing, not the specific
+ * params. Unknown paths still return 404 so genuinely wrong URLs are
+ * caught.
  */
 function fakeRelayFetch(
     input: RequestInfo | URL,
     _init?: RequestInit,
 ): Promise<Response> {
     const url = typeof input === 'string' ? input : input.toString();
-    if (url === MANIFEST_URL) {
+    const base = url.split('?')[0];
+    if (base === MANIFEST_URL) {
         return Promise.resolve(multipartManifest());
     }
-    if (url === BUNDLE_URL || url === RELOADED_BUNDLE_URL) {
+    if (base === BUNDLE_URL || base === RELOADED_BUNDLE_URL) {
         return Promise.resolve(jsBundle(BUNDLE_SOURCE));
     }
     return Promise.resolve(
@@ -286,7 +291,7 @@ describe('full pipeline integration (MCI.1)', () => {
         const result = await qrToMount(barcode);
 
         // Parse + manifest + bundle + mount must all have succeeded.
-        expect(result).toEqual({ ok: true, sessionId: SESSION_ID });
+        expect(result).toEqual({ ok: true, sessionId: SESSION_ID, relay: MANIFEST_URL });
 
         // The runApplication JSI stub must have received the exact bundle bytes
         // fetched from the fake relay plus the parsed sessionId as props.
@@ -402,12 +407,15 @@ describe('full pipeline integration (MCI.1)', () => {
 
     test('manifest stage failure short-circuits before bundle or mount', async () => {
         // Route the manifest URL to a 500 to force a manifest-stage failure.
+        // Match by prefix so `?format=json&platform=ios` (fetchManifest bypass
+        // query string) still triggers the 500 path.
         (globalThis as GlobalWithRuntime).fetch = ((
             input: RequestInfo | URL,
             init?: RequestInit,
         ) => {
             const url = typeof input === 'string' ? input : input.toString();
-            if (url === MANIFEST_URL) {
+            const base = url.split('?')[0];
+            if (base === MANIFEST_URL) {
                 return Promise.resolve(
                     new Response('boom', { status: 500, statusText: 'Server Error' }),
                 );

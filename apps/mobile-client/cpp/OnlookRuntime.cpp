@@ -59,6 +59,24 @@ jsi::Function makeHostMethod(
 jsi::Value OnlookRuntime::get(jsi::Runtime& rt, const jsi::PropNameID& name) {
   const std::string n = name.utf8(rt);
 
+  // ABI v1 surface (plans/adr/overlay-abi-v1.md §"Runtime globals") ──
+  if (n == "abi") {
+    return jsi::String::createFromAscii(rt, "v1");
+  }
+  if (n == "impl") {
+    return jsi::String::createFromAscii(rt, "native");
+  }
+  if (n == "__native") {
+    return jsi::Value(true);
+  }
+  if (n == "mountOverlay") {
+    return makeHostMethod(rt, "mountOverlay", this, &OnlookRuntime::mountOverlay);
+  }
+  if (n == "unmount") {
+    return makeHostMethod(rt, "unmount", this, &OnlookRuntime::unmount);
+  }
+
+  // Legacy / pre-ABI surface ─────────────────────────────────────────
   if (n == "runApplication") {
     return makeHostMethod(rt, "runApplication", this, &OnlookRuntime::runApplication);
   }
@@ -67,6 +85,9 @@ jsi::Value OnlookRuntime::get(jsi::Runtime& rt, const jsi::PropNameID& name) {
   }
   if (n == "dispatchEvent") {
     return makeHostMethod(rt, "dispatchEvent", this, &OnlookRuntime::dispatchEvent);
+  }
+  if (n == "httpGet") {
+    return makeHostMethod(rt, "httpGet", this, &OnlookRuntime::httpGet);
   }
   if (n == "version") {
     return jsi::Value(rt, version(rt));
@@ -85,10 +106,18 @@ void OnlookRuntime::set(
 
 std::vector<jsi::PropNameID> OnlookRuntime::getPropertyNames(jsi::Runtime& rt) {
   std::vector<jsi::PropNameID> names;
-  names.reserve(4);
+  names.reserve(10);
+  // ABI v1 surface
+  names.emplace_back(jsi::PropNameID::forUtf8(rt, "abi"));
+  names.emplace_back(jsi::PropNameID::forUtf8(rt, "impl"));
+  names.emplace_back(jsi::PropNameID::forUtf8(rt, "__native"));
+  names.emplace_back(jsi::PropNameID::forUtf8(rt, "mountOverlay"));
+  names.emplace_back(jsi::PropNameID::forUtf8(rt, "unmount"));
+  // Legacy surface
   names.emplace_back(jsi::PropNameID::forUtf8(rt, "runApplication"));
   names.emplace_back(jsi::PropNameID::forUtf8(rt, "reloadBundle"));
   names.emplace_back(jsi::PropNameID::forUtf8(rt, "dispatchEvent"));
+  names.emplace_back(jsi::PropNameID::forUtf8(rt, "httpGet"));
   names.emplace_back(jsi::PropNameID::forUtf8(rt, "version"));
   return names;
 }
@@ -114,6 +143,81 @@ jsi::Value OnlookRuntime::dispatchEvent(
     const jsi::Value* args,
     size_t count) {
   return dispatchEventImpl(rt, args, count);
+}
+
+jsi::Value OnlookRuntime::httpGet(
+    jsi::Runtime& rt,
+    const jsi::Value* args,
+    size_t count) {
+  return httpGetImpl(rt, args, count);
+}
+
+jsi::Value OnlookRuntime::mountOverlay(
+    jsi::Runtime& rt,
+    const jsi::Value* args,
+    size_t count) {
+  return mountOverlayImpl(rt, args, count);
+}
+
+jsi::Value OnlookRuntime::unmount(
+    jsi::Runtime& rt,
+    const jsi::Value* args,
+    size_t count) {
+  return unmountImpl(rt, args, count);
+}
+
+// ── ABI v1 mountOverlay / unmount inline impls ─────────────────────────
+//
+// `mountOverlay(source, props?, assets?)` — tear down any prior tree via
+// `globalThis.onlookUnmount`, then forward (source, props) to the existing
+// runApplicationImpl which handles eval + onlookMount. `assets` is accepted
+// but not forwarded — the native runtime doesn't own the asset registry in
+// v1 (the JS-fallback handles it; native just evals the bundle).
+jsi::Value mountOverlayImpl(
+    jsi::Runtime& rt,
+    const jsi::Value* args,
+    size_t count) {
+  if (count < 1 || !args[0].isString()) {
+    throw jsi::JSError(
+        rt,
+        "OnlookRuntime.mountOverlay: expected (source: string, props?: object, assets?: object)");
+  }
+  // Best-effort teardown — swallow any thrown error so a stale-tree glitch
+  // doesn't block the remount (matches reloadBundle semantics).
+  jsi::Value unmountVal = rt.global().getProperty(rt, "onlookUnmount");
+  if (unmountVal.isObject()) {
+    jsi::Object unmountObj = unmountVal.getObject(rt);
+    if (unmountObj.isFunction(rt)) {
+      try {
+        unmountObj.getFunction(rt).call(rt);
+      } catch (const jsi::JSError&) {
+        // Intentionally swallowed — see reloadBundle for the rationale.
+      }
+    }
+  }
+  // Forward (source, props?) to runApplication. assets (args[2]) is ignored
+  // at the native layer in v1.
+  return runApplicationImpl(rt, args, count);
+}
+
+jsi::Value unmountImpl(
+    jsi::Runtime& rt,
+    const jsi::Value* /*args*/,
+    size_t /*count*/) {
+  jsi::Value unmountVal = rt.global().getProperty(rt, "onlookUnmount");
+  if (!unmountVal.isObject()) {
+    return jsi::Value::undefined();
+  }
+  jsi::Object unmountObj = unmountVal.getObject(rt);
+  if (!unmountObj.isFunction(rt)) {
+    return jsi::Value::undefined();
+  }
+  try {
+    unmountObj.getFunction(rt).call(rt);
+  } catch (const jsi::JSError&) {
+    // Teardown failures are non-fatal — callers don't care.
+  }
+  return jsi::Value::undefined();
 }
 
 jsi::String OnlookRuntime::version(jsi::Runtime& rt) {

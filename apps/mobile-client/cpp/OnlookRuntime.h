@@ -93,6 +93,39 @@ facebook::jsi::Value reloadBundleImpl(
     const facebook::jsi::Value* args,
     size_t count);
 
+/// `mountOverlay(source, props?, assets?)` — ABI v1 host function per
+/// `plans/adr/overlay-abi-v1.md` §"Runtime globals". Inlined here (not in a
+/// separate TU) because it delegates to runApplicationImpl + an onlookUnmount
+/// teardown. Tears down any prior tree, evaluates `source` into the Hermes
+/// runtime, and mounts with the provided props. `assets` is accepted but
+/// currently ignored at the native layer — the JS-fallback runtime owns the
+/// asset registry (see packages/mobile-preview/runtime/src/onlook-runtime-js.ts).
+facebook::jsi::Value mountOverlayImpl(
+    facebook::jsi::Runtime& rt,
+    const facebook::jsi::Value* args,
+    size_t count);
+
+/// `unmount()` — ABI v1. Calls `globalThis.onlookUnmount()` if present;
+/// no-op otherwise. Exists so dev-menu reload can clear the tree before
+/// re-mounting. Inlined inside OnlookRuntime.cpp.
+facebook::jsi::Value unmountImpl(
+    facebook::jsi::Runtime& rt,
+    const facebook::jsi::Value* args,
+    size_t count);
+
+/// `httpGet(url, headers?)` implementation — performs a synchronous
+/// HTTP GET on a background NSURLSession queue and returns the result
+/// as `{ok: boolean, status: number, body: string, contentType: string, error?: string}`.
+/// Bypasses RCTNetworking, which under bridgeless iOS 18.6 accepts
+/// requests but never dispatches response events back to JS (see fire-16
+/// diagnosis + task #82). Blocks the JS thread for the request duration;
+/// intended for small manifest/bundle fetches where <200ms latency is
+/// acceptable. Defined in OnlookRuntime_httpGet.mm (iOS). Wave H / #82.
+facebook::jsi::Value httpGetImpl(
+    facebook::jsi::Runtime& rt,
+    const facebook::jsi::Value* args,
+    size_t count);
+
 /// `dispatchEvent(name, payload)` implementation, isolated into
 /// OnlookRuntime_dispatchEvent.cpp for the same TU-isolation rationale as
 /// `runApplicationImpl`. Resolves `globalThis.__onlookEventBus.dispatch`
@@ -182,6 +215,21 @@ class OnlookRuntime : public facebook::jsi::HostObject {
       size_t count);
 
   facebook::jsi::Value dispatchEvent(
+      facebook::jsi::Runtime& rt,
+      const facebook::jsi::Value* args,
+      size_t count);
+
+  facebook::jsi::Value httpGet(
+      facebook::jsi::Runtime& rt,
+      const facebook::jsi::Value* args,
+      size_t count);
+
+  facebook::jsi::Value mountOverlay(
+      facebook::jsi::Runtime& rt,
+      const facebook::jsi::Value* args,
+      size_t count);
+
+  facebook::jsi::Value unmount(
       facebook::jsi::Runtime& rt,
       const facebook::jsi::Value* args,
       size_t count);

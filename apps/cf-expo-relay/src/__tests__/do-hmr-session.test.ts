@@ -1,0 +1,831 @@
+/// <reference types="bun" />
+import { beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
+
+mock.module('cloudflare:workers', () => ({
+    DurableObject: class {
+        protected ctx: unknown;
+        protected env: unknown;
+        constructor(ctx: unknown, env: unknown) {
+            this.ctx = ctx;
+            this.env = env;
+        }
+    },
+}));
+
+type HmrSessionModule = typeof import('../do/hmr-session');
+
+let HmrSession: HmrSessionModule['HmrSession'];
+const pairs: MockWebSocketPair[] = [];
+
+class MockWebSocket {
+    static OPEN = 1;
+
+    readyState = MockWebSocket.OPEN;
+    readonly sent: string[] = [];
+
+    private readonly listeners = new Map<string, Array<(event: { data?: unknown }) => void>>();
+
+    accept(): void {}
+
+    send(message: string): void {
+        this.sent.push(message);
+    }
+
+    addEventListener(type: string, listener: (event: { data?: unknown }) => void): void {
+        const existing = this.listeners.get(type) ?? [];
+        existing.push(listener);
+        this.listeners.set(type, existing);
+    }
+
+    emit(type: string, data?: unknown): void {
+        for (const listener of this.listeners.get(type) ?? []) {
+            listener({ data });
+        }
+    }
+
+    close(): void {
+        this.readyState = 3;
+        this.emit('close');
+    }
+}
+
+class MockWebSocketPair {
+    readonly client: MockWebSocket;
+    readonly server: MockWebSocket;
+
+    constructor() {
+        this.client = new MockWebSocket();
+        this.server = new MockWebSocket();
+        Object.assign(this as object, {
+            0: this.client,
+            1: this.server,
+        });
+        pairs.push(this);
+    }
+}
+
+beforeEach(() => {
+    pairs.length = 0;
+});
+
+beforeAll(async () => {
+    const runtime = globalThis as typeof globalThis & { WebSocketPair?: unknown };
+
+    Object.defineProperty(runtime, 'WebSocketPair', {
+        configurable: true,
+        writable: true,
+        value: MockWebSocketPair,
+    });
+
+    const mod: HmrSessionModule = await import('../do/hmr-session');
+    HmrSession = mod.HmrSession;
+});
+
+function makeState(): DurableObjectState {
+    return {
+        id: {
+            name: 'hmr-session-1',
+            toString: () => 'hmr-session-1',
+        } as DurableObjectId,
+    } as DurableObjectState;
+}
+
+function makeSession(): InstanceType<HmrSessionModule['HmrSession']> {
+    return new HmrSession(makeState(), {});
+}
+
+async function openSocket(
+    session: InstanceType<HmrSessionModule['HmrSession']>,
+): Promise<MockWebSocketPair> {
+    const response = await session.fetch(
+        new Request('https://hmr-relay.dev.workers.dev/', {
+            headers: { Upgrade: 'websocket' },
+        }),
+    );
+
+    expect(response.status).toBe(101);
+    const pair = pairs[pairs.length - 1];
+    expect(pair).toBeDefined();
+    return pair as MockWebSocketPair;
+}
+
+describe('HmrSession overlay fan-out', () => {
+    test('accepts a websocket upgrade at /', async () => {
+        const response = await makeSession().fetch(
+            new Request('https://hmr-relay.dev.workers.dev/', {
+                headers: { Upgrade: 'websocket' },
+            }),
+        );
+
+        expect(response.status).toBe(101);
+    });
+
+    test('broadcasts valid overlay payloads to other connected sockets', async () => {
+        const session = makeSession();
+        const first = await openSocket(session);
+        const second = await openSocket(session);
+
+        const payload = {
+            type: 'overlay',
+            code: 'console.log("hello");',
+            sourceMap: { version: 3 },
+        };
+
+        first.server.emit('message', JSON.stringify(payload));
+
+        expect(first.server.sent).toEqual([]);
+        expect(second.server.sent).toEqual([JSON.stringify(payload)]);
+    });
+
+    test('replays the last valid overlay to late-joining sockets', async () => {
+        const session = makeSession();
+        const first = await openSocket(session);
+
+        const payload = {
+            type: 'overlay',
+            code: 'export const answer = 42;',
+            sourceMap: { version: 3 },
+        };
+
+        first.server.emit('message', JSON.stringify(payload));
+
+        const second = await openSocket(session);
+
+        expect(second.server.sent).toEqual([JSON.stringify(payload)]);
+    });
+
+    test('ignores invalid JSON and non-overlay messages', async () => {
+        const session = makeSession();
+        const first = await openSocket(session);
+        const second = await openSocket(session);
+
+        first.server.emit('message', '{');
+        first.server.emit('message', JSON.stringify({ type: 'bundle', bundle: 'noop' }));
+
+        expect(first.server.sent).toEqual([]);
+        expect(second.server.sent).toEqual([]);
+    });
+
+    test('keeps the last valid overlay when invalid messages arrive later', async () => {
+        const session = makeSession();
+        const first = await openSocket(session);
+
+        const payload = {
+            type: 'overlay',
+            code: 'export default "persisted";',
+        };
+
+        first.server.emit('message', JSON.stringify(payload));
+        first.server.emit('message', '{');
+        first.server.emit('message', JSON.stringify({ type: 'bundle', bundle: 'noop' }));
+
+        const lateJoiner = await openSocket(session);
+
+        expect(lateJoiner.server.sent).toEqual([JSON.stringify(payload)]);
+    });
+
+    test('drops closed sockets from later broadcasts', async () => {
+        const session = makeSession();
+        const first = await openSocket(session);
+        const second = await openSocket(session);
+
+        second.server.close();
+        first.server.emit(
+            'message',
+            JSON.stringify({
+                type: 'overlay',
+                code: 'export default 1;',
+            }),
+        );
+
+        expect(second.server.sent).toEqual([]);
+    });
+
+    test('returns 404 for a non-upgrade request at /', async () => {
+        const response = await makeSession().fetch(
+            new Request('https://hmr-relay.dev.workers.dev/'),
+        );
+
+        expect(response.status).toBe(404);
+        expect(await response.text()).toBe('hmr-relay: unknown route');
+    });
+
+    test('returns 404 for websocket upgrades on other paths', async () => {
+        const response = await makeSession().fetch(
+            new Request('https://hmr-relay.dev.workers.dev/overlay', {
+                headers: { Upgrade: 'websocket' },
+            }),
+        );
+
+        expect(response.status).toBe(404);
+    });
+});
+
+describe('HmrSession POST /push', () => {
+    test('accepts a valid overlay and broadcasts to all connected sockets', async () => {
+        const session = makeSession();
+        const first = await openSocket(session);
+        const second = await openSocket(session);
+
+        const payload = {
+            type: 'overlay',
+            code: 'console.log("pushed");',
+            sourceMap: { version: 3 },
+        };
+
+        const response = await session.fetch(
+            new Request('https://hmr-relay.dev.workers.dev/push', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            }),
+        );
+
+        expect(response.status).toBe(202);
+        const body = (await response.json()) as { delivered: number };
+        expect(body.delivered).toBe(2);
+        // Unlike the WS-sourced broadcast (which excludes the sender socket),
+        // HTTP push has no sender socket — every connected listener gets it.
+        expect(first.server.sent).toEqual([JSON.stringify(payload)]);
+        expect(second.server.sent).toEqual([JSON.stringify(payload)]);
+    });
+
+    test('persists the pushed overlay so late-joining sockets receive a replay', async () => {
+        const session = makeSession();
+
+        const payload = {
+            type: 'overlay',
+            code: 'export const pushed = true;',
+        };
+
+        const pushResponse = await session.fetch(
+            new Request('https://hmr-relay.dev.workers.dev/push', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            }),
+        );
+        expect(pushResponse.status).toBe(202);
+
+        const lateJoiner = await openSocket(session);
+        expect(lateJoiner.server.sent).toEqual([JSON.stringify(payload)]);
+    });
+
+    test('rejects malformed JSON with 400', async () => {
+        const response = await makeSession().fetch(
+            new Request('https://hmr-relay.dev.workers.dev/push', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: '{',
+            }),
+        );
+        expect(response.status).toBe(400);
+    });
+
+    test('rejects non-overlay JSON with 400', async () => {
+        const response = await makeSession().fetch(
+            new Request('https://hmr-relay.dev.workers.dev/push', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: 'bundle', bundle: 'noop' }),
+            }),
+        );
+        expect(response.status).toBe(400);
+    });
+
+    test('rejects non-JSON Content-Type with 415', async () => {
+        const response = await makeSession().fetch(
+            new Request('https://hmr-relay.dev.workers.dev/push', {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain' },
+                body: 'not json',
+            }),
+        );
+        expect(response.status).toBe(415);
+    });
+
+    test('rejects missing Content-Type with 415', async () => {
+        const response = await makeSession().fetch(
+            new Request('https://hmr-relay.dev.workers.dev/push', {
+                method: 'POST',
+                body: '{}',
+            }),
+        );
+        expect(response.status).toBe(415);
+    });
+
+    test('rejects bodies larger than 2 MiB with 413', async () => {
+        const tooLarge = 'x'.repeat(2 * 1024 * 1024 + 1);
+        const response = await makeSession().fetch(
+            new Request('https://hmr-relay.dev.workers.dev/push', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: 'overlay', code: tooLarge }),
+            }),
+        );
+        expect(response.status).toBe(413);
+    });
+
+    test('rejects declared Content-Length larger than 2 MiB with 413 before reading body', async () => {
+        const response = await makeSession().fetch(
+            new Request('https://hmr-relay.dev.workers.dev/push', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Content-Length': String(2 * 1024 * 1024 + 1),
+                },
+                body: '{}',
+            }),
+        );
+        expect(response.status).toBe(413);
+    });
+});
+
+describe('HmrSession durable storage persistence', () => {
+    test('saveLastOverlayPayload writes to DurableObjectStorage so a fresh DO recovers it', async () => {
+        const storage = new Map<string, unknown>();
+        const storagePuts: Array<[string, unknown]> = [];
+        const fakeStorage = {
+            async get(key: string): Promise<unknown> {
+                return storage.get(key) ?? null;
+            },
+            async put(key: string, value: unknown): Promise<void> {
+                storagePuts.push([key, value]);
+                storage.set(key, value);
+            },
+        };
+        const state = {
+            id: { name: 'hmr-sess-storage', toString: () => 'hmr-sess-storage' } as DurableObjectId,
+            storage: fakeStorage,
+        } as unknown as DurableObjectState;
+
+        const firstInstance = new HmrSession(state, {});
+
+        const payload = {
+            type: 'overlay',
+            code: 'export const persisted = true;',
+        };
+
+        const pushResp = await firstInstance.fetch(
+            new Request('https://hmr-relay.dev.workers.dev/push', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            }),
+        );
+        expect(pushResp.status).toBe(202);
+
+        // Let the async storage.put settle (fire-and-forget path in prod).
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(storagePuts).toHaveLength(1);
+        expect(storagePuts[0]![0]).toBe('last-overlay');
+        expect(JSON.parse(storagePuts[0]![1] as string)).toEqual(payload);
+
+        // Fresh DO instance — simulates the post-eviction reload path where
+        // the in-memory `lastOverlayPayload` is undefined but storage.get
+        // should surface the previously persisted payload to the late joiner.
+        const freshInstance = new HmrSession(state, {});
+        const pair = await openSocket(freshInstance);
+        expect(pair.server.sent).toEqual([JSON.stringify(payload)]);
+    });
+
+    test('v1 push invalidates prior legacy payload — replay gets the fresh v1', async () => {
+        const storage = new Map<string, unknown>();
+        const fakeStorage = {
+            async get(key: string): Promise<unknown> {
+                return storage.get(key) ?? null;
+            },
+            async put(key: string, value: unknown): Promise<void> {
+                storage.set(key, value);
+            },
+            async delete(key: string): Promise<boolean> {
+                return storage.delete(key);
+            },
+        };
+        const state = {
+            id: { name: 'x', toString: () => 'x' } as DurableObjectId,
+            storage: fakeStorage,
+        } as unknown as DurableObjectState;
+        const session = new HmrSession(state, {});
+
+        // 1. Legacy push first.
+        await session.fetch(
+            new Request('https://x/push', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: 'overlay', code: 'legacy-v1' }),
+            }),
+        );
+        await new Promise((r) => setTimeout(r, 0));
+        expect(storage.has('last-overlay')).toBe(true);
+        expect(storage.has('last-overlay-v1')).toBe(false);
+
+        // 2. V1 push — should invalidate the legacy payload.
+        const v1Payload = {
+            type: 'overlayUpdate',
+            abi: 'v1',
+            sessionId: 'sess',
+            source: 'v1-source',
+            assets: { abi: 'v1', assets: {} },
+            meta: {
+                overlayHash: 'h'.repeat(64),
+                entryModule: 0,
+                buildDurationMs: 5,
+            },
+        };
+        await session.fetch(
+            new Request('https://x/push', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(v1Payload),
+            }),
+        );
+        await new Promise((r) => setTimeout(r, 0));
+        expect(storage.has('last-overlay-v1')).toBe(true);
+        // Legacy key was DELETED — no stale replay risk.
+        expect(storage.has('last-overlay')).toBe(false);
+
+        // 3. Fresh reconnect should replay v1 (the newer one).
+        const freshSession = new HmrSession(state, {});
+        const pair = await openSocket(freshSession);
+        expect(pair.server.sent).toHaveLength(1);
+        const sent = JSON.parse(pair.server.sent[0] as string) as { type: string };
+        expect(sent.type).toBe('overlayUpdate');
+    });
+
+    test('legacy push after v1 invalidates the stale v1 payload — replay gets the fresh legacy', async () => {
+        const storage = new Map<string, unknown>();
+        const fakeStorage = {
+            async get(key: string): Promise<unknown> {
+                return storage.get(key) ?? null;
+            },
+            async put(key: string, value: unknown): Promise<void> {
+                storage.set(key, value);
+            },
+            async delete(key: string): Promise<boolean> {
+                return storage.delete(key);
+            },
+        };
+        const state = {
+            id: { name: 'x', toString: () => 'x' } as DurableObjectId,
+            storage: fakeStorage,
+        } as unknown as DurableObjectState;
+        const session = new HmrSession(state, {});
+
+        // 1. V1 push first.
+        await session.fetch(
+            new Request('https://x/push', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    type: 'overlayUpdate',
+                    abi: 'v1',
+                    sessionId: 'sess',
+                    source: 'v1-first',
+                    assets: { abi: 'v1', assets: {} },
+                    meta: {
+                        overlayHash: 'a'.repeat(64),
+                        entryModule: 0,
+                        buildDurationMs: 5,
+                    },
+                }),
+            }),
+        );
+        await new Promise((r) => setTimeout(r, 0));
+        expect(storage.has('last-overlay-v1')).toBe(true);
+
+        // 2. Legacy push — should invalidate the v1 payload.
+        await session.fetch(
+            new Request('https://x/push', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: 'overlay', code: 'legacy-after-v1' }),
+            }),
+        );
+        await new Promise((r) => setTimeout(r, 0));
+        expect(storage.has('last-overlay')).toBe(true);
+        expect(storage.has('last-overlay-v1')).toBe(false); // stale v1 cleared
+
+        // 3. Fresh reconnect replays legacy (the newer one).
+        const freshSession = new HmrSession(state, {});
+        const pair = await openSocket(freshSession);
+        expect(pair.server.sent).toHaveLength(1);
+        const sent = JSON.parse(pair.server.sent[0] as string) as {
+            type: string;
+            code?: string;
+        };
+        expect(sent.type).toBe('overlay');
+        expect(sent.code).toBe('legacy-after-v1');
+    });
+
+    test('storage binding without .delete() — saves still work (backward compat)', async () => {
+        const storagePuts: Array<[string, unknown]> = [];
+        const fakeStorage = {
+            async get() {
+                return null;
+            },
+            async put(key: string, value: unknown): Promise<void> {
+                storagePuts.push([key, value]);
+            },
+            // NO .delete() — older mock shape.
+        };
+        const state = {
+            id: { name: 'x', toString: () => 'x' } as DurableObjectId,
+            storage: fakeStorage,
+        } as unknown as DurableObjectState;
+        const session = new HmrSession(state, {});
+
+        // V1 push against a storage without .delete() — must not throw.
+        const resp = await session.fetch(
+            new Request('https://x/push', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    type: 'overlayUpdate',
+                    abi: 'v1',
+                    sessionId: 'sess',
+                    source: 'src',
+                    assets: { abi: 'v1', assets: {} },
+                    meta: {
+                        overlayHash: 'b'.repeat(64),
+                        entryModule: 0,
+                        buildDurationMs: 0,
+                    },
+                }),
+            }),
+        );
+        expect(resp.status).toBe(202);
+        await new Promise((r) => setTimeout(r, 0));
+        expect(storagePuts.some(([k]) => k === 'last-overlay-v1')).toBe(true);
+    });
+});
+
+describe('HmrSession overlayUpdate (v1) — multi-client + disconnect (task #76)', () => {
+    function makeValidOverlayUpdate(src = 'module.exports = { default: () => null };') {
+        return {
+            type: 'overlayUpdate' as const,
+            abi: 'v1' as const,
+            sessionId: 'sess-76',
+            source: src,
+            assets: { abi: 'v1' as const, assets: {} },
+            meta: {
+                overlayHash: 'b'.repeat(64),
+                entryModule: 0 as const,
+                buildDurationMs: 5,
+            },
+        };
+    }
+
+    async function postOverlayV1(
+        session: InstanceType<HmrSessionModule['HmrSession']>,
+        body: object | string,
+    ): Promise<Response> {
+        return session.fetch(
+            new Request('https://hmr-relay.dev.workers.dev/push', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: typeof body === 'string' ? body : JSON.stringify(body),
+            }),
+        );
+    }
+
+    test('POST /push with overlayUpdate fans out to every connected phone socket', async () => {
+        const session = makeSession();
+        const a = await openSocket(session);
+        const b = await openSocket(session);
+        const c = await openSocket(session);
+
+        const payload = makeValidOverlayUpdate();
+        const resp = await postOverlayV1(session, payload);
+        expect(resp.status).toBe(202);
+        const body = (await resp.json()) as { delivered: number };
+        expect(body.delivered).toBe(3);
+
+        const expected = JSON.stringify(payload);
+        expect(a.server.sent).toEqual([expected]);
+        expect(b.server.sent).toEqual([expected]);
+        expect(c.server.sent).toEqual([expected]);
+    });
+
+    test('Socket that fires "close" is removed from subsequent fan-outs', async () => {
+        const session = makeSession();
+        const a = await openSocket(session);
+        const b = await openSocket(session);
+        a.server.emit('close');
+
+        const payload = makeValidOverlayUpdate('module.exports = { x: 1 };');
+        const resp = await postOverlayV1(session, payload);
+        const body = (await resp.json()) as { delivered: number };
+        expect(body.delivered).toBe(1);
+
+        expect(a.server.sent).toEqual([]); // closed — never received
+        expect(b.server.sent).toEqual([JSON.stringify(payload)]);
+    });
+
+    test('Socket that fires "error" is removed from subsequent fan-outs', async () => {
+        const session = makeSession();
+        const a = await openSocket(session);
+        const b = await openSocket(session);
+        a.server.emit('error');
+
+        const payload = makeValidOverlayUpdate('module.exports = { e: 2 };');
+        await postOverlayV1(session, payload);
+        expect(a.server.sent).toEqual([]);
+        expect(b.server.sent).toEqual([JSON.stringify(payload)]);
+    });
+
+    test('Phone socket that transitions to non-OPEN readyState is skipped', async () => {
+        const session = makeSession();
+        const a = await openSocket(session);
+        const b = await openSocket(session);
+        a.server.readyState = 3; // CLOSED but we don't fire 'close'
+
+        const payload = makeValidOverlayUpdate('module.exports = { r: 3 };');
+        const resp = await postOverlayV1(session, payload);
+        const body = (await resp.json()) as { delivered: number };
+        expect(body.delivered).toBe(1);
+        expect(a.server.sent).toEqual([]);
+        expect(b.server.sent).toEqual([JSON.stringify(payload)]);
+    });
+
+    test('Late-joining phone gets the persisted overlay v1 via replay', async () => {
+        const session = makeSession();
+        const early = await openSocket(session);
+        const payload = makeValidOverlayUpdate('module.exports = { replay: 4 };');
+        await postOverlayV1(session, payload);
+        expect(early.server.sent).toEqual([JSON.stringify(payload)]);
+
+        // Late joiner — should receive the v1 payload immediately via
+        // replayLastOverlay (not the legacy overlay shape).
+        const late = await openSocket(session);
+        expect(late.server.sent).toEqual([JSON.stringify(payload)]);
+    });
+
+    test('New v1 payload overwrites prior v1 payload; late joiners see the newer one', async () => {
+        const session = makeSession();
+        const first = makeValidOverlayUpdate('module.exports = { v: 1 };');
+        const second = makeValidOverlayUpdate('module.exports = { v: 2 };');
+        await postOverlayV1(session, first);
+        await postOverlayV1(session, second);
+
+        const late = await openSocket(session);
+        expect(late.server.sent).toEqual([JSON.stringify(second)]);
+    });
+
+    // ─── Soft-cap observability (tasks #98-100) ─────────────────────────────
+    test('under soft cap: hmr.push.v1 log has sourceBytes but no softCapExceeded flag', async () => {
+        const session = makeSession();
+        await openSocket(session);
+        const smallSource = 'x'.repeat(1024); // 1 KB — well under 512 KB soft cap
+        const infoLogs: string[] = [];
+        const origInfo = console.info;
+        console.info = ((msg: string) => {
+            if (typeof msg === 'string') infoLogs.push(msg);
+        }) as typeof console.info;
+        try {
+            await postOverlayV1(session, makeValidOverlayUpdate(smallSource));
+        } finally {
+            console.info = origInfo;
+        }
+        const pushLog = infoLogs.find((l) => l.includes('hmr.push.v1'));
+        expect(pushLog).toBeDefined();
+        const parsed = JSON.parse(pushLog!) as {
+            event: string;
+            sourceBytes: number;
+            softCapExceeded?: boolean;
+            buildDurationMs: number;
+            overlayHash: string;
+        };
+        expect(parsed.event).toBe('hmr.push.v1');
+        expect(parsed.sourceBytes).toBe(1024);
+        expect(parsed.softCapExceeded).toBeUndefined();
+        // Phase 11b soak telemetry: buildDurationMs from meta is echoed
+        // into the log so edit latency can be correlated against
+        // server-observed bytes/delivery.
+        expect(parsed.buildDurationMs).toBe(5);
+        expect(parsed.overlayHash).toBe('b'.repeat(64));
+    });
+
+    // ─── Ack observability (Phase 11b Q5b eval-latency log signal) ─────────
+    test('forwarded overlayAck emits hmr.ack.v1 log with mountDurationMs when populated', async () => {
+        const session = makeSession();
+        const sender = await openSocket(session);
+        await openSocket(session); // a receiver so `delivered` > 0
+
+        const ack = {
+            type: 'onlook:overlayAck',
+            sessionId: 's',
+            overlayHash: 'deadbeef',
+            status: 'mounted',
+            timestamp: 1_712_000_000_000,
+            mountDurationMs: 42,
+        };
+        const infoLogs: string[] = [];
+        const origInfo = console.info;
+        console.info = ((msg: string) => {
+            if (typeof msg === 'string') infoLogs.push(msg);
+        }) as typeof console.info;
+        try {
+            sender.server.emit('message', JSON.stringify(ack));
+        } finally {
+            console.info = origInfo;
+        }
+
+        const ackLog = infoLogs.find((l) => l.includes('hmr.ack.v1'));
+        expect(ackLog).toBeDefined();
+        const parsed = JSON.parse(ackLog!) as {
+            event: string;
+            sessionId: string;
+            overlayHash: string;
+            status: string;
+            delivered: number;
+            mountDurationMs?: number;
+            errorKind?: string;
+        };
+        expect(parsed.event).toBe('hmr.ack.v1');
+        expect(parsed.sessionId).toBe('s');
+        expect(parsed.overlayHash).toBe('deadbeef');
+        expect(parsed.status).toBe('mounted');
+        expect(parsed.delivered).toBe(1); // one receiver, sender excluded
+        expect(parsed.mountDurationMs).toBe(42);
+    });
+
+    test('failed ack log includes errorKind; mountDurationMs absent when omitted', async () => {
+        const session = makeSession();
+        const sender = await openSocket(session);
+        await openSocket(session);
+
+        const ack = {
+            type: 'onlook:overlayAck',
+            sessionId: 's',
+            overlayHash: 'deadbeef',
+            status: 'failed',
+            timestamp: 1_712_000_000_000,
+            error: { kind: 'overlay-runtime', message: 'boom' },
+            // no mountDurationMs — legacy-binary / failure-path case.
+        };
+        const infoLogs: string[] = [];
+        const origInfo = console.info;
+        console.info = ((msg: string) => {
+            if (typeof msg === 'string') infoLogs.push(msg);
+        }) as typeof console.info;
+        try {
+            sender.server.emit('message', JSON.stringify(ack));
+        } finally {
+            console.info = origInfo;
+        }
+
+        const ackLog = infoLogs.find((l) => l.includes('hmr.ack.v1'));
+        expect(ackLog).toBeDefined();
+        const parsed = JSON.parse(ackLog!) as {
+            status: string;
+            errorKind?: string;
+            mountDurationMs?: number;
+        };
+        expect(parsed.status).toBe('failed');
+        expect(parsed.errorKind).toBe('overlay-runtime');
+        // JSON.stringify drops undefined keys, so parsed shape is clean
+        // when the phone didn't populate mountDurationMs.
+        expect(parsed.mountDurationMs).toBeUndefined();
+    });
+
+    test('over soft cap: hmr.push.v1 log adds softCapExceeded + emits hmr.push.v1.softcap warn', async () => {
+        const session = makeSession();
+        await openSocket(session);
+        // 600 KB — above 512 KB soft cap but under 2 MB hard cap.
+        const oversized = 'y'.repeat(600 * 1024);
+        const infoLogs: string[] = [];
+        const warnLogs: string[] = [];
+        const origInfo = console.info;
+        const origWarn = console.warn;
+        console.info = ((msg: string) => {
+            if (typeof msg === 'string') infoLogs.push(msg);
+        }) as typeof console.info;
+        console.warn = ((msg: string) => {
+            if (typeof msg === 'string') warnLogs.push(msg);
+        }) as typeof console.warn;
+        try {
+            const resp = await postOverlayV1(session, makeValidOverlayUpdate(oversized));
+            expect(resp.status).toBe(202); // still delivers — soft cap is advisory
+        } finally {
+            console.info = origInfo;
+            console.warn = origWarn;
+        }
+        const pushLog = infoLogs.find((l) => l.includes('hmr.push.v1'));
+        expect(pushLog).toBeDefined();
+        const parsedPush = JSON.parse(pushLog!) as { softCapExceeded?: boolean };
+        expect(parsedPush.softCapExceeded).toBe(true);
+
+        const softcapLog = warnLogs.find((l) => l.includes('hmr.push.v1.softcap'));
+        expect(softcapLog).toBeDefined();
+        const parsedWarn = JSON.parse(softcapLog!) as {
+            event: string;
+            sourceBytes: number;
+            softCap: number;
+        };
+        expect(parsedWarn.event).toBe('hmr.push.v1.softcap');
+        expect(parsedWarn.sourceBytes).toBe(600 * 1024);
+        expect(parsedWarn.softCap).toBe(512 * 1024);
+    });
+});

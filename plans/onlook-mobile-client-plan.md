@@ -1,5 +1,21 @@
 # Onlook Mobile Client — Development Plan
 
+> **2026-04-21 update — Overlay ABI v1 supersedes the bundle wire contract here.**
+> The hot-swap mechanism the sections below describe as "load bundle via
+> `OnlookRuntime.runApplication(bundle)`" has been refined into the two-tier
+> overlay pipeline governed by `plans/adr/overlay-abi-v1.md` (ADR-0001). The
+> mobile client's responsibilities in that world:
+>   - Install the `OnlookRuntime` global before the base bundle's entry JS runs.
+>   - Implement `OnlookRuntime.mountOverlay(source, props?, assets?)` — the
+>     native JSI version; a JS-fallback lives in
+>     `packages/mobile-preview/runtime/src/onlook-runtime-js.ts` for tests.
+>   - Send `onlook:overlayAck` after mount resolves (abi-v1.ts).
+>   - Consume `overlayUpdate` messages from `WS /hmr/:sessionId`.
+>
+> See also: `plans/two-tier-overlay-v2-task-queue.md` for live status.
+> Everything below about "the 241KB runtime" etc. is still accurate as
+> background motivation; the specific wire shapes are updated by ABI v1.
+
 A purpose-built native iOS/Android app that replaces stock Expo Go in the Onlook preview pipeline. Designed from day one to consume Onlook's existing Cloudflare Worker relay (`apps/cf-expo-relay`), `@onlook/browser-metro` IIFE bundles, and the `ExpoBrowserProvider` Supabase Storage layout — without the reverse-engineered shims that Spike B had to use to coerce Expo Go into mounting custom bundles.
 
 ## Why a custom client (and not "just keep using Expo Go")

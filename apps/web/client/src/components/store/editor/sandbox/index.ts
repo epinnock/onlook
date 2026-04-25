@@ -290,7 +290,21 @@ export class SandboxManager {
             console.info('[SandboxManager] Running initial browser-metro bundle for branch', branchId);
             await bundler.bundle();
         } catch (err) {
-            console.error('[SandboxManager] Initial bundle failed:', err);
+            // Empty / new-branch case: branch has `.onlook/` scaffolding
+            // but no source files yet. That's not an error — the watcher
+            // below will re-bundle when the first source file lands.
+            // Logging at error level floods the console for every empty
+            // branch on a multi-branch project (common: `main` + `branch1`
+            // where the user hasn't checked in anything on branch1 yet).
+            const message = err instanceof Error ? err.message : String(err);
+            if (message.includes('No entry file found')) {
+                console.info(
+                    '[SandboxManager] Initial bundle skipped — branch has no source files yet:',
+                    branchId,
+                );
+            } else {
+                console.error('[SandboxManager] Initial bundle failed:', err);
+            }
         }
 
         // Watch the local Vfs for file changes and re-bundle on every
@@ -466,14 +480,22 @@ export class SandboxManager {
                 return null;
             }
 
-            // Read each file's content
+            // Read each file's content. Match the current code-provider types:
+            //   - ListFilesOutputFile exposes `name` (not `path`); since this
+            //     listFiles call is scoped to the root (`path: '.'`), the
+            //     file's full path is just its name. Nested directories are
+            //     silently skipped by the `file.type === 'file'` gate.
+            //   - ReadFileOutput is `{ file: ReadFileOutputFile }` (not a
+            //     top-level `content`). Call `.toString()` to materialize
+            //     the text content (SandboxFile's text/binary union).
             const fileContents: Array<{ path: string; content: string }> = [];
             for (const file of files) {
                 if (file.type === 'file') {
                     try {
-                        const { content } = await this.session.provider.readFile({ args: { path: file.path } });
-                        if (content) {
-                            fileContents.push({ path: file.path, content });
+                        const { file: readFile } = await this.session.provider.readFile({ args: { path: file.name } });
+                        if (readFile) {
+                            const content = readFile.toString();
+                            fileContents.push({ path: file.name, content });
                         }
                     } catch {
                         // Skip files that can't be read

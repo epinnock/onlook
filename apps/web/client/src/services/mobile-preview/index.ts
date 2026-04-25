@@ -1,4 +1,76 @@
+import { env } from '@/env';
 import { transform } from 'sucrase';
+
+import {
+    getMobilePreviewPipelineKind,
+    resolveMobilePreviewPipelineKind,
+} from './pipeline-flag';
+import {
+    createMobilePreviewShimPipeline,
+    MobilePreviewShimPipeline,
+    fetchMobilePreviewShimRuntimeStatus,
+} from './pipelines/shim';
+import {
+    createTwoTierMobilePreviewPipeline,
+    TwoTierMobilePreviewPipeline,
+    twoTierMobilePreviewCapabilities,
+} from './pipelines/two-tier';
+import type {
+    MobilePreviewPipeline,
+    MobilePreviewPipelineCapabilities,
+    MobilePreviewPipelineConfig,
+    MobilePreviewPipelineKind,
+    MobilePreviewShimPipelineConfig,
+    MobilePreviewTwoTierPipelineConfig,
+} from './pipelines/types';
+
+export {
+    DEFAULT_MOBILE_PREVIEW_PIPELINE,
+    getMobilePreviewPipelineKind,
+    isMobilePreviewTwoTierPipelineEnabled,
+    resolveMobilePreviewPipelineKind,
+} from './pipeline-flag';
+export {
+    createMobilePreviewShimPipeline,
+    fetchMobilePreviewShimRuntimeStatus,
+    MobilePreviewShimPipeline,
+} from './pipelines/shim';
+export {
+    createTwoTierMobilePreviewPipeline,
+    TwoTierMobilePreviewPipeline,
+    twoTierMobilePreviewCapabilities,
+} from './pipelines/two-tier';
+
+// Phase 9 `#51` — package install/update primitives. Exported so
+// the editor's future integration can pull from the canonical
+// service boundary rather than deep-importing each module.
+export * from './package-json-diff';
+export * from './dependency-install';
+export * from './provider-install-client';
+export type {
+    MobilePreviewEvalBundle,
+    MobilePreviewFileChangeEvent,
+    MobilePreviewFileChangeType,
+    MobilePreviewFileEntry,
+    MobilePreviewFileEntryType,
+    MobilePreviewLaunchTarget,
+    MobilePreviewPipeline,
+    MobilePreviewPipelineCapabilities,
+    MobilePreviewPipelineConfig,
+    MobilePreviewPipelineInputBase,
+    MobilePreviewPipelineKind,
+    MobilePreviewPipelineStatus,
+    MobilePreviewPipelineStatusCallback,
+    MobilePreviewPipelineVfs,
+    MobilePreviewPrepareInput,
+    MobilePreviewRuntimeStatus,
+    MobilePreviewShimPipelineConfig,
+    MobilePreviewShimSyncResult,
+    MobilePreviewSyncInput,
+    MobilePreviewSyncResult,
+    MobilePreviewTwoTierPipelineConfig,
+    MobilePreviewTwoTierSyncResult,
+} from './pipelines/types';
 
 export interface MobilePreviewVfs {
     listAll(): Promise<Array<{ path: string; type: 'file' | 'directory' }>>;
@@ -56,6 +128,102 @@ export class MobilePreviewBundleError extends Error {
         super(message);
         this.name = 'MobilePreviewBundleError';
     }
+}
+
+export interface CreateMobilePreviewPipelineOptions {
+    kind?: MobilePreviewPipelineKind;
+    serverBaseUrl?: string;
+    builderBaseUrl?: string;
+    relayBaseUrl?: string;
+}
+
+export type MobilePreviewPipelineOptions = CreateMobilePreviewPipelineOptions;
+
+export function resolveMobilePreviewPipelineConfig(
+    options: CreateMobilePreviewPipelineOptions = {},
+): MobilePreviewPipelineConfig {
+    const kind = options.kind ?? getMobilePreviewPipelineKind();
+
+    if (kind === 'two-tier') {
+        return {
+            kind,
+            builderBaseUrl:
+                options.builderBaseUrl ?? env.NEXT_PUBLIC_CF_ESM_BUILDER_URL ?? '',
+            relayBaseUrl:
+                options.relayBaseUrl ?? env.NEXT_PUBLIC_CF_EXPO_RELAY_URL ?? '',
+        };
+    }
+
+    return {
+        kind: 'shim',
+        serverBaseUrl:
+            options.serverBaseUrl ?? env.NEXT_PUBLIC_MOBILE_PREVIEW_URL ?? '',
+    };
+}
+
+export function createMobilePreviewPipeline(
+    options?: CreateMobilePreviewPipelineOptions,
+): MobilePreviewPipeline;
+export function createMobilePreviewPipeline(
+    config: MobilePreviewPipelineConfig,
+): MobilePreviewPipeline;
+export function createMobilePreviewPipeline(
+    input: CreateMobilePreviewPipelineOptions | MobilePreviewPipelineConfig = {},
+): MobilePreviewPipeline {
+    return createMobilePreviewPipelineFromConfig(
+        isMobilePreviewPipelineConfig(input)
+            ? input
+            : resolveMobilePreviewPipelineConfig(input),
+    );
+}
+
+export function createMobilePreviewPipelineFromConfig(
+    config: MobilePreviewShimPipelineConfig,
+): MobilePreviewPipeline<'shim'>;
+export function createMobilePreviewPipelineFromConfig(
+    config: MobilePreviewTwoTierPipelineConfig,
+): MobilePreviewPipeline<'two-tier'>;
+export function createMobilePreviewPipelineFromConfig(
+    config: MobilePreviewPipelineConfig,
+): MobilePreviewPipeline;
+export function createMobilePreviewPipelineFromConfig(
+    config: MobilePreviewPipelineConfig,
+): MobilePreviewPipeline {
+    if (config.kind === 'two-tier') {
+        return createTwoTierMobilePreviewPipeline(config);
+    }
+
+    return createMobilePreviewShimPipeline(config);
+}
+
+export function getMobilePreviewPipelineCapabilities(
+    kind: MobilePreviewPipelineKind = getMobilePreviewPipelineKind(),
+): MobilePreviewPipelineCapabilities {
+    if (resolveMobilePreviewPipelineKind(kind) === 'two-tier') {
+        return twoTierMobilePreviewCapabilities;
+    }
+
+    return new MobilePreviewShimPipeline({
+        kind: 'shim',
+        serverBaseUrl: '',
+    }).capabilities;
+}
+
+function isMobilePreviewPipelineConfig(
+    value: CreateMobilePreviewPipelineOptions | MobilePreviewPipelineConfig,
+): value is MobilePreviewPipelineConfig {
+    if (value.kind === 'shim') {
+        return typeof value.serverBaseUrl === 'string';
+    }
+
+    if (value.kind === 'two-tier') {
+        return (
+            typeof value.builderBaseUrl === 'string' &&
+            typeof value.relayBaseUrl === 'string'
+        );
+    }
+
+    return false;
 }
 
 export async function buildMobilePreviewBundle(

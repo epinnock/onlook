@@ -12,6 +12,7 @@ export type Screen =
     | 'launcher'
     | 'scan'
     | 'settings'
+    | 'progress'
     | 'error'
     | 'versionMismatch'
     | 'crash'
@@ -28,6 +29,14 @@ export interface NavigationParams {
     onRetry?: () => void;
     clientVersion?: string;
     serverVersion?: string;
+    /** ProgressScreen: current step label (e.g. "Fetching manifest…"). */
+    progressTitle?: string;
+    /** ProgressScreen: accumulated log block rendered under the title. */
+    progressLog?: string;
+    /** ProgressScreen: show spinner (default true). */
+    progressShowSpinner?: boolean;
+    /** ProgressScreen: optional Cancel handler. */
+    onCancel?: () => void;
 }
 
 export interface NavigationContextValue {

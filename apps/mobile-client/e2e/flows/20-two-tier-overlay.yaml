@@ -1,0 +1,56 @@
+# 20-two-tier-overlay.yaml — Two-tier preview Wave F end-to-end flow.
+#
+# Proves that an editor-pushed overlay reaches the device and mounts via
+# OnlookRuntime.reloadBundle:
+#
+#   1. Launch the app. Launcher renders.
+#   2. Use the `Open` manual-URL path with a deeplink that points the
+#      client at a LAN-reachable relay + known session id. The relay is
+#      expected to have a base bundle ready; for a fully self-contained
+#      harness run, start `cf-expo-relay` in `wrangler dev --local` mode
+#      locally and forward to the sim.
+#   3. Wait for the overlay to land and assert the hello-fixture marker
+#      ("Hello, Onlook") is visible — same assertion as the pre-existing
+#      Phase R verification rig (`verification/onlook-editor/reference/06-real-bundle.png`).
+#
+# Prerequisites (set via env vars read by run-e2e.ts):
+#   ONLOOK_RELAY_URL  — e.g. http://192.168.0.14:8787 (your editor host on LAN)
+#   ONLOOK_SESSION_ID — must match a session the relay has a base bundle for
+#
+# Validate command:
+#   bun --cwd apps/mobile-client run mobile:e2e:ios -- 20-two-tier-overlay.yaml
+#
+# Scope note: this flow covers the mobile side of the two-tier contract.
+# The editor half (push-overlay client + TwoTierMobilePreviewPipeline) is
+# covered by the Playwright specs under
+# `apps/web/client/e2e/workers-pipeline/{editor,integrated,perf}/`.
+
+appId: com.onlook.mobile
+---
+- launchApp:
+    clearState: true
+- waitForAnimationToEnd:
+    timeout: 8000
+- assertVisible: "Scan QR"
+
+# Paste the onlook:// URL into the "Or paste URL" field. The placeholder
+# text ("exp://192.168.x.y:8787/manifest/...") lands in that field when
+# tapped; we replace it with a known two-tier-compatible deeplink.
+- tapOn:
+    text: "exp://192\\..*"
+    optional: true
+- inputText: "onlook://launch?session=${ONLOOK_SESSION_ID}&relay=${ONLOOK_RELAY_URL}%2Fmanifest%2F${ONLOOK_SESSION_ID}"
+- tapOn: "Open"
+
+# qrToMount drives through parse → manifest → bundle → mount. The base
+# bundle boots the runtime + registers the initial `onlookMount`. The
+# first overlay (served via the same manifest+bundle path for now; the
+# HmrSession WS layer is exercised by the Playwright tier) mounts the
+# hello fixture.
+- waitForAnimationToEnd:
+    timeout: 15000
+
+# Success indicator — the hello fixture's rendered text.
+- assertVisible:
+    text: "Hello, Onlook"
+    timeout: 30000

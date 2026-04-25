@@ -3,6 +3,7 @@ import { describe, expect, it } from 'bun:test';
 import {
     buildManifestUrl,
     buildOnlookDeepLink,
+    parseManifestUrl,
     toExpoScheme,
     validateBundleHash,
 } from '../manifest-url';
@@ -152,5 +153,98 @@ describe('validateBundleHash', () => {
 
     it('rejects empty string', () => {
         expect(() => validateBundleHash('')).toThrow(/invalid bundleHash/);
+    });
+});
+
+describe('parseManifestUrl (inverse of buildManifestUrl)', () => {
+    it('parses an http:// manifest URL into relayBaseUrl + bundleHash', () => {
+        const parsed = parseManifestUrl(
+            `http://192.168.1.42:8787/manifest/${VALID_HASH_MIXED}`,
+        );
+        expect(parsed).toEqual({
+            relayBaseUrl: 'http://192.168.1.42:8787',
+            bundleHash: VALID_HASH_MIXED,
+        });
+    });
+
+    it('parses an https:// manifest URL', () => {
+        const parsed = parseManifestUrl(
+            `https://relay.example.com/manifest/${VALID_HASH}`,
+        );
+        expect(parsed).toEqual({
+            relayBaseUrl: 'https://relay.example.com',
+            bundleHash: VALID_HASH,
+        });
+    });
+
+    it('normalizes exp:// → http:// when parsing', () => {
+        const parsed = parseManifestUrl(
+            `exp://192.168.1.42:8787/manifest/${VALID_HASH}`,
+        );
+        expect(parsed).toEqual({
+            relayBaseUrl: 'http://192.168.1.42:8787',
+            bundleHash: VALID_HASH,
+        });
+    });
+
+    it('normalizes exps:// → https:// when parsing', () => {
+        const parsed = parseManifestUrl(
+            `exps://relay.example.com/manifest/${VALID_HASH}`,
+        );
+        expect(parsed).toEqual({
+            relayBaseUrl: 'https://relay.example.com',
+            bundleHash: VALID_HASH,
+        });
+    });
+
+    it('round-trips buildManifestUrl → parseManifestUrl exactly', () => {
+        // HTTP scheme round-trip.
+        const httpUrl = buildManifestUrl(VALID_HASH, {
+            relayBaseUrl: 'http://192.168.1.42:8787',
+            scheme: 'http',
+        });
+        expect(parseManifestUrl(httpUrl)).toEqual({
+            relayBaseUrl: 'http://192.168.1.42:8787',
+            bundleHash: VALID_HASH,
+        });
+
+        // exp:// scheme round-trip (default) — parse normalizes to http.
+        const expUrl = buildManifestUrl(VALID_HASH, {
+            relayBaseUrl: 'http://192.168.1.42:8787',
+        });
+        expect(parseManifestUrl(expUrl)).toEqual({
+            relayBaseUrl: 'http://192.168.1.42:8787',
+            bundleHash: VALID_HASH,
+        });
+    });
+
+    it('returns null for a URL without /manifest/<hash> path', () => {
+        expect(
+            parseManifestUrl('http://192.168.1.42:8787/status'),
+        ).toBeNull();
+    });
+
+    it('returns null for an invalid hash (not 64 hex chars)', () => {
+        expect(
+            parseManifestUrl('http://192.168.1.42:8787/manifest/shortHash'),
+        ).toBeNull();
+    });
+
+    it('returns null for an uppercase hash (must be lowercase)', () => {
+        expect(
+            parseManifestUrl(`http://192.168.1.42:8787/manifest/${'A'.repeat(64)}`),
+        ).toBeNull();
+    });
+
+    it('returns null for a malformed URL', () => {
+        expect(parseManifestUrl('not-a-url')).toBeNull();
+        expect(parseManifestUrl('')).toBeNull();
+    });
+
+    it('tolerates a trailing slash on the manifest path', () => {
+        const parsed = parseManifestUrl(
+            `http://127.0.0.1:8787/manifest/${VALID_HASH}/`,
+        );
+        expect(parsed?.bundleHash).toBe(VALID_HASH);
     });
 });

@@ -22,6 +22,7 @@ import {
     CrashScreen,
     ErrorScreen,
     LauncherScreen,
+    ProgressScreen,
     ScanScreen,
     ScreensGalleryScreen,
     SettingsScreen,
@@ -33,6 +34,114 @@ import { fetchManifest } from '../relay/manifestFetcher';
 import { fetchBundle } from '../relay/bundleFetcher';
 
 type RuntimeWithRun = { runApplication?: (src: string, props: { sessionId: string }) => void };
+
+/**
+ * Local minimal shape of the Overlay ABI v1 `OnlookRuntime` host object. We
+ * do not import the canonical type from `@onlook/mobile-client-protocol`
+ * here because the ABI v1 schema module lives on a parallel integration
+ * branch; see `plans/adr/overlay-abi-v1.md` (ADR-0001) §"Runtime globals"
+ * for the full interface. When that package lands on this branch, replace
+ * this local type with `import type { OnlookRuntimeApi } from
+ * '@onlook/mobile-client-protocol'`.
+ */
+type OnlookRuntimeApiLike = {
+    readonly abi: 'v1';
+    mountOverlay: (
+        source: string,
+        props?: Record<string, unknown>,
+        assets?: unknown,
+    ) => void;
+};
+
+/**
+ * Result of {@link mountOverlayBundle}. `kind: 'overlay-abi-v1'` means the
+ * Overlay ABI v1 path ran; `kind: 'legacy'` means the Spike B eval +
+ * `globalThis.onlookMount` fallback ran. `kind: 'failed'` carries a
+ * user-visible error title/message pair for the ErrorScreen.
+ *
+ * Exported for the `AppRouter-mount-overlay.test.ts` unit test. Not part
+ * of the module's public surface.
+ */
+export type MountOverlayResult =
+    | { kind: 'overlay-abi-v1' }
+    | { kind: 'legacy' }
+    | { kind: 'failed'; title: string; message: string };
+
+/**
+ * Mount a freshly-fetched overlay bundle. Prefers the Overlay ABI v1
+ * contract (`globalThis.OnlookRuntime.mountOverlay(source, props)`) and
+ * falls back to the Spike B `eval(source)` + `globalThis.onlookMount(props)`
+ * path when the runtime is unavailable. Both code paths are reachable from
+ * the `AppRouter-mount-overlay.test.ts` unit test.
+ *
+ * Root tag is intentionally omitted from the v1 `props` per ADR-0001
+ * §"Runtime globals" — bridgeless Fabric assigns root tags natively and
+ * overlays cannot legally pick one.
+ *
+ * Exported solely for unit-test access; the production code path remains
+ * `buildUrlPipelineRunner`.
+ */
+export function mountOverlayBundle(
+    bundleSource: string,
+    params: {
+        sessionId: string;
+        relayHost: string;
+        relayPort: number;
+    },
+): MountOverlayResult {
+    const rt = (globalThis as unknown as { OnlookRuntime?: OnlookRuntimeApiLike })
+        .OnlookRuntime;
+    if (rt && rt.abi === 'v1' && typeof rt.mountOverlay === 'function') {
+        rt.mountOverlay(bundleSource, {
+            sessionId: params.sessionId,
+            relayHost: params.relayHost,
+            relayPort: params.relayPort,
+        });
+        return { kind: 'overlay-abi-v1' };
+    }
+
+    // Legacy path — retained for Spike B demo until #89 lands (see ADR-0001).
+    try {
+        // eslint-disable-next-line no-eval
+        (0, eval)(bundleSource);
+    } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        const stack = e instanceof Error && e.stack ? e.stack.slice(0, 400) : '';
+        return {
+            kind: 'failed',
+            title: 'Bundle eval threw',
+            message: `${msg}\n${stack}`,
+        };
+    }
+    const mountFn = (globalThis as unknown as {
+        onlookMount?: (p: Record<string, unknown>) => void;
+    }).onlookMount;
+    if (typeof mountFn !== 'function') {
+        return {
+            kind: 'failed',
+            title: 'Mount failed',
+            message:
+                'Neither OnlookRuntime.mountOverlay nor legacy onlookMount available',
+        };
+    }
+    try {
+        mountFn({
+            sessionId: params.sessionId,
+            rootTag: 11,
+            relayHost: params.relayHost,
+            relayPort: params.relayPort,
+        });
+    } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        const stack = e instanceof Error && e.stack ? e.stack.slice(0, 400) : '';
+        return {
+            kind: 'failed',
+            title: 'onlookMount threw',
+            message: `${msg}\n${stack}`,
+        };
+    }
+    return { kind: 'legacy' };
+}
 
 function timeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
     return Promise.race<T>([
@@ -50,6 +159,38 @@ import {
 
 const AUTO_RUN_URL =
     'exp://192.168.0.14:8787/manifest/dc8ead785627ac182bd9f331f2eee7a73afbd48d72fc585d8d1fccfa9c439bf6';
+
+/**
+ * Derive `{relayHost, relayPort}` from the deep-link's parsed `relay=`
+ * URL. Matches the shape qrToMount + twoTierBootstrap pass to
+ * `OnlookRuntime.mountOverlay` so initial URL-submit / QR-scan / hot-
+ * reload mount paths all agree on props.
+ *
+ * Falls back to `192.168.0.17:8788` (the default LAN layout from the
+ * port-allocation table) on unparseable URLs — same defaults the legacy
+ * regex-based code used, so no behavior change on malformed inputs.
+ */
+export function extractRelayHostPort(
+    relayUrl: string,
+): { relayHost: string; relayPort: number } {
+    try {
+        const parsed = new URL(relayUrl);
+        const relayHost = parsed.hostname || '192.168.0.17';
+        let relayPort: number;
+        if (parsed.port !== '') {
+            const p = Number.parseInt(parsed.port, 10);
+            relayPort = Number.isFinite(p) ? p : 8788;
+        } else {
+            relayPort =
+                parsed.protocol === 'https:' || parsed.protocol === 'wss:'
+                    ? 443
+                    : 80;
+        }
+        return { relayHost, relayPort };
+    } catch {
+        return { relayHost: '192.168.0.17', relayPort: 8788 };
+    }
+}
 
 function buildUrlPipelineRunner(actions: NavActions) {
     return (data: string) => {
@@ -153,46 +294,46 @@ function buildUrlPipelineRunner(actions: NavActions) {
 
             // Stage 4: mount.
             //
-            // The OnlookRuntime.runApplication JSI binding isn't installed in
-            // this build (the cpp files exist but nothing calls the
-            // installer). Fall back to evaluating the bundle directly in the
-            // host Hermes context — the bundle's shell.js defines
-            // `globalThis.onlookMount` which we then invoke.
+            // Primary path: Overlay ABI v1 contract —
+            // `globalThis.OnlookRuntime.mountOverlay(source, props)`. Per
+            // `plans/adr/overlay-abi-v1.md` (ADR-0001) §"Installation order",
+            // the runtime is installed by the native TurboModule before any
+            // JS runs in production, and by a JS fallback in tests/harness
+            // builds. Root tag is NOT passed — it is runtime-internal.
             //
-            // Note: evaluating the bundle reinstalls `RCTDeviceEventEmitter`
-            // via RN$registerCallableModule, which breaks further RN fetch
-            // calls. By this point the only fetches are done, so it's OK.
-            try {
-                // eslint-disable-next-line no-eval
-                (0, eval)(bundleSource);
+            // Fallback: Spike B `eval(source)` + `globalThis.onlookMount`
+            // shim. Retained until task #89 in the two-tier queue removes the
+            // legacy dialect. Note: evaluating the bundle reinstalls
+            // `RCTDeviceEventEmitter` via `RN$registerCallableModule`, which
+            // breaks further RN fetch calls — by this point the only fetches
+            // are done, so that's OK.
+            // Use the parsed relay URL (from the deep-link's `relay=` param)
+            // to derive relayHost + relayPort. Previously this regex-matched
+            // against `data` (the deep-link itself), which fails for the
+            // `onlook://` scheme that most deep-links use and silently
+            // defaulted relayHost to `192.168.0.17` + relayPort to 8788.
+            // That shipped wrong props on every initial mount when the relay
+            // ran on a non-default port or a different IP.
+            const { relayHost, relayPort } = extractRelayHostPort(parsed.relay);
+            const mountResult = mountOverlayBundle(bundleSource, {
+                sessionId: parsed.sessionId,
+                relayHost,
+                relayPort,
+            });
+            if (mountResult.kind === 'failed') {
+                show(mountResult.title, mountResult.message);
+                return;
+            }
+            if (mountResult.kind === 'overlay-abi-v1') {
+                log.push('mounted via OnlookRuntime.mountOverlay');
+                log.push(`mount ok relayHost=${relayHost}:${relayPort} (abi=v1)`);
+            } else {
+                log.push(
+                    'OnlookRuntime.mountOverlay unavailable — falling back to eval+onlookMount',
+                );
                 log.push('bundle eval OK');
-            } catch (e: unknown) {
-                const msg = e instanceof Error ? e.message : String(e);
-                const stack = e instanceof Error && e.stack ? e.stack.slice(0, 400) : '';
-                show('Bundle eval threw', `${msg}\n${stack}`);
-                return;
+                log.push(`mount ok relayHost=${relayHost}:${relayPort} rootTag=11`);
             }
-            const mountFn = (globalThis as unknown as { onlookMount?: (p: Record<string, unknown>) => void }).onlookMount;
-            if (typeof mountFn !== 'function') {
-                show('Mount failed', 'globalThis.onlookMount not defined after bundle eval');
-                return;
-            }
-            const hostMatch2 = data.match(/^(?:exp|https?):\/\/([^:\/]+)/i);
-            const relayHost = hostMatch2?.[1] || '192.168.0.17';
-            try {
-                mountFn({
-                    sessionId: parsed.sessionId,
-                    rootTag: 11,
-                    relayHost,
-                    relayPort: 8788,
-                });
-            } catch (e: unknown) {
-                const msg = e instanceof Error ? e.message : String(e);
-                const stack = e instanceof Error && e.stack ? e.stack.slice(0, 400) : '';
-                show('onlookMount threw', `${msg}\n${stack}`);
-                return;
-            }
-            log.push(`mount ok relayHost=${relayHost} rootTag=11`);
 
             // Open the live-update WebSocket using RN's built-in WebSocket
             // class — bypasses the CallableJSModule plumbing that shell.js
@@ -210,7 +351,10 @@ function buildUrlPipelineRunner(actions: NavActions) {
             }) | undefined;
             if (typeof WSCtor === 'function') {
                 try {
-                    const wsUrl = `ws://${relayHost}:8788`;
+                    // Use the parsed relayPort (default 8788) so non-default
+                    // port setups work. Previously hardcoded 8788 would miss
+                    // a LAN relay on 18999 or any slot other than 0.
+                    const wsUrl = `ws://${relayHost}:${relayPort}`;
                     slog('ws (native): connecting to ' + wsUrl);
                     const ws = new WSCtor(wsUrl);
                     ws.onopen = () => {
@@ -346,6 +490,16 @@ function renderScreen(
         case 'settings':
             return <SettingsScreen onGoBack={() => actions.goBack()} />;
 
+        case 'progress':
+            return (
+                <ProgressScreen
+                    title={params?.progressTitle ?? 'Working…'}
+                    log={params?.progressLog}
+                    showSpinner={params?.progressShowSpinner ?? true}
+                    onCancel={params?.onCancel}
+                />
+            );
+
         case 'error':
             return (
                 <ErrorScreen
@@ -389,6 +543,10 @@ function renderScreen(
         case 'gallery':
             return <ScreensGalleryScreen />;
     }
+    // Exhaustiveness guard: every Screen case returns above; if a new value
+    // is added to the union, TS surfaces the `never` mismatch here.
+    const _exhaustive: never = screen;
+    throw new Error(`renderScreen: unknown screen ${String(_exhaustive)}`);
 }
 
 const styles = StyleSheet.create({

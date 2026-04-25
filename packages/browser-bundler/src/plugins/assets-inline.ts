@@ -1,0 +1,203 @@
+export type InlineAssetContents = string | Uint8Array | ArrayBufferView;
+
+export type InlineAssetFileMap = Readonly<Record<string, InlineAssetContents>>;
+
+export interface EsbuildLoadArgs {
+    readonly path: string;
+    readonly namespace?: string;
+    readonly suffix?: string;
+}
+
+export interface EsbuildLoadResult {
+    readonly contents?: string;
+    readonly loader?: 'js';
+    readonly resolveDir?: string;
+    readonly errors?: readonly { text: string }[];
+}
+
+export interface EsbuildLoadBuild {
+    onLoad(
+        options: { filter: RegExp; namespace?: string },
+        callback: (args: EsbuildLoadArgs) => EsbuildLoadResult | undefined | void,
+    ): void;
+}
+
+export interface EsbuildLoadPlugin {
+    readonly name: string;
+    setup(build: EsbuildLoadBuild): void;
+}
+
+export interface CreateAssetsInlinePluginOptions {
+    readonly files: InlineAssetFileMap;
+    readonly maxInlineBytes?: number;
+    readonly namespace?: string;
+}
+
+const DEFAULT_MAX_INLINE_BYTES = 8 * 1024;
+
+const ASSET_MIME_TYPES: Readonly<Record<string, string>> = {
+    '.avif': 'image/avif',
+    '.bmp': 'image/bmp',
+    '.gif': 'image/gif',
+    '.ico': 'image/x-icon',
+    '.jpeg': 'image/jpeg',
+    '.jpg': 'image/jpeg',
+    '.otf': 'font/otf',
+    '.png': 'image/png',
+    '.svg': 'image/svg+xml',
+    '.ttf': 'font/ttf',
+    '.webp': 'image/webp',
+    '.woff': 'font/woff',
+    '.woff2': 'font/woff2',
+    // Audio (task #59)
+    '.mp3': 'audio/mpeg',
+    '.wav': 'audio/wav',
+    '.m4a': 'audio/mp4',
+    '.aac': 'audio/aac',
+    '.ogg': 'audio/ogg',
+    '.flac': 'audio/flac',
+    // Video (task #59)
+    '.mp4': 'video/mp4',
+    '.mov': 'video/quicktime',
+    '.webm': 'video/webm',
+    '.m4v': 'video/mp4',
+};
+
+// Match asset extensions with an optional `?url` / `?raw` suffix so the
+// plugin can branch on the query-string bypass (task #56).
+const ASSET_FILTER =
+    /\.(?:avif|bmp|gif|ico|jpeg|jpg|otf|png|svg|ttf|webp|woff|woff2|mp3|wav|m4a|aac|ogg|flac|mp4|mov|webm|m4v)(?:\?(?:url|raw))?$/i;
+
+const textEncoder = new TextEncoder();
+
+export function createAssetsInlinePlugin(
+    options: CreateAssetsInlinePluginOptions,
+): EsbuildLoadPlugin {
+    const maxInlineBytes = options.maxInlineBytes ?? DEFAULT_MAX_INLINE_BYTES;
+
+    return {
+        name: 'assets-inline',
+        setup(build) {
+            build.onLoad({ filter: ASSET_FILTER, namespace: options.namespace }, (args) => {
+                // Task #56 — `?url` / `?raw` query bypasses inline handoff so
+                // a later plugin (assets-r2 or assets-raw-text) can pick the
+                // asset up. The filter matches the suffix form so esbuild
+                // reaches our handler; we simply opt out here.
+                if (hasBypassQuery(args.path, args.suffix)) {
+                    return undefined;
+                }
+
+                const pathWithoutQuery = stripQuery(args.path);
+                const contents = options.files[normalizeAssetPath(pathWithoutQuery)];
+
+                if (contents === undefined) {
+                    return undefined;
+                }
+
+                return createInlineAssetModule({
+                    contents,
+                    path: pathWithoutQuery,
+                    maxInlineBytes,
+                });
+            });
+        },
+    };
+}
+
+export function createInlineAssetModule(options: {
+    contents: InlineAssetContents;
+    path: string;
+    maxInlineBytes: number;
+}): EsbuildLoadResult | undefined {
+    const mimeType = inferAssetMimeType(options.path);
+    if (mimeType === undefined) {
+        return undefined;
+    }
+
+    const bytes = toUint8Array(options.contents);
+    if (bytes.byteLength > options.maxInlineBytes) {
+        return undefined;
+    }
+
+    const dataUrl = `data:${mimeType};base64,${base64Encode(bytes)}`;
+    return {
+        contents: `export default ${JSON.stringify(dataUrl)};`,
+        loader: 'js',
+    };
+}
+
+export function inferAssetMimeType(path: string): string | undefined {
+    const extension = getAssetExtension(path);
+
+    if (extension === undefined) {
+        return undefined;
+    }
+
+    return ASSET_MIME_TYPES[extension];
+}
+
+function getAssetExtension(path: string): string | undefined {
+    const normalized = normalizeAssetPath(path);
+    const dotIndex = normalized.lastIndexOf('.');
+
+    if (dotIndex === -1) {
+        return undefined;
+    }
+
+    return normalized.slice(dotIndex).toLowerCase();
+}
+
+function normalizeAssetPath(path: string): string {
+    return path.replace(/\\/g, '/').replace(/^\/+/, '');
+}
+
+export function stripQuery(path: string): string {
+    const qIndex = path.indexOf('?');
+    return qIndex === -1 ? path : path.slice(0, qIndex);
+}
+
+/**
+ * Returns true when the asset import carries a `?url` or `?raw` query — in
+ * both forms (inline as part of the path string, or via esbuild's separate
+ * `suffix` argument). The inline plugin skips these so a downstream plugin
+ * (R2 for `?url`, raw-text for `?raw`) can claim the module.
+ */
+export function hasBypassQuery(path: string, suffix?: string): boolean {
+    if (suffix === '?url' || suffix === '?raw') return true;
+    const qIndex = path.indexOf('?');
+    if (qIndex === -1) return false;
+    const query = path.slice(qIndex);
+    return /(?:^|[?&])(?:url|raw)(?:$|&|=)/.test(query);
+}
+
+function toUint8Array(contents: InlineAssetContents): Uint8Array {
+    if (typeof contents === 'string') {
+        return textEncoder.encode(contents);
+    }
+
+    if (contents instanceof Uint8Array) {
+        return contents;
+    }
+
+    return new Uint8Array(contents.buffer, contents.byteOffset, contents.byteLength);
+}
+
+function base64Encode(bytes: Uint8Array): string {
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+    let output = '';
+
+    for (let index = 0; index < bytes.length; index += 3) {
+        const first = bytes[index] ?? 0;
+        const second = bytes[index + 1];
+        const third = bytes[index + 2];
+
+        const chunk = (first << 16) | ((second ?? 0) << 8) | (third ?? 0);
+
+        output += alphabet[(chunk >> 18) & 63];
+        output += alphabet[(chunk >> 12) & 63];
+        output += second === undefined ? '=' : alphabet[(chunk >> 6) & 63];
+        output += third === undefined ? '=' : alphabet[chunk & 63];
+    }
+
+    return output;
+}

@@ -43,6 +43,16 @@ type OnlookRuntimeWithRunApplication = {
         props: { sessionId: string },
     ) => void;
     reloadBundle?: (bundleSource: string) => void;
+    /**
+     * ABI v1 overlay mount — preferred over runApplication/reloadBundle when
+     * `abi === 'v1'`. See `plans/adr/overlay-abi-v1.md` §"Runtime globals".
+     */
+    abi?: string;
+    mountOverlay?: (
+        source: string,
+        props?: Readonly<Record<string, unknown>>,
+        assets?: unknown,
+    ) => void;
 };
 
 /** Stage names used to tag failures in {@link QrMountResult}. */
@@ -81,7 +91,7 @@ export function __resetQrToMountState(): void {
  * pipeline stopped so the UI can route to the right error screen.
  */
 export type QrMountResult =
-    | { ok: true; sessionId: string }
+    | { ok: true; sessionId: string; relay: string }
     | { ok: false; stage: QrMountStage; error: string };
 
 const LOG_PREFIX = '[qrToMount]';
@@ -149,6 +159,72 @@ export async function qrToMount(barcodeData: string): Promise<QrMountResult> {
     // silently produces a broken UI — see MCF-BUG-QR-SUBSEQUENT.
     const runtime = (globalThis as { OnlookRuntime?: OnlookRuntimeWithRunApplication })
         .OnlookRuntime;
+
+    // ── ABI v1 fast path — preferred over runApplication/reloadBundle when available.
+    //
+    // When the runtime advertises `abi: 'v1'` and exposes `mountOverlay`, route EVERY
+    // scan through it (first and subsequent) — `mountOverlay` handles teardown + remount
+    // internally via React's root-scoped Fabric commit. We don't need the split
+    // runApplication/reloadBundle dance at all in v1.
+    if (runtime?.abi === 'v1' && typeof runtime.mountOverlay === 'function') {
+        // shell.js's `_tryConnectWebSocket(host, port)` takes a bare hostname and
+        // synthesizes `ws://<host>:8788`. `relay` here is a full URL (the
+        // manifest endpoint), so extract just the hostname before passing down.
+        let relayHost = relay;
+        let relayPort: number | undefined;
+        try {
+            const parsed = new URL(relay);
+            relayHost = parsed.hostname || relay;
+            // Include port too so the overlay can reach the relay via the
+            // exact URL authority (matches AppRouter.mountOverlayBundle's
+            // props shape — initial-mount via QR-scan and subsequent-mount
+            // via twoTierBootstrap now agree end-to-end).
+            if (parsed.port !== '') {
+                const p = Number.parseInt(parsed.port, 10);
+                if (Number.isFinite(p)) relayPort = p;
+            } else {
+                // Default ports per scheme — http=80, https=443.
+                relayPort =
+                    parsed.protocol === 'https:' || parsed.protocol === 'wss:'
+                        ? 443
+                        : 80;
+            }
+        } catch {
+            // Leave as-is if `relay` wasn't a parseable URL; shell.js will log
+            // the connect failure either way.
+        }
+        try {
+            console.log(
+                `${LOG_PREFIX} stage=mount OnlookRuntime.mountOverlay() bytes=${bundleResult.source.length} relayHost=${relayHost} relayPort=${relayPort ?? '<unset>'}`,
+            );
+            const props: Record<string, unknown> = { sessionId, relayHost };
+            if (relayPort !== undefined) props.relayPort = relayPort;
+            runtime.mountOverlay(bundleResult.source, props);
+            console.log(`${LOG_PREFIX} stage=mount mountOverlay() returned`);
+            hasMountedApplication = true;
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
+            const stack = err instanceof Error && err.stack ? err.stack : '';
+            console.log(`${LOG_PREFIX} stage=mount mountOverlay THREW ${message}`);
+            if (stack) console.log(`${LOG_PREFIX} stack=${stack.slice(0, 800)}`);
+            return {
+                ok: false,
+                stage: 'mount',
+                error: `mountOverlay threw: ${message}`,
+            };
+        }
+        try {
+            await addRecentSession({
+                sessionId,
+                relayHost: relay,
+                lastConnected: new Date().toISOString(),
+            });
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
+            console.warn(`${LOG_PREFIX} failed to persist recent session: ${message}`);
+        }
+        return { ok: true, sessionId, relay };
+    }
 
     if (!hasMountedApplication) {
         const runApplication = runtime?.runApplication;
@@ -218,5 +294,5 @@ export async function qrToMount(barcodeData: string): Promise<QrMountResult> {
         console.warn(`${LOG_PREFIX} failed to persist recent session: ${message}`);
     }
 
-    return { ok: true, sessionId };
+    return { ok: true, sessionId, relay };
 }

@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "name": "Onlook Tabs Template Fixture",
+    "slug": "onlook-tabs-template-fixture",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "onlook-tabs-fixture",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.onlook.fixtures.tabstemplate"
+    },
+    "android": {
+      "package": "com.onlook.fixtures.tabstemplate"
+    }
+  }
+}

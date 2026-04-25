@@ -171,9 +171,17 @@ human_bytes() {
 }
 
 # JSON string escaper (handles backslash + double quote + control chars).
+#
+# IMPORTANT: the loop start index is 1, not 0. `sprintf("%c", 0)` in awk
+# produces the NUL character, which awk represents internally as the
+# empty string — and `gsub("", "\\u0000", s)` would then match between
+# EVERY character of the input and inject "\u0000" there, corrupting
+# the output to `\u0000/\u0000v\u0000a\u0000r\u0000...` (symptom of
+# the prior bug). Filesystem paths and the other strings we escape
+# here can't contain a real NUL byte anyway, so skipping it is safe.
 json_escape() {
     awk 'BEGIN {
-        for (i = 0; i < 32; i++) ctrl[sprintf("%c", i)] = sprintf("\\u%04x", i);
+        for (i = 1; i < 32; i++) ctrl[sprintf("%c", i)] = sprintf("\\u%04x", i);
     }
     {
         s = $0;

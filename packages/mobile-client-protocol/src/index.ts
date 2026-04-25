@@ -25,4 +25,13 @@ export * from './inspector.ts';
 // MCF7 — runtime version constant + compatibility matrix
 export * from './runtime-version.ts';
 
+// QC-06 — overlay protocol message schema (legacy; retired once Phase 11 task #89 lands)
+export * from './overlay.ts';
+
+// ADR-0001 / two-tier-overlay-v2 task #4 — Overlay ABI v1 shared schemas
+export * from './abi-v1.ts';
+
+// MCG.10 — cf-expo-relay /events endpoint event union + Zod parser
+export * from './relay-events.ts';
+
 export const PROTOCOL_PACKAGE_NAME = '@onlook/mobile-client-protocol' as const;

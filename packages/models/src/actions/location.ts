@@ -8,8 +8,11 @@ const BaseActionLocationSchema = z.object({
 
 export const IndexActionLocationSchema = BaseActionLocationSchema.extend({
     type: z.literal('index'),
-    index: z.number(),
-    originalIndex: z.number(),
+    // Array indices — must be non-negative integers. `.int()` rejects
+    // NaN, ±Infinity, and any fractional value that would mean "halfway
+    // between children" (which has no meaning for DOM mutation).
+    index: z.number().int().nonnegative(),
+    originalIndex: z.number().int().nonnegative(),
 });
 
 export const ActionLocationSchema = z.discriminatedUnion('type', [

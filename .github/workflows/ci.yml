@@ -77,4 +77,18 @@ jobs:
         run: bun install --frozen
 
       - name: Run tests
-        run: bun test --timeout 30000 --coverage
+        # Delegate to each workspace's own `test` script via the root
+        # `bun run test` (= `bun --filter '*' test`). Respects the
+        # mobile-client isolation requirement documented in CLAUDE.md
+        # ("Do NOT use plain bun test across the mobile-client src
+        # tree — use bun run test"): Bun's `mock.module()` is
+        # process-wide, so running everything in one process causes
+        # cross-file pollution (e.g. `parseOnlookDeepLink` sees a
+        # stubbed `./parse` from qrToMount.test.ts). The mobile-client
+        # `test` script spawns one process per `*.test.ts` via
+        # `scripts/run-tests-isolated.ts`, which the root `bun test`
+        # invocation bypasses. The per-workspace scripts each scope
+        # correctly (web-client passes `test src` as include paths,
+        # cf-expo-relay / packages/* use `bun test` at a narrower
+        # root, etc.).
+        run: bun run test
