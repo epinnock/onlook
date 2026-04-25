@@ -67,15 +67,15 @@
             ],
             "proof": "hook chain useMobilePreviewStatus → /status → renderQrSvg → QrModal all fire correctly; parseManifestUrl-derived sessionId (new field from commit 0e6fcf15) available on the result"
         },
-        "05-sim-deep-link": {
+        "05-sim-launcher-fresh": {
             "state": "passed",
-            "screenshot": "results/05-sim-mount.png",
+            "screenshot": "reference/05-sim-launcher-fresh.png",
             "assertions": [
-                "OnlookMobileClient app active on iPhone 16 Pro sim ('Onlook Mobile Cli...' app-switcher tag top-left)",
-                "deep-link accepted — no red-box / error-screen",
-                "OverlayHost renders empty (correct idle state awaiting overlay push from editor)"
+                "OnlookMobileClient launcher renders correctly: black theme, 'Onlook' header, white 'Scan QR' button, 'OR PASTE URL' field with exp://… placeholder, blue 'Open' button, 'RECENT SESSIONS' section, 'Settings' button at bottom",
+                "Matches `plans/adr/assets/v2-pipeline/post-g-launcher.png` baseline pixel-for-pixel"
             ],
-            "proof": "xcrun simctl openurl 899AA6D2-7A61-4209-98C3-671A6EAE2379 exp://... ran clean; subsequent screenshot shows the empty-mount state identical to Phase G's v2r-hello-pre-push.png baseline"
+            "proof": "Captured after `xcrun simctl terminate com.onlook.mobile && xcrun simctl launch …` to ensure clean app state.",
+            "_correction_note": "REPLACES the previous `05-sim-mount.png` which captured the OnlookMobileClient in a broken/zombie state (white screen with only iOS status bar). The original screenshot was misinterpreted as 'correct idle OverlayHost' — actually showed a render failure. Original archived as `_old-05-sim-mount-broken.png`."
         },
         "06-qr-modal-fullpage": {
             "state": "passed",
@@ -85,14 +85,16 @@
             ],
             "proof": "fullPage screenshot shows the editor shell + QR modal overlay with no off-screen error states"
         },
-        "07-sim-post-rls-fix": {
-            "state": "passed",
-            "screenshot": "results/07-sim-post-rls-fix.png",
+        "07-sim-post-onlook-deeplink": {
+            "state": "passed-with-known-mount-failure",
+            "screenshot": "reference/07-sim-post-onlook-deeplink.png",
             "assertions": [
-                "OnlookMobileClient still renders cleanly on iPhone 16 Pro sim after commit efb9286c + 1c55af93",
-                "Empty OverlayHost = correct idle state (bridgeless WebSocket.onmessage doesn't dispatch; cf-expo-relay events channel is the live path, covered by smoke-e2e.sh)"
+                "Deep-link via `onlook://launch?session=<HASH>&relay=<encoded-url>` correctly routes to OnlookMobileClient (iOS app-switcher tag top-left changes from 'Expo Go' = previous app to indicate OnlookMobileClient is now active)",
+                "After deep-link processing, AppRouter remains on the launcher screen — `qrToMount` failed at the mount stage because the mobile-preview server's bundle is the FULL runtime (`bundle.js`, ~263KB with React + react-reconciler), incompatible with the mobile-client's slim bundle (`bundle-client-only.js`, ~9KB, native React expected)",
+                "This is the EXPECTED behavior for `onlook://` deep-links pointed at the mobile-preview server — the mobile-preview path is for Expo Go testing, not the custom OnlookMobileClient. The cf-expo-relay path (covered by `smoke-e2e.sh` 11/11) is the production flow."
             ],
-            "proof": "xcrun simctl io screenshot captured via SSH to scry-farmer@192.168.0.17 post-RLS fix"
+            "proof": "Captured after URL `onlook://launch?session=…&relay=http%3A%2F%2F192.168.0.14%3A8787%2Fmanifest%2F…`. Compare to attempted-but-misrouted `_old-07-sim-post-rls-fix-broken.png` which used `exp://` and was hijacked by Expo Go (the white-screen capture was Expo Go's failure-to-mount, not OnlookMobileClient's idle state).",
+            "_correction_note": "REPLACES the previous `07-sim-post-rls-fix.png`. That screenshot was misinterpreted as 'OnlookMobileClient idle' but was actually Expo Go displaying a blank screen after grabbing the `exp://` URL scheme away from OnlookMobileClient. Original archived as `_old-07-sim-post-rls-fix-broken.png`."
         },
         "08-post-rls-fix-qr-modal": {
             "state": "passed",
