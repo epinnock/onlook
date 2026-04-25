@@ -692,11 +692,21 @@ iOS and Android paths fan out in parallel — 4.1–4.6 are iOS, 4.7–4.11 are 
   - New router `mobileInspector` registered on `appRouter` exposing two skeleton procedures: `getActiveSession` (public query, returns `null` placeholder until the session registry lands) and `onSelect` (public mutation, input validated against `SelectMessageSchema` from `@onlook/mobile-client-protocol`, logs for now). Matches the existing import style in `root.ts` (nested path for routers outside the barrel — same pattern as `branchRouter` / `cfSandboxRouter`). No test harness existed at `apps/web/client/src/server/api/__tests__/root.test.ts`; left un-added pending a broader server-side test rig.
   - Validate: `bun --filter @onlook/web-client typecheck` clean for the new router/root changes (remaining errors are pre-existing in unrelated code paths — 21 before, 21 after).
 
-- **MC4.17** — Editor-side Monaco cursor jump on `onlook:select`
-  - Files: `apps/web/client/src/components/editor/monaco/cursor-jump-from-mobile.tsx`
+- **MC4.17** — Editor-side cursor jump on `onlook:select`
+  - Files: `apps/web/client/src/services/expo-relay/wireOnlookSelectToIdeManager.ts`,
+    `apps/web/client/src/components/store/editor/ide/index.ts` (`openCodeLocation` method),
+    `apps/web/client/src/app/project/[id]/_components/main.tsx` (production `useEffect` mount).
   - Deps: MC4.15
-  - Validate: `bun test apps/web/client/src/components/editor/monaco/__tests__/cursor-jump-from-mobile.test.tsx` (uses existing editor test rig: posts a fake `onlook:select`, asserts cursor position)
-  - Status: **shipped 2026-04-16 as d9f90113** — Monaco cursor jump driven by `onlook:select`.
+  - Validate: `bun test apps/web/client/src/services/expo-relay/__tests__/wireOnlookSelectToIdeManager.test.ts` (6 tests).
+  - Status: **shipped 2026-04-25 as `9eda7ddb`+`47a01022`+`2be936c8`+`99f246d0`+`abc8526d`** —
+    audit caught a stale Monaco-shaped helper (`wireCursorJump` /
+    `monacoCursorJump`) at the originally-planned path that
+    couldn't have fired in this codebase since the editor uses
+    CodeMirror's `EditorView`, not Monaco. Replaced with a
+    CodeMirror-native path via the existing `_codeNavigationOverride`
+    MobX state pattern (which `openCodeBlock` already used), wired
+    into `Main`'s mount effect. Stale Monaco shim deleted
+    (`2be936c8`); v2 task queue row #85 also updated.
 
 - **MC4.18** — End-to-end inspector flow (device tap → editor cursor jump) — **Status: JS integration shipped 2026-04-11; Maestro flow pending MC4.6 + MC4.17.**
   - Files: `apps/mobile-client/src/flow/inspectorFlow.ts`, `apps/mobile-client/src/flow/__tests__/inspectorFlow.test.ts`, `apps/mobile-client/src/flow/index.ts` (barrel). Maestro `apps/mobile-client/e2e/flows/27-tap-to-editor.yaml` + fixture bundle still to land once native tap capture (MC4.6, blocked on Wave 2 MC2.5) and Monaco cursor jump (MC4.17) ship.
