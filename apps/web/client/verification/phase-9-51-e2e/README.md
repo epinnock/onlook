@@ -25,6 +25,34 @@ OnlookMobileClient specifically, always use the `onlook://` scheme — it
 maps cleanly via `parseOnlookDeepLink` in
 `apps/mobile-client/src/deepLink/parse.ts`.
 
+### Known compatibility gap on the Expo Go path
+
+Observed during this session: the mobile-preview server's `bundle.js`
+(the full runtime with React + react-reconciler) blanks when loaded by
+**Expo Go SDK 54 + new-arch**. The reconciler's host config calls
+`UIManager.createView` which is absent in bridgeless+new-arch (per
+`plans/adr/v2-pipeline-validation-findings.md` finding #5). The
+OnlookMobileClient path works around this by gating `runtime.js` off
+via `globalThis.__noOnlookRuntime = true` in
+`apps/mobile-client/index.js`, but Expo Go has no such gate and just
+silently no-ops the render.
+
+The article at `plans/article-native-preview-from-browser.md` predates
+the SDK 54 bridgeless rollout. If you're testing the mobile-preview
+server path against current Expo Go, expect blank screens until the
+runtime bundle is reworked for new-arch.
+
+This is **not** a regression introduced by this PR — it's a pre-
+existing architectural gap that explains why the original
+`_old-05-sim-mount-broken.png` and `_old-07-sim-post-rls-fix-broken.png`
+captures were blank. Future work could:
+1. Build a new-arch-compatible runtime variant (similar to the
+   `bundle-client-only.js` slim split).
+2. Pin Expo Go to an older SDK on the test sim (rollback).
+3. Stop testing this path against new-arch Expo Go and rely solely on
+   the cf-expo-relay + OnlookMobileClient path for visual evidence
+   (Phase G's `v2r-{hello,updated}.png` already does this).
+
 ## Layout
 
 - `reference/` — committed baseline screenshots. Inspect these when you
