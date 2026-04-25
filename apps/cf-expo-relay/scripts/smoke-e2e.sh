@@ -125,6 +125,15 @@ status="${resp##*$'\n'}"; body="${resp%$'\n'*}"
 assert_status "events /poll" 200 "$status"
 assert_contains "events /poll type" '"type":"overlayAck"' "$body"
 
+# 5. AbiHello WS chain — Phase 11b handshake round-trip + late-joiner replay
+#    (delegated to a Bun script; needs the WebSocket client).
+echo "[smoke-e2e] AbiHello WS chain"
+if bun "${SCRIPT_DIR}/smoke-abi-hello.ts" "http://localhost:${RELAY_PORT}"; then
+    ok "AbiHello WS chain (phone↔editor + late-joiner replay)"
+else
+    fail "AbiHello WS chain — see [smoke-abi-hello] log lines above for the failing assertion"
+fi
+
 echo "[smoke-e2e] all green"
 if [[ "$KEEP" -eq 1 ]]; then
     echo "[smoke-e2e] --keep: relay=$RELAY_PID cache=$CACHE_PID"
