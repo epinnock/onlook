@@ -1097,4 +1097,161 @@ describe('TwoTierMobilePreviewPipeline.sync', () => {
             resetPipelineFlag();
         }
     });
+
+    // 2026-04-25 — Phase 11b additional perf signal. evaluateSizeDelta is
+    // called after every successful push and compares the wrapped bundle's
+    // byte size against the previous successful push's wrapped size on the
+    // same pipeline instance. Surfaces `size-grew` / `size-shrunk` in the
+    // soak dashboard so an overlay that suddenly balloons (regression) or
+    // shrinks (cleanup) is observable per-pipeline.
+    test('size-delta: first push emits no size-grew event (no baseline yet)', async () => {
+        pipelineFlagState.v1Enabled = false;
+        const captures = installPostHogStub();
+        const relay = await startFakeRelay();
+        try {
+            const { service } = makeEsbuildService('module.exports = {a: 1};');
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                {
+                    esbuildService: service,
+                    createSessionId: () => 'first-push',
+                },
+            );
+            await pipeline.sync({ fileSystem: makeVfs(FILES) });
+
+            const sizeEvents = captures
+                .filter((c) => c.event === 'onlook_overlay_perf')
+                .filter(
+                    (c) =>
+                        c.props!.category === 'size-grew' ||
+                        c.props!.category === 'size-shrunk',
+                );
+            expect(sizeEvents).toHaveLength(0);
+        } finally {
+            await relay.close();
+            uninstallPostHogStub();
+            resetPipelineFlag();
+        }
+    });
+
+    test('size-delta: consecutive pushes with ≥20% growth emit size-grew warn on second push', async () => {
+        pipelineFlagState.v1Enabled = false;
+        const captures = installPostHogStub();
+        const relay = await startFakeRelay();
+        try {
+            // Two services produce different-size bundles; reuse the same
+            // pipeline instance across both syncs so previousOverlayBytes
+            // is preserved for the size-delta check.
+            const smallCode = 'x'.repeat(1024); // ~1 KB raw
+            const largeCode = 'x'.repeat(2048); // ~2 KB raw → 100% growth
+            let buildCount = 0;
+            const switchingService: BrowserBundlerEsbuildService = {
+                async build() {
+                    buildCount += 1;
+                    return {
+                        outputFiles: [
+                            {
+                                path: 'out.js',
+                                text: buildCount === 1 ? smallCode : largeCode,
+                            },
+                            { path: 'out.js.map', text: '{}' },
+                        ],
+                        warnings: [],
+                    };
+                },
+            };
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                {
+                    esbuildService: switchingService,
+                    createSessionId: () => 'size-grew',
+                },
+            );
+            await pipeline.sync({ fileSystem: makeVfs(FILES) });
+            // Mutate one file so the incremental cache doesn't short-circuit
+            // the second build (otherwise esbuild would only run once).
+            await pipeline.sync({
+                fileSystem: makeVfs({ ...FILES, 'app.tsx': '/* changed */' }),
+            });
+
+            const sizeGrewEvents = captures
+                .filter((c) => c.event === 'onlook_overlay_perf')
+                .filter((c) => c.props!.category === 'size-grew');
+            expect(sizeGrewEvents.length).toBeGreaterThan(0);
+            expect(sizeGrewEvents[0]!.props!.severity).toBe('warn');
+            expect(sizeGrewEvents[0]!.props!.pipeline).toBe('overlay-legacy');
+            // Detail fields populated.
+            expect(typeof sizeGrewEvents[0]!.props!.previousBytes).toBe('number');
+            expect(typeof sizeGrewEvents[0]!.props!.currentBytes).toBe('number');
+            const previous = sizeGrewEvents[0]!.props!.previousBytes as number;
+            const current = sizeGrewEvents[0]!.props!.currentBytes as number;
+            expect(current).toBeGreaterThan(previous);
+        } finally {
+            await relay.close();
+            uninstallPostHogStub();
+            resetPipelineFlag();
+        }
+    });
+
+    test('size-delta: dispose() resets the baseline (next push treated as first)', async () => {
+        pipelineFlagState.v1Enabled = false;
+        const captures = installPostHogStub();
+        const relay = await startFakeRelay();
+        try {
+            const smallCode = 'x'.repeat(1024);
+            const largeCode = 'x'.repeat(2048);
+            let buildCount = 0;
+            const switchingService: BrowserBundlerEsbuildService = {
+                async build() {
+                    buildCount += 1;
+                    return {
+                        outputFiles: [
+                            {
+                                path: 'out.js',
+                                text: buildCount === 1 ? smallCode : largeCode,
+                            },
+                            { path: 'out.js.map', text: '{}' },
+                        ],
+                        warnings: [],
+                    };
+                },
+            };
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                {
+                    esbuildService: switchingService,
+                    createSessionId: () => 'size-reset',
+                },
+            );
+            await pipeline.sync({ fileSystem: makeVfs(FILES) });
+            // Reset baseline — emulates session teardown / pipeline dispose.
+            pipeline.dispose();
+            await pipeline.sync({
+                fileSystem: makeVfs({ ...FILES, 'app.tsx': '/* changed */' }),
+            });
+
+            // Even though the second push is much larger than the first, the
+            // baseline got cleared in between → no size-grew event.
+            const sizeGrewEvents = captures
+                .filter((c) => c.event === 'onlook_overlay_perf')
+                .filter((c) => c.props!.category === 'size-grew');
+            expect(sizeGrewEvents).toHaveLength(0);
+        } finally {
+            await relay.close();
+            uninstallPostHogStub();
+            resetPipelineFlag();
+        }
+    });
 });
