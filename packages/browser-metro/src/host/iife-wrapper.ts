@@ -198,6 +198,51 @@ ${moduleEntries}
 
   // Entry point
   __makeRequire('')(${entryLiteral});
+
+  // Auto-runApplication fallback for raw \`AppRegistry.registerComponent\`-
+  // style entries. Expo Router / \`expo\`'s \`registerRootComponent\` call
+  // \`runApplication\` themselves, so this is a no-op there. The seed
+  // template (and projects ported from non-expo RN code) only register
+  // and never run — that's what produces the "Loading browser preview…"
+  // hang in the iframe. Bisected against the running editor on
+  // 2026-04-25 with hash 25a3e2e8 / cfa27395.
+  //
+  // We only fire when (a) react-native-web is in the URL cache (i.e.
+  // the entry actually pulled it in), AND (b) #root still shows the
+  // loading shim, meaning nothing rendered. Both checks are wrapped in
+  // try/catch so a failure here can never mask a more useful error
+  // from the user's bundle.
+  try {
+    var __rnwSpec = null;
+    var __cacheKeys = Object.keys(__urlCache);
+    for (var __i = 0; __i < __cacheKeys.length; __i++) {
+      if (__cacheKeys[__i].indexOf('react-native-web') !== -1) {
+        __rnwSpec = __cacheKeys[__i];
+        break;
+      }
+    }
+    if (
+      __rnwSpec &&
+      typeof document !== 'undefined' &&
+      document.getElementById &&
+      document.getElementById('__loading')
+    ) {
+      var __rnw = __urlCache[__rnwSpec];
+      var __reg = __rnw && __rnw.AppRegistry;
+      if (__reg && typeof __reg.runApplication === 'function') {
+        var __root = document.getElementById('root') || document.body;
+        // Drop the loading shim before runApplication mounts so it
+        // doesn't sit underneath the rendered tree.
+        var __loading = document.getElementById('__loading');
+        if (__loading && __loading.parentNode) __loading.parentNode.removeChild(__loading);
+        __reg.runApplication('main', { rootTag: __root });
+      }
+    }
+  } catch (__autoRunErr) {
+    if (typeof console !== 'undefined' && console.error) {
+      console.error('[browser-metro] auto-runApplication fallback failed', __autoRunErr);
+    }
+  }
 `;
 
     const code = `;(async function(){\n${runtime}\n})();`;
