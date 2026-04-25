@@ -10,8 +10,8 @@
  *   - Evaluates cleanly under Hermes-mode stubs (the mobile-client's actual
  *     JS environment). entry-client-only.js has no runtime.js gate to begin
  *     with — runtime.js is excluded from this bundle entirely.
- *   - The shell's `RN$AppRegistry` shadow + Metro module system stay
- *     IIFE-contained (same as the full bundle).
+ *   - The shell's RN$AppRegistry compose-or-fresh-install + Metro
+ *     module system stay IIFE-contained (same as the full bundle).
  *
  * If `runtime/bundle-client-only.js` is missing (fresh clone, failed build),
  * tests skip gracefully with a pointer to `bun run build:runtime:client-only`.
@@ -82,15 +82,15 @@ describe('bundle-client-only execution (Hermes mode): shell.js only, no React', 
         expect(sandbox.renderApp).toBeUndefined();
     });
 
-    test('shell.js installs RN$AppRegistry shadow on the sandbox', () => {
-        // Even without runtime.js, shell.js runs and registers its own
-        // RN$AppRegistry shadow object (with a `runApplication` method).
-        // Main.jsbundle's real AppRegistry is what the device uses at
-        // runtime — in the sandbox we see shell.js's shadow because
-        // there's no main.jsbundle to take precedence. Same behaviour as
-        // the full bundle (see bundle-execution.test.ts:146 — the full
-        // bundle's test has the same expectation issue, marked as
-        // pre-existing in the worktree).
+    test('shell.js fresh-installs RN$AppRegistry on the sandbox when no host registry exists', () => {
+        // The slim bundle still includes shell.js. shell.js's
+        // RN$AppRegistry block compose-or-fresh-installs based on
+        // whether a host registry already exists. The sandbox has
+        // none, so shell.js fresh-installs its own. On a real device
+        // (Expo Go SDK 54 bridgeless), the host's JSI-backed registry
+        // is mutated in place — see bundle-execution.test.ts for the
+        // full explanation of why mutating preserves the JSI binding
+        // and why a wholesale overwrite red-boxed the sim.
         expect(sandbox.RN$AppRegistry).toBeDefined();
         expect(typeof (sandbox.RN$AppRegistry as { runApplication?: unknown }).runApplication).toBe(
             'function',

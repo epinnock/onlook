@@ -131,15 +131,19 @@ describe('bundle execution (Onlook Mobile Client mode): runtime.js skipped, Reac
         expect(sandbox._initReconciler).toBeUndefined();
     });
 
-    test('sandbox.RN$AppRegistry shadow is installed by shell.js (harmless in Hermes)', () => {
-        // shell.js at line ~229 unconditionally sets
-        // `globalThis.RN$AppRegistry = { runApplication: ... }`. On device
-        // this is shadowed by main.jsbundle's real AppRegistry which loads
-        // first, so the shell's version is dead code. In this VM sandbox
-        // there's no main.jsbundle to take precedence, so we observe the
-        // shadow directly. Was previously asserted `toBeUndefined` based
-        // on an incorrect comment claiming the B13 block was Hermes-gated;
-        // shell.js has never actually had that gate.
+    test('sandbox.RN$AppRegistry is fresh-installed by shell.js when no host registry exists', () => {
+        // shell.js's RN$AppRegistry block (lines ~229-330) runs in two
+        // modes: when `globalThis.RN$AppRegistry` is already present
+        // (Expo Go SDK 54 bridgeless installs a JSI-backed one), it
+        // MUTATES the existing object's `runApplication` property so
+        // the JSI binding identity survives — overwriting it with a
+        // new object kills the C++ dispatch chain and red-boxes the
+        // sim with "non-std C++ exception" (bisected on a real
+        // iPhone 16 Pro sim 2026-04-25). When no host registry exists
+        // (this VM sandbox, browser-preview iframe, mobile-client
+        // harness), shell.js installs a fresh registry from scratch.
+        // The sandbox has no host registry, so we observe the
+        // fresh-install branch.
         expect(sandbox.RN$AppRegistry).toBeDefined();
         expect(
             typeof (sandbox.RN$AppRegistry as { runApplication?: unknown })
@@ -302,5 +306,109 @@ describe('bundle execution (Expo Go regression guard): no window, no opt-out fla
 
     test('createElement is exposed for shell.js default-screen render', () => {
         expect(typeof sandbox.createElement).toBe('function');
+    });
+});
+
+// Regression guard for the 2026-04-25 Expo Go SDK 54 bridgeless
+// red-box crash. shell.js used to do `globalThis.RN$AppRegistry = {
+// runApplication: ... }` unconditionally, which on a real device
+// CLOBBERED the host's JSI-backed RN$AppRegistry and red-boxed Hermes
+// with "non-std C++ exception" inside `RCTJSThreadManager::tryFunc`
+// the moment the host bridge tried to dispatch via the lost JSI
+// binding. The fix: mutate the existing object's `runApplication`
+// property instead of replacing the whole object — JSI binding
+// identity stays intact.
+//
+// This describe block models the exact bridgeless shape: sandbox has
+// a pre-existing `RN$AppRegistry` object identity. After eval, shell.js
+// must NOT have replaced that identity (`===` check). Bisected
+// against an iPhone 16 Pro / iOS 18.6 / Expo Go SDK 54 sim.
+describe('bundle execution (Expo Go bridgeless regression guard): preserve host RN$AppRegistry identity', () => {
+    if (!existsSync(BUNDLE_PATH)) {
+        test.skip('bundle.js not built — run `bun run build:runtime`', () => {
+            /* skipped */
+        });
+        return;
+    }
+
+    const bundle = readFileSync(BUNDLE_PATH, 'utf8');
+
+    // Pre-install a host-shaped RN$AppRegistry with a sentinel function
+    // we can identify. This mirrors what Expo Go SDK 54 bridgeless
+    // installs as a JSI binding before our bundle runs.
+    const hostRunApplication = function hostRunApplication() {
+        /* host stub */
+    };
+    const hostRegistry = { runApplication: hostRunApplication };
+    const sandbox: Record<string, unknown> = {
+        nativeFabricUIManager: { registerEventHandler: () => {} },
+        nativeLoggingHook: (_msg: string, _level: number) => {},
+        RN$registerCallableModule: (_name: string, _factory: () => unknown) => {},
+        RN$AppRegistry: hostRegistry,
+    };
+    const context = createContext(sandbox);
+
+    let evalError: Error | null = null;
+    try {
+        runInContext(bundle, context, { filename: 'bundle.js', timeout: 5000 });
+    } catch (err) {
+        evalError = err instanceof Error ? err : new Error(String(err));
+    }
+
+    test('bundle evaluates without throwing', () => {
+        expect(evalError).toBeNull();
+    });
+
+    test('host RN$AppRegistry object identity is preserved (not overwritten)', () => {
+        // The headline assertion. If shell.js reassigns
+        // `globalThis.RN$AppRegistry = { ... }`, this fails with
+        // `expected hostRegistry to be sandbox.RN$AppRegistry` and
+        // catches the bug that red-boxed the sim.
+        expect(sandbox.RN$AppRegistry).toBe(hostRegistry);
+    });
+
+    test('runApplication is replaced with the shell.js wrapper (not the host stub)', () => {
+        // We DO want to swap the function — that's how shell.js sees
+        // the rootTag and drives the reconciler. Just not the whole
+        // object.
+        const registry = sandbox.RN$AppRegistry as {
+            runApplication: () => unknown;
+        };
+        expect(registry.runApplication).not.toBe(hostRunApplication);
+        expect(typeof registry.runApplication).toBe('function');
+    });
+
+    test('shell.js wrapper delegates back to the host runApplication after its own work', () => {
+        // The wrapper should call the host's original `runApplication`
+        // at the end so the host's surface mounting still fires —
+        // skipping this is what would have made the bridgeless surface
+        // stay blank even after the JSI binding stopped crashing.
+        // Gate the sandbox on __noOnlookRuntime=true so runtime.js is
+        // skipped — keeps the wrapper invocation hermetic (no React
+        // reconciler microtasks racing with our spy).
+        let hostInvoked = false;
+        let receivedAppKey: unknown = null;
+        let receivedProps: unknown = null;
+        const tracked = function trackedHost(appKey: unknown, props: unknown) {
+            hostInvoked = true;
+            receivedAppKey = appKey;
+            receivedProps = props;
+        };
+        const trackedSandbox: Record<string, unknown> = {
+            nativeFabricUIManager: { registerEventHandler: () => {} },
+            nativeLoggingHook: (_msg: string, _level: number) => {},
+            RN$registerCallableModule: (_n: string, _f: () => unknown) => {},
+            RN$AppRegistry: { runApplication: tracked },
+            __noOnlookRuntime: true,
+        };
+        const ctx = createContext(trackedSandbox);
+        runInContext(bundle, ctx, { filename: 'bundle.js', timeout: 5000 });
+        const reg = trackedSandbox.RN$AppRegistry as {
+            runApplication: (k: string, p: { rootTag: number }) => unknown;
+        };
+        reg.runApplication('OnlookOverlay', { rootTag: 11 });
+        expect(hostInvoked).toBe(true);
+        expect(receivedAppKey).toBe('OnlookOverlay');
+        expect(receivedProps).toEqual({ rootTag: 11 });
     });
 });
