@@ -20,6 +20,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Platform, View, StyleSheet } from 'react-native';
 import { buildPhoneAbiHello } from '../relay/abiHello';
 import {
+    registerActiveWsSender,
+    unregisterActiveWsSender,
+} from '../relay/wsSender';
+import {
     CrashScreen,
     ErrorScreen,
     LauncherScreen,
@@ -374,6 +378,8 @@ function buildUrlPipelineRunner(actions: NavActions) {
                 onmessage: ((ev: { data: string }) => void) | null;
                 onerror: ((ev: unknown) => void) | null;
                 onclose: (() => void) | null;
+                readyState: number;
+                send(data: string): void;
             }) | undefined;
             if (typeof WSCtor === 'function') {
                 try {
@@ -424,6 +430,25 @@ function buildUrlPipelineRunner(actions: NavActions) {
                         gt.wsConnected = true;
                         slog('ws (native): OPEN');
                         sendAbiHello();
+                        // Expose this WS as the active sender for
+                        // observability streamers (ConsoleStreamer, etc.)
+                        // wired in App.tsx via dynamicWsSender. The
+                        // streamer holds dynamicWsSender for its
+                        // lifetime; the registry handles WS reconnects
+                        // transparently.
+                        try {
+                            registerActiveWsSender({
+                                get isConnected() {
+                                    return ws.readyState === WebSocket.OPEN;
+                                },
+                                send(msg) {
+                                    ws.send(JSON.stringify(msg));
+                                },
+                            });
+                        } catch (err: unknown) {
+                            const m = err instanceof Error ? err.message : String(err);
+                            slog('ws (native): registerActiveWsSender err ' + m);
+                        }
                     };
                     ws.onmessage = (ev) => {
                         try {
@@ -446,6 +471,12 @@ function buildUrlPipelineRunner(actions: NavActions) {
                     ws.onclose = () => {
                         gt.wsConnected = false;
                         slog('ws (native): CLOSED');
+                        try {
+                            unregisterActiveWsSender();
+                        } catch (err: unknown) {
+                            const m = err instanceof Error ? err.message : String(err);
+                            slog('ws (native): unregisterActiveWsSender err ' + m);
+                        }
                     };
                 } catch (e: unknown) {
                     const msg = e instanceof Error ? e.message : String(e);

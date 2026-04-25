@@ -228,3 +228,19 @@ A 54-commit autonomous session (PR #20) shipped four interrelated workstreams. M
 - v2 task queue rows #35, #85, #89-94 updated; mobile-client task queue MC4.17 (CodeMirror-native shipped), MC4.18 (precondition unblocked), MC2.5 (validate note refreshed).
 - ADR-0009 (Phase 11) updated with the safety-chain shipped status.
 - 4 new memory files capture durable lessons (audit pattern, MobX stub quirk, CodeMirror not Monaco, AppRouter Spike B WS bypass).
+
+## [Unreleased] - 2026-04-25 — observability wiring (workstream F continued)
+
+### Added
+- **`src/relay/wsSender.ts`**: process-wide registry that bridges AppRouter's Spike B raw WS (production) to observability streamers (ConsoleStreamer, future NetworkStreamer/ExceptionStreamer) that were previously typed against the dead-on-arrival `OnlookRelayClient`. Exposes `WsSenderHandle` interface (`isConnected` getter + `send(msg)`), `register/unregister/getActive` operations, and `dynamicWsSender` — a stable handle whose calls always delegate to the latest registered sender. Streamers hold `dynamicWsSender` for their lifetime; the registry handles WS reconnects transparently. 11 unit tests.
+- **AppRouter Spike B WS now registers itself**: `ws.onopen` calls `registerActiveWsSender({get isConnected() {...}, send(msg) {...}})` adapter; `ws.onclose` calls `unregisterActiveWsSender()`. Both wrapped in try/catch — a registry mishap must not wedge the WS.
+- **App.tsx wires ConsoleStreamer at boot**: instantiates `new ConsoleStreamer(dynamicWsSender, 'pending')` after `consoleRelay.install()`, calls `start()` so console patches install once at app boot. Pre-WS-open entries buffer locally on the streamer; they drain on the next forward call after AppRouter registers a sender. Deeplink resolution rotates the session id stamp via `consoleStreamerRef.current?.setSessionId(result.sessionId)`.
+
+### Changed
+- **`ConsoleStreamer` constructor type** widened from concrete `OnlookRelayClient` class to structural `WsSenderHandle` (audit-pattern fix). Closes the unwired-streamer gap documented at MC5.2 — the editor's `MobileConsoleTab` now receives entries on a real session. Added `setSessionId(id)` setter so the streamer is reused across deeplink-rotated sessions without re-patching console.
+
+### Tests
+- **+11 mobile-client tests** (482 total, was 471): `wsSender.test.ts` covering register/unregister/replace, `dynamicWsSender` connectivity reflection, send delegation including the latest-wins case after replacement, and throw-on-empty-registry. Existing `ConsoleStreamer` tests pass unchanged — the structural cast in the test fake is now redundant but harmless.
+
+### Documentation
+- mobile-client task queue MC5.2 status updated from "Done (primitive only — production wiring NOT shipped)" to "Done (production-wired via wsSender registry)" pending follow-up commit. NetworkStreamer (MC5.5) and ExceptionCatcher (MC5.7) wiring deferred — NetworkStreamer needs fetch/xhr patch installation; ExceptionCatcher has no streamer companion yet.

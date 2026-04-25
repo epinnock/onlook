@@ -11,22 +11,39 @@
  * Deps: MC5.1, MC3.13
  */
 
-import type { OnlookRelayClient } from '../relay/wsClient';
+import type { WsSenderHandle } from '../relay/wsSender';
 import { consoleRelay, type ConsoleEntry } from './consoleRelay';
 
 /**
  * Forwards entries from the console relay to the editor over the relay
- * WebSocket. Constructed with a relay client and a session id; call
+ * WebSocket. Constructed with a sender handle and a session id; call
  * {@link start} to begin forwarding and {@link stop} to unsubscribe.
+ *
+ * The `client` parameter is structurally typed as {@link WsSenderHandle}
+ * (`isConnected` getter + `send(msg)` method) so production callers can
+ * pass `dynamicWsSender` from `../relay/wsSender` — which delegates to
+ * AppRouter's Spike B WS via the global registry — without
+ * instantiating the canonical `OnlookRelayClient` (dead-on-arrival in
+ * production). Tests pass a small fake satisfying the same shape.
  */
 export class ConsoleStreamer {
     private unsubscribe: (() => void) | null = null;
     private buffer: ConsoleEntry[] = [];
 
     constructor(
-        private readonly client: OnlookRelayClient,
-        private readonly sessionId: string,
+        private readonly client: WsSenderHandle,
+        private sessionId: string,
     ) {}
+
+    /**
+     * Update the session id stamped on outgoing `onlook:console` messages.
+     * Production wiring boots ConsoleStreamer with a placeholder
+     * sessionId before the deeplink flow resolves; this updates it once
+     * the real id is known.
+     */
+    setSessionId(sessionId: string): void {
+        this.sessionId = sessionId;
+    }
 
     /**
      * Subscribe to the console relay and flush any entries buffered while
