@@ -60,12 +60,14 @@ function makeVfs(files: Record<string, string>): MobilePreviewPipelineVfs {
     };
 }
 
-async function startFakeRelay(): Promise<{
+async function startFakeRelay(opts: { failAssetUploads?: boolean } = {}): Promise<{
     baseUrl: string;
     pushes: Array<{ sessionId: string; body: string }>;
+    assetUploads: Array<{ hash: string; mime: string; bytes: number }>;
     close(): Promise<void>;
 }> {
     const pushes: Array<{ sessionId: string; body: string }> = [];
+    const assetUploads: Array<{ hash: string; mime: string; bytes: number }> = [];
     const server = http.createServer((req, res) => {
         if (req.method === 'POST' && req.url?.startsWith('/push/')) {
             const sessionId = req.url.slice('/push/'.length);
@@ -78,6 +80,29 @@ async function startFakeRelay(): Promise<{
             });
             return;
         }
+        // Phase 9 R2 upload — PUT /base-bundle/assets/<hash>
+        if (req.method === 'PUT' && req.url?.startsWith('/base-bundle/assets/')) {
+            const hash = decodeURIComponent(req.url.slice('/base-bundle/assets/'.length));
+            const chunks: Buffer[] = [];
+            req.on('data', (c) => chunks.push(c as Buffer));
+            req.on('end', () => {
+                if (opts.failAssetUploads) {
+                    res.writeHead(500);
+                    res.end('forced fail');
+                    return;
+                }
+                const bytes = Buffer.concat(chunks).byteLength;
+                assetUploads.push({
+                    hash,
+                    mime: req.headers['content-type'] ?? '',
+                    bytes,
+                });
+                // Match the real relay: 201 (created), no body.
+                res.writeHead(201);
+                res.end();
+            });
+            return;
+        }
         res.writeHead(404);
         res.end();
     });
@@ -86,6 +111,7 @@ async function startFakeRelay(): Promise<{
     return {
         baseUrl: `http://127.0.0.1:${port}`,
         pushes,
+        assetUploads,
         close: () => new Promise<void>((r, j) => server.close((e) => (e ? j(e) : r()))),
     };
 }
@@ -924,6 +950,148 @@ describe('TwoTierMobilePreviewPipeline.sync', () => {
             );
             await pipeline.sync({ fileSystem: makeVfs(FILES) });
             expect(relay.pushes).toHaveLength(1);
+        } finally {
+            await relay.close();
+            resetPipelineFlag();
+        }
+    });
+
+    // Phase 9 R2 source-map upload — pipeline uploads result.sourceMap
+    // to /base-bundle/assets/<hash> and threads the URI back via the
+    // onSourceMapUploaded deps callback. Activates the source-map
+    // decoration receive-chain (commits 0b09549f..be9586be).
+    test('v1 branch: uploads sourceMap + fires onSourceMapUploaded with URI', async () => {
+        pipelineFlagState.v1Enabled = true;
+        const relay = await startFakeRelay();
+        try {
+            const { service } = makeEsbuildService('module.exports = {};');
+            const uploadCalls: string[] = [];
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                {
+                    esbuildService: service,
+                    createSessionId: () => 'v1-srcmap',
+                    onSourceMapUploaded: (url: string) => uploadCalls.push(url),
+                },
+            );
+            await pipeline.sync({ fileSystem: makeVfs(FILES) });
+
+            // Asset upload fired exactly once.
+            expect(relay.assetUploads).toHaveLength(1);
+            expect(relay.assetUploads[0]!.mime).toBe('application/json');
+            expect(relay.assetUploads[0]!.bytes).toBeGreaterThan(0);
+
+            // Callback fired with the relay-derived URI.
+            expect(uploadCalls).toHaveLength(1);
+            expect(uploadCalls[0]).toMatch(
+                new RegExp(
+                    `^${relay.baseUrl.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}/base-bundle/assets/[0-9a-f]{64}$`,
+                ),
+            );
+
+            // Push body's meta carries the URI.
+            const pushed = JSON.parse(relay.pushes[0]!.body) as {
+                meta: { sourceMapUrl?: string };
+            };
+            expect(pushed.meta.sourceMapUrl).toBe(uploadCalls[0]);
+        } finally {
+            await relay.close();
+            resetPipelineFlag();
+        }
+    });
+
+    test('v1 branch: omitted onSourceMapUploaded — upload still fires but callback skipped', async () => {
+        pipelineFlagState.v1Enabled = true;
+        const relay = await startFakeRelay();
+        try {
+            const { service } = makeEsbuildService('module.exports = {};');
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                {
+                    esbuildService: service,
+                    createSessionId: () => 'v1-srcmap-no-cb',
+                    // no onSourceMapUploaded
+                },
+            );
+            await pipeline.sync({ fileSystem: makeVfs(FILES) });
+            expect(relay.assetUploads).toHaveLength(1); // upload still fires
+            const pushed = JSON.parse(relay.pushes[0]!.body) as {
+                meta: { sourceMapUrl?: string };
+            };
+            expect(pushed.meta.sourceMapUrl).toBeDefined(); // URI in push
+        } finally {
+            await relay.close();
+            resetPipelineFlag();
+        }
+    });
+
+    test('v1 branch: upload failure (5xx) — push falls through without sourceMap', async () => {
+        pipelineFlagState.v1Enabled = true;
+        const relay = await startFakeRelay({ failAssetUploads: true });
+        try {
+            const { service } = makeEsbuildService('module.exports = {};');
+            const uploadCalls: string[] = [];
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                {
+                    esbuildService: service,
+                    createSessionId: () => 'v1-srcmap-fail',
+                    onSourceMapUploaded: (url: string) => uploadCalls.push(url),
+                },
+            );
+            // Sync should not throw — best-effort upload.
+            await pipeline.sync({ fileSystem: makeVfs(FILES) });
+
+            // Callback NOT fired (upload failed).
+            expect(uploadCalls).toHaveLength(0);
+
+            // Push still happens — overlay mounts, just without source-map mapping.
+            expect(relay.pushes).toHaveLength(1);
+            const pushed = JSON.parse(relay.pushes[0]!.body) as {
+                meta: { sourceMapUrl?: string };
+            };
+            expect(pushed.meta.sourceMapUrl).toBeUndefined();
+        } finally {
+            await relay.close();
+            resetPipelineFlag();
+        }
+    });
+
+    test('legacy branch: ignores onSourceMapUploaded — gate is v1-only', async () => {
+        pipelineFlagState.v1Enabled = false;
+        const relay = await startFakeRelay();
+        try {
+            const { service } = makeEsbuildService('module.exports = {};');
+            const uploadCalls: string[] = [];
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                {
+                    esbuildService: service,
+                    createSessionId: () => 'legacy-no-srcmap',
+                    onSourceMapUploaded: (url: string) => uploadCalls.push(url),
+                },
+            );
+            await pipeline.sync({ fileSystem: makeVfs(FILES) });
+
+            // Legacy push doesn't go through the R2 upload path.
+            expect(relay.assetUploads).toHaveLength(0);
+            expect(uploadCalls).toEqual([]);
         } finally {
             await relay.close();
             resetPipelineFlag();
