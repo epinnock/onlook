@@ -13,7 +13,10 @@
  * still pass the raw map through to a `source-map` consumer they construct
  * themselves.
  */
-import type { OnlookRuntimeError } from '@onlook/mobile-client-protocol';
+import type {
+    ErrorMessage,
+    OnlookRuntimeError,
+} from '@onlook/mobile-client-protocol';
 
 export interface RawSourceMap {
     readonly version: 3;
@@ -178,4 +181,36 @@ export function decorateRuntimeErrorWithSourceMap(
     const resolved = resolveOverlayFrame(map, line, column);
     if (!resolved) return error;
     return { ...error, source: resolved };
+}
+
+/**
+ * Decorate an `ErrorMessage` (the WS phone→editor wire shape) with
+ * resolved `source` by mapping its `stack`'s first frame through the
+ * fetched map. Sibling of {@link decorateRuntimeErrorWithSourceMap}
+ * for the parallel `OnlookRuntimeError` shape — both source-location
+ * shapes (`SourceLocation` from `ws-messages.ts` and
+ * `AbiSourceLocation` from `abi-v1.ts`) have identical
+ * `{fileName, lineNumber, columnNumber}` fields, so `resolveOverlayFrame`
+ * returns a value compatible with both `.source` slots.
+ *
+ * The receive-chain wiring (where to call this — the dev panel's
+ * onError handler will need to track the latest `OverlayMeta.sourceMapUrl`
+ * + fetch on-demand) is the follow-up. See v2 task queue row #35
+ * "production wiring gap caught 2026-04-25" for the full plan. Returns
+ * a new message; input is not mutated. If no source location can be
+ * derived, returns the input unchanged (same fail-soft behavior as
+ * the runtime-error sibling).
+ */
+export function decorateErrorMessageWithSourceMap(
+    msg: ErrorMessage,
+    map: RawSourceMap | null,
+): ErrorMessage {
+    if (map === null || !msg.stack) return msg;
+    const match = /([A-Za-z0-9_<>./\\-]+):(\d+):(\d+)/.exec(msg.stack);
+    if (!match) return msg;
+    const line = Number(match[2]);
+    const column = Number(match[3]);
+    const resolved = resolveOverlayFrame(map, line, column);
+    if (!resolved) return msg;
+    return { ...msg, source: resolved };
 }

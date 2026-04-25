@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test';
+import type { ErrorMessage } from '@onlook/mobile-client-protocol';
 
 import {
     decodeVlqSegment,
+    decorateErrorMessageWithSourceMap,
     decorateRuntimeErrorWithSourceMap,
     fetchOverlaySourceMap,
     resolveOverlayFrame,
@@ -105,5 +107,82 @@ describe('overlay-sourcemap / decorateRuntimeErrorWithSourceMap', () => {
     test('returns the input unchanged when no frame matches', () => {
         const err = { kind: 'overlay-runtime' as const, message: 'm' };
         expect(decorateRuntimeErrorWithSourceMap(err, null)).toBe(err);
+    });
+});
+
+describe('overlay-sourcemap / decorateErrorMessageWithSourceMap', () => {
+    function makeErrMsg(overrides: Partial<ErrorMessage> = {}): ErrorMessage {
+        return {
+            type: 'onlook:error',
+            sessionId: 'sess-1',
+            kind: 'js',
+            message: 'boom',
+            timestamp: 1_712_000_000_000,
+            ...overrides,
+        };
+    }
+
+    test('annotates with resolved source when a frame matches', () => {
+        const map: RawSourceMap = {
+            version: 3,
+            sources: ['App.tsx'],
+            names: [],
+            mappings: 'AAAA',
+        };
+        const decorated = decorateErrorMessageWithSourceMap(
+            makeErrMsg({ stack: 'at bundle.js:1:0' }),
+            map,
+        );
+        expect(decorated.source).toEqual({
+            fileName: 'App.tsx',
+            lineNumber: 1,
+            columnNumber: 0,
+        });
+    });
+
+    test('returns input unchanged when map is null', () => {
+        const msg = makeErrMsg({ stack: 'at bundle.js:1:0' });
+        expect(decorateErrorMessageWithSourceMap(msg, null)).toBe(msg);
+    });
+
+    test('returns input unchanged when stack is absent (errors w/o frames)', () => {
+        const msg = makeErrMsg();
+        const map: RawSourceMap = {
+            version: 3,
+            sources: ['App.tsx'],
+            names: [],
+            mappings: 'AAAA',
+        };
+        expect(decorateErrorMessageWithSourceMap(msg, map)).toBe(msg);
+    });
+
+    test('returns input unchanged when stack regex finds no frame match', () => {
+        const msg = makeErrMsg({ stack: 'no frames here' });
+        const map: RawSourceMap = {
+            version: 3,
+            sources: ['App.tsx'],
+            names: [],
+            mappings: 'AAAA',
+        };
+        expect(decorateErrorMessageWithSourceMap(msg, map)).toBe(msg);
+    });
+
+    test('preserves other ErrorMessage fields verbatim', () => {
+        const map: RawSourceMap = {
+            version: 3,
+            sources: ['App.tsx'],
+            names: [],
+            mappings: 'AAAA',
+        };
+        const msg = makeErrMsg({
+            stack: 'at bundle.js:1:0',
+            kind: 'react',
+            message: 'render boom',
+        });
+        const decorated = decorateErrorMessageWithSourceMap(msg, map);
+        expect(decorated.kind).toBe('react');
+        expect(decorated.message).toBe('render boom');
+        expect(decorated.sessionId).toBe(msg.sessionId);
+        expect(decorated.timestamp).toBe(msg.timestamp);
     });
 });
