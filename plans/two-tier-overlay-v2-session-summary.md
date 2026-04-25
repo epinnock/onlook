@@ -76,7 +76,11 @@ intentionally deferred, and where a future contributor should pick up.
 - `pushOverlayV1` — `OverlayUpdateMessage` wire shape with sha256
   `overlayHash`.
 - `abi-hello` — editor handshake helper with `checkAbiCompatibility` gate.
-- `reconnect-replayer` — re-push on phone reconnect.
+- ~~`reconnect-replayer`~~ — superseded 2026-04-25 by hook-level
+  `useMobilePreviewStatus` recovery (commit `c191fc0d`); module
+  deleted in `0ae3179c`. The hook detects the
+  `abiCompatibility` 'unknown'→'ok' transition and triggers a
+  manual `pipeline.sync()` instead of the standalone re-push helper.
 - `overlay-status` — MobX-friendly state machine (idle → building →
   uploading-assets → sent → mounted | error).
 - `overlay-debounce` — 150 ms trailing debounce with injectable clock.
