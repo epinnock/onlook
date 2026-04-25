@@ -15,3 +15,5 @@ export * from './relay-ws-client';
 export * from './overlay-pipeline';
 export * from './overlay-telemetry-sink';
 export * from './perf-guardrails';
+export * from './onlookSelectReceiver';
+export * from './wireOnlookSelectToIdeManager';
