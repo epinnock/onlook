@@ -29,6 +29,7 @@ import type { MobilePreviewPipeline, MobilePreviewVfs } from '@/services/mobile-
 import { renderQrSvg } from '@/services/expo-relay';
 import { parseManifestUrl } from '@/services/expo-relay/manifest-url';
 import { emitOverlayAckTelemetry } from '@/services/expo-relay/overlay-telemetry-sink';
+import { dispatchOnlookSelect } from '@/services/expo-relay/onlookSelectReceiver';
 import {
     createSourceMapCache,
     wireBufferDecorationOnError,
@@ -509,6 +510,20 @@ export function useMobilePreviewStatus(
         handlers: {
             onOverlayAck: emitOverlayAckTelemetry,
             onError: decorationOnError,
+            // Tap-to-source receive-chain: phone TapHandler dispatches a
+            // SelectMessage over the WS; relay-events.ts case
+            // 'onlook:select' calls `handlers.onSelect?.(msg)`, which
+            // we route into the in-process pub-sub `onlookSelectReceiver`.
+            // `wireOnlookSelectToIdeManager` (commit `9eda7ddb`) is the
+            // sole subscriber in production — it normalizes to flat shape
+            // and calls `IdeManager.openCodeLocation(file, line, col)`.
+            // Without this handler, SelectMessages parse cleanly but never
+            // reach the IDE; the editor receives the tap but cursor never
+            // jumps. Companion to commit `5da582fe`'s bundler-side
+            // __source injection (the producer) — this is the consumer.
+            onSelect: (msg) => {
+                dispatchOnlookSelect(msg);
+            },
         },
         onAbiCompatibility: useCallback(
             (result: 'ok' | OnlookRuntimeError, hello: AbiHelloMessage) => {
