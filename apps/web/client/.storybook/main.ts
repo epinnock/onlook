@@ -57,8 +57,18 @@ const config: StorybookConfig = {
 
     return mergeConfig(config, {
       define: {
-        'process.env': '{}',
-        'process': '{"env": {}}',
+        // Storybook renders components that transitively import `@/env`,
+        // which calls `@t3-oss/env-nextjs` with
+        // `skipValidation: !!process.env.SKIP_ENV_VALIDATION`. In a
+        // bundled client context `process.env.*` is replaced at build
+        // time — wiping it to `{}` (previous behavior) caused
+        // skipValidation → false → env-validation → throw on required
+        // NEXT_PUBLIC_SUPABASE_URL etc. Chromatic's page.evaluate then
+        // died with "Invalid environment variables" during
+        // story-extract. Preserve SKIP_ENV_VALIDATION so the t3-env
+        // bypass still fires in the Storybook preview bundle.
+        'process.env': JSON.stringify({ SKIP_ENV_VALIDATION: 'true' }),
+        'process': JSON.stringify({ env: { SKIP_ENV_VALIDATION: 'true' } }),
       },
       resolve: {
         alias: {
