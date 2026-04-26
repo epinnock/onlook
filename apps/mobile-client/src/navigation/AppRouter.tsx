@@ -224,8 +224,20 @@ export function buildDeepLinkPipelineUrl(parsed: {
 }
 
 function buildUrlPipelineRunner(actions: NavActions) {
-    return (data: string) => {
+    const runner = (data: string) => {
         const log: string[] = [];
+        // `showError` is the same as `show` but adds an `onRetry` handler so the
+        // ErrorScreen renders a Retry button. Used by the preflight + manifest
+        // + bundle stages where transient network state (Wi-Fi flap, server
+        // restart, host typo just corrected) is a likely cause and the user
+        // shouldn't have to navigate back to the launcher and re-paste.
+        const showError = (title: string, extra = '') => {
+            actions.resetTo('error', {
+                errorTitle: title,
+                errorMessage: log.join('\n') + (extra ? '\n' + extra : ''),
+                onRetry: () => runner(data),
+            });
+        };
         const show = (title: string, extra = '') => {
             actions.resetTo('error', {
                 errorTitle: title,
@@ -258,7 +270,7 @@ function buildUrlPipelineRunner(actions: NavActions) {
                     log.push(`preflight A ${r.status}`);
                 } catch (e: unknown) {
                     const msg = e instanceof Error ? e.message : String(e);
-                    show('Preflight A failed (external)', msg);
+                    showError('Preflight A failed (external)', msg);
                     return;
                 }
             }
@@ -278,7 +290,7 @@ function buildUrlPipelineRunner(actions: NavActions) {
                 }
             } catch (e: unknown) {
                 const msg = e instanceof Error ? e.message : String(e);
-                show('Preflight B failed (LAN)', msg);
+                showError('Preflight B failed (LAN)', msg);
                 return;
             }
 
@@ -303,7 +315,7 @@ function buildUrlPipelineRunner(actions: NavActions) {
                 manifest = r.manifest;
             } catch (e: unknown) {
                 const msg = e instanceof Error ? e.message : String(e);
-                show('Manifest threw', msg);
+                showError('Manifest threw', msg);
                 return;
             }
             const bundleUrl = manifest.launchAsset.url;
@@ -321,7 +333,7 @@ function buildUrlPipelineRunner(actions: NavActions) {
                 bundleSource = r.source;
             } catch (e: unknown) {
                 const msg = e instanceof Error ? e.message : String(e);
-                show('Bundle threw', msg);
+                showError('Bundle threw', msg);
                 return;
             }
             log.push(`bundle ok bytes=${bundleSource.length}`);
@@ -502,6 +514,7 @@ function buildUrlPipelineRunner(actions: NavActions) {
             // rootTag=11, overwriting the custom reconciler's output.
         })();
     };
+    return runner;
 }
 
 export default function AppRouter() {
