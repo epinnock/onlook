@@ -11,6 +11,15 @@ export interface MobilePreviewManifestContext {
     readonly storeDir: string;
     readonly lanIp: string;
     readonly httpPort: number;
+    /**
+     * Optional public origin override (e.g. cloudflared / ngrok tunnel).
+     * When set, generated `launchAsset.url` and `expoClient.hostUri` use
+     * this origin instead of `http://${lanIp}:${httpPort}`. Required when
+     * the phone can't reach the dev host's LAN — same shape as
+     * `relay.ts`'s `MOBILE_PREVIEW_PUBLIC_URL` env. Trailing slashes are
+     * stripped at the call site.
+     */
+    readonly publicUrl?: string;
 }
 
 export function bundleHashToUUID(hash: string): string {
@@ -29,9 +38,19 @@ export function buildManifest(
     bundleHash: string,
     fields: MobilePreviewManifestFields | null | undefined,
     platform: string,
-    context: Pick<MobilePreviewManifestContext, 'lanIp' | 'httpPort'>,
+    context: Pick<MobilePreviewManifestContext, 'lanIp' | 'httpPort' | 'publicUrl'>,
 ): string {
-    const debuggerHost = `${context.lanIp}:${context.httpPort}`;
+    const publicUrl = (context.publicUrl ?? '').replace(/\/+$/, '');
+    // When publicUrl is set, generated URLs use that origin (so a
+    // cloudflared/ngrok tunnel works end-to-end). debuggerHost is the
+    // host:port form used in the Expo Go-flavored extras (debuggerHost,
+    // hostUri); for the public-tunnel case we strip the scheme and let
+    // the implicit 443/80 port stay implicit.
+    const baseUrl = publicUrl !== '' ? publicUrl : `http://${context.lanIp}:${context.httpPort}`;
+    const debuggerHost =
+        publicUrl !== ''
+            ? publicUrl.replace(/^https?:\/\//i, '')
+            : `${context.lanIp}:${context.httpPort}`;
     const slug = fields?.extra?.expoClient?.slug || 'onlook-preview';
     const uuid = bundleHashToUUID(bundleHash);
     const scopeKey = `@anonymous/${slug}-${uuid}`;
@@ -41,7 +60,7 @@ export function buildManifest(
         '&dev=false&hot=false&lazy=true&minify=true' +
         '&transform.engine=hermes&transform.bytecode=1' +
         '&transform.routerRoot=app&unstable_transformProfile=hermes-stable';
-    const launchAssetUrl = `http://${debuggerHost}/${bundleHash}.ts.bundle?${bundleQuery}`;
+    const launchAssetUrl = `${baseUrl}/${bundleHash}.ts.bundle?${bundleQuery}`;
 
     const manifest: MobilePreviewManifest = {
         id: uuid,
@@ -86,7 +105,7 @@ export function buildMultipartManifestResponse(
     bundleHash: string,
     fields: MobilePreviewManifestFields | null | undefined,
     platform: string,
-    context: Pick<MobilePreviewManifestContext, 'lanIp' | 'httpPort'>,
+    context: Pick<MobilePreviewManifestContext, 'lanIp' | 'httpPort' | 'publicUrl'>,
 ): MobilePreviewMultipartManifestResponse {
     const boundary = manifestBoundary(bundleHash);
     return {
@@ -99,7 +118,7 @@ export function createManifestResponse(
     bundleHash: string,
     fields: MobilePreviewManifestFields | null | undefined,
     platform: string,
-    context: Pick<MobilePreviewManifestContext, 'lanIp' | 'httpPort'>,
+    context: Pick<MobilePreviewManifestContext, 'lanIp' | 'httpPort' | 'publicUrl'>,
 ): Response {
     const manifest = buildMultipartManifestResponse(bundleHash, fields, platform, context);
 
