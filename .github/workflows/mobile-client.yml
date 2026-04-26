@@ -68,7 +68,7 @@ jobs:
   # gate themselves on `needs.guard.outputs.<flag> == 'true'` — a plain
   # string comparison that is allowed at the job level.
   guard:
-    name: Guard — file-existence probes
+    name: Guard — file + secret probes
     runs-on: ubuntu-latest
     outputs:
       has_ios_workspace: ${{ steps.probe.outputs.has_ios_workspace }}
@@ -76,9 +76,14 @@ jobs:
       has_android_build: ${{ steps.probe.outputs.has_android_build }}
       has_eas_json: ${{ steps.probe.outputs.has_eas_json }}
       has_play_internal_script: ${{ steps.probe.outputs.has_play_internal_script }}
+      has_expo_token: ${{ steps.probe.outputs.has_expo_token }}
+      has_google_play_key: ${{ steps.probe.outputs.has_google_play_key }}
     steps:
       - uses: actions/checkout@v4
       - id: probe
+        env:
+          EXPO_TOKEN_PRESENT: ${{ secrets.EXPO_TOKEN != '' && 'true' || 'false' }}
+          GOOGLE_PLAY_KEY_PRESENT: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_KEY != '' && 'true' || 'false' }}
         run: |
           set -e
           ios_workspace=$([ -n "${{ hashFiles('apps/mobile-client/ios/**/OnlookMobileClient.xcworkspace/**') }}" ] && echo true || echo false)
@@ -92,6 +97,8 @@ jobs:
             echo "has_android_build=${android_build}"
             echo "has_eas_json=${eas_json}"
             echo "has_play_internal_script=${play_internal_script}"
+            echo "has_expo_token=${EXPO_TOKEN_PRESENT}"
+            echo "has_google_play_key=${GOOGLE_PLAY_KEY_PRESENT}"
           } | tee -a "$GITHUB_OUTPUT"
 
   # ─── always-on: type + unit tests for the tool-free Phase F work ────────
@@ -569,7 +576,7 @@ jobs:
       ${{ needs.guard.outputs.has_eas_json == 'true'
           && github.event_name == 'workflow_dispatch'
           && (inputs.phase == '' || inputs.phase == 'testflight-upload')
-          && env.HAS_EXPO_TOKEN == 'true' }}
+          && needs.guard.outputs.has_expo_token == 'true' }}
     env:
       # Populated to the literal string 'true' when the secret is non-empty,
       # empty string otherwise. The `if:` above compares to 'true' so a
@@ -684,7 +691,7 @@ jobs:
       ${{ needs.guard.outputs.has_eas_json == 'true'
           && github.event_name == 'workflow_dispatch'
           && (inputs.phase == '' || inputs.phase == 'play-store-upload')
-          && env.HAS_GOOGLE_PLAY_KEY == 'true' }}
+          && needs.guard.outputs.has_google_play_key == 'true' }}
     env:
       # 'true' iff the secret is non-empty; empty string otherwise. Matches
       # the MC6.7 HAS_EXPO_TOKEN pattern exactly.
