@@ -130,11 +130,21 @@ jobs:
 
   wave1-ios:
     name: Wave 1 — iOS simulator build
-    # macos-14 is pinned on purpose: it ships Xcode 15.x, which keeps the
-    # iOS 17 simulator set our log-scrape validates were authored against
-    # stable across runs. Pinning avoids Xcode version drift silently
-    # swapping in newer iPhone models and surprising the Validate lines
-    # below. The wrapper script `mobile:build:ios` uses
+    # ⚠️ KNOWN BLOCKER 2026-04-26 (recorded by structural-types resolution
+    # session): the iOS Podfile fails CocoaPods install on this runner with
+    # "React Native requires XCode >= 16.1. Found 15.4." The pinning below
+    # was authored when the project was on RN 0.79.x; current RN 0.81.6
+    # requires Xcode ≥ 16.1, only available on `macos-15` runner image.
+    # Bumping to macos-15 also requires updating the validate-mc*.sh
+    # scripts that hardcode iOS 17 simulator detection (macos-15 ships
+    # iOS 18 simulators). This is a coordinated iOS-engineer change —
+    # tracked but NOT auto-fixed by the autonomous workflow-validation
+    # patch.
+    #
+    # Original rationale (preserved): macos-14 was pinned on purpose to
+    # keep iOS 17 simulator set stable for the log-scrape validates.
+    # Pinning avoids Xcode version drift silently swapping in newer iPhone
+    # models. The wrapper script `mobile:build:ios` uses
     # `generic/platform=iOS Simulator` so it does NOT bake an iPhone model
     # name into the build destination; the log-scrape scripts
     # (validate-mc*.sh) pick up whichever device is booted.
