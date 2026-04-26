@@ -1258,4 +1258,127 @@ describe('TwoTierMobilePreviewPipeline.sync', () => {
             resetPipelineFlag();
         }
     });
+
+    // 2026-04-25 — preflight wiring (a9cac3b8).
+    // The pipeline runs `preflightAbiV1Imports` after collecting the file
+    // map and fires `onPreflight(issues)` once per sync. Closes the gap
+    // where OverlayPreflightPanel rendered with a permanently-null
+    // summary because no production code ever called preflightAbiV1Imports.
+    test('preflight: onPreflight callback fires once per sync with the issue list', async () => {
+        pipelineFlagState.v1Enabled = false;
+        const relay = await startFakeRelay();
+        try {
+            const { service } = makeEsbuildService();
+            const calls: Array<readonly { specifier: string; kind: string }[]> = [];
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                {
+                    esbuildService: service,
+                    createSessionId: () => 'preflight-test',
+                    onPreflight: (issues) => {
+                        calls.push(
+                            issues.map((i) => ({
+                                specifier: i.specifier,
+                                kind: i.kind,
+                            })),
+                        );
+                    },
+                },
+            );
+            await pipeline.sync({ fileSystem: makeVfs(FILES) });
+
+            // The default FILES fixture imports `./App` (a relative path,
+            // not a bare specifier) so preflight finds zero issues. The
+            // assertion is on the CALLBACK firing exactly once per sync,
+            // not on the issue count — that confirms the producer is
+            // wired even when the build is clean.
+            expect(calls).toHaveLength(1);
+            expect(Array.isArray(calls[0])).toBe(true);
+        } finally {
+            await relay.close();
+            resetPipelineFlag();
+        }
+    });
+
+    test('preflight: callback receives unknown-specifier issues for unwired bare imports', async () => {
+        pipelineFlagState.v1Enabled = false;
+        const relay = await startFakeRelay();
+        try {
+            const { service } = makeEsbuildService();
+            const calls: Array<readonly { specifier: string; kind: string }[]> = [];
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                {
+                    esbuildService: service,
+                    createSessionId: () => 'preflight-issues',
+                    onPreflight: (issues) => {
+                        calls.push(
+                            issues.map((i) => ({
+                                specifier: i.specifier,
+                                kind: i.kind,
+                            })),
+                        );
+                    },
+                },
+            );
+            // `react-native-skia` is NOT in DEFAULT_BASE_EXTERNALS so
+            // preflight should flag it as unknown-specifier. Static
+            // analysis only — does NOT gate the build (test would need
+            // a more complete bundler to actually fail; we just confirm
+            // the issue surface).
+            await pipeline.sync({
+                fileSystem: makeVfs({
+                    ...FILES,
+                    'App.tsx':
+                        "import { Skia } from 'react-native-skia'; export default function App() { return null; }",
+                }),
+            });
+
+            expect(calls).toHaveLength(1);
+            const issues = calls[0]!;
+            const skiaIssue = issues.find(
+                (i) => i.specifier === 'react-native-skia',
+            );
+            expect(skiaIssue).toBeDefined();
+            expect(skiaIssue?.kind).toBe('unknown-specifier');
+        } finally {
+            await relay.close();
+            resetPipelineFlag();
+        }
+    });
+
+    test('preflight: omitted onPreflight callback is a no-op (legacy callers)', async () => {
+        pipelineFlagState.v1Enabled = false;
+        const relay = await startFakeRelay();
+        try {
+            const { service } = makeEsbuildService();
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                {
+                    esbuildService: service,
+                    createSessionId: () => 'preflight-omit',
+                    // No onPreflight passed; the pipeline must not fail.
+                },
+            );
+            await pipeline.sync({ fileSystem: makeVfs(FILES) });
+            // No assertion needed beyond completing without throw — if
+            // the pipeline tried to call an undefined onPreflight, sync
+            // would throw and the test would fail.
+        } finally {
+            await relay.close();
+            resetPipelineFlag();
+        }
+    });
 });
