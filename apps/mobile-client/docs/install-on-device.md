@@ -233,6 +233,34 @@ Accounts (that step is interactive-only).
 - **`pod install` failures** after a prebuild: delete `ios/Pods` and
   `ios/Podfile.lock` inside `apps/mobile-client/ios/`, then rerun `pod
   install`.
+- **`errSecInternalComponent` from codesign on a headless / SSH session**:
+  the build host's login keychain locks per session and codesign can't
+  reach the signing identity's private key. Each `ssh user@host …` opens a
+  fresh session that inherits a locked keychain even if the GUI session is
+  unlocked. Fix: prepend an unlock to every remote build invocation, e.g.
+
+  ```bash
+  ssh scry-farmer@192.168.0.17 \
+    "security unlock-keychain -p '<macOS-password>' ~/Library/Keychains/login.keychain-db && \
+     export PATH=/opt/homebrew/bin:\$PATH && \
+     cd ~/onlook/apps/mobile-client/ios && \
+     xcodebuild -workspace OnlookMobileClient.xcworkspace -scheme OnlookMobileClient \
+       -configuration Debug -sdk iphoneos -destination 'generic/platform=iOS' \
+       -allowProvisioningUpdates DEVELOPMENT_TEAM=<TEAM_ID> CODE_SIGN_STYLE=Automatic build"
+  ```
+
+  As a one-time setup that lets codesign reach the key without prompting,
+  also run (replace `<password>`):
+
+  ```bash
+  security set-key-partition-list -S apple-tool:,apple: \
+    -k '<password>' ~/Library/Keychains/login.keychain-db
+  ```
+
+  Without that the unlock-per-session pattern still works but each fresh
+  `xcodebuild` will hit `errSecInternalComponent` until unlocked. Manual
+  test: `codesign --force --sign <identity-hash> <some-framework>` should
+  return 0 in the same SSH session before xcodebuild will.
 
 ---
 
