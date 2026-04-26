@@ -40,7 +40,8 @@ See `results.json` → `not_yet_verified_in_this_run`:
 
 - **Real overlay render on the sim** — needs cf-expo-relay + cache
   wranglers + a real overlay bundle in cache. Wire is proven green by
-  `bash apps/cf-expo-relay/scripts/smoke-e2e.sh` (11/11).
+  `bash apps/cf-expo-relay/scripts/smoke-e2e.sh` (7 steps: HTTP routes +
+  AbiHello / overlay-push / asset-upload workerd-runtime WS smokes).
   Visual evidence: `plans/adr/assets/v2-pipeline/v2r-{hello,updated}.png`.
 - **Live-edit round-trip** — seed project lacks source files; covered by
   `two-tier-e2e.spec.ts` (3 tests in Node mocks). Populating the

@@ -253,7 +253,7 @@ bunx wrangler dev --config apps/cf-expo-relay/scripts/wrangler-local-esm-cache.j
 cd apps/cf-expo-relay && bunx wrangler dev --port 18788 --inspector-port 9330 --local
 
 # One-shot verification
-bash apps/cf-expo-relay/scripts/smoke-e2e.sh   # 11 assertions against live wranglers
+bash apps/cf-expo-relay/scripts/smoke-e2e.sh   # 7 steps: HTTP routes + 3 workerd-runtime WS smokes (AbiHello / overlay-push / asset-upload)
 ```
 
 **Mobile-client test isolation** — `bun run test` in `apps/mobile-client` runs `scripts/run-tests-isolated.ts` which spawns each `*.test.ts` in its own process. `mock.module()` is process-wide in Bun and pollutes sibling files (`flow/__tests__/qrToMount.test.ts` mocks `deepLink/parse` + `relay/manifestFetcher` which other tests import for real). Do NOT use plain `bun test` across the mobile-client src tree — use `bun run test`. `.tsx` test files are NOT walked by the runner; keep tests as `.ts` and use `React.createElement` instead of JSX when needed.
@@ -325,7 +325,7 @@ bun run start            # Start production server
 | `packages/mobile-client-protocol/src/relay-events.ts` | `RelayEventSchema` discriminated union + `parseRelayEvent` |
 | `apps/cf-expo-relay/src/do/events-session.ts` | `EventsSession` DurableObject (ring buffer + cursor + keepAlive) |
 | `apps/cf-expo-relay/src/routes/events.ts` | `/events` poll + `/events/push` worker routes |
-| `apps/cf-expo-relay/scripts/smoke-e2e.sh` | 11-assertion full two-tier pipeline smoke against live wranglers |
+| `apps/cf-expo-relay/scripts/smoke-e2e.sh` | 7-step full two-tier pipeline smoke against live wranglers (HTTP routes + AbiHello/overlay-push/asset-upload WS smokes) |
 | `plans/adr/v2-pipeline-validation-findings.md` | 8 findings from simulator validation — read before touching the overlay pipeline |
 
 ### Resources
