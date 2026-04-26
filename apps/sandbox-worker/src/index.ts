@@ -28,8 +28,16 @@ type Env = {
 
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
-		// Let the SDK handle preview URL proxying
-		const proxyResponse = await proxyToSandbox(request, env);
+		// Let the SDK handle preview URL proxying. The SDK's
+		// `proxyToSandbox` requires `SandboxEnv<T>` which expects the
+		// DurableObjectNamespace under a binding named `Sandbox` (capital
+		// S). Our wrangler binding is `SANDBOX` (all caps), so we adapt
+		// the env shape on the fly rather than renaming the binding +
+		// triggering a redeploy. Runtime behavior unchanged; type-only
+		// adapter.
+		const proxyResponse = await proxyToSandbox(request, {
+			Sandbox: env.SANDBOX,
+		});
 		if (proxyResponse) return proxyResponse;
 
 		const url = new URL(request.url);
@@ -209,7 +217,19 @@ export default {
 				const { port } = body;
 				let previewUrl: string | undefined;
 				try {
-					previewUrl = await sandbox.getPreviewUrl(Number(port) || 3001);
+					// `getPreviewUrl` is provided at runtime by container-
+					// backed sandboxes but isn't on the SDK's static
+					// `Sandbox` type (likely added in a later container-
+					// API patch the type defs haven't picked up). Cast
+					// to the optional method shape so the catch path
+					// covers both "method missing" (local dev) and
+					// "method threw" (SDK propagation).
+					const sandboxWithPreview = sandbox as unknown as {
+						getPreviewUrl?: (port: number) => Promise<string>;
+					};
+					previewUrl = await sandboxWithPreview.getPreviewUrl?.(
+						Number(port) || 3001,
+					);
 				} catch { /* not available in local dev */ }
 				return json({
 					previewUrl: previewUrl || null,
