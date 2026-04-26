@@ -14,7 +14,13 @@ import React from 'react';
 
 type Props = {
     children: React.ReactNode;
-    onError?: (error: Error) => void;
+    /**
+     * Called from `componentDidCatch` with the captured error and React's
+     * `ErrorInfo` (carrying `componentStack`). The second arg is optional
+     * to preserve backward-compatible call signatures — single-arg
+     * handlers compile against a wider parameter list.
+     */
+    onError?: (error: Error, errorInfo?: React.ErrorInfo) => void;
 };
 
 type State = { hasError: boolean };
@@ -26,8 +32,8 @@ export class OverlayErrorBoundary extends React.Component<Props, State> {
         return { hasError: true };
     }
 
-    componentDidCatch(error: Error): void {
-        this.props.onError?.(error);
+    componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
+        this.props.onError?.(error, errorInfo);
     }
 
     componentDidUpdate(prevProps: Props): void {

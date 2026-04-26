@@ -23,13 +23,17 @@ export { OVERLAY_FRAME_POINTER_EVENTS, OVERLAY_FRAME_STYLE, subscribeOverlayPull
  * Exported for testing; the default OverlayHost wires it as the error
  * boundary's onError handler.
  */
-export function reportOverlayBoundaryError(error: Error): void {
+export function reportOverlayBoundaryError(
+    error: Error,
+    errorInfo?: React.ErrorInfo,
+): void {
     const rt = (globalThis as {
         OnlookRuntime?: {
             reportError?: (err: {
                 kind: string;
                 message: string;
                 stack?: string;
+                componentStack?: string;
             }) => void;
         };
     }).OnlookRuntime;
@@ -39,6 +43,9 @@ export function reportOverlayBoundaryError(error: Error): void {
                 kind: 'overlay-react',
                 message: error.message,
                 stack: error.stack,
+                ...(errorInfo?.componentStack
+                    ? { componentStack: errorInfo.componentStack }
+                    : {}),
             });
         } catch {
             // reportError sinks must not take down the host app; swallow.
@@ -47,12 +54,18 @@ export function reportOverlayBoundaryError(error: Error): void {
     // Belt-and-suspenders: also forward through exceptionCatcher so the
     // JS-only ExceptionStreamer (25da7d27) → onlook:error → editor
     // source-map decoration receive-chain fires regardless of whether the
-    // native `OnlookRuntime.reportError` JSI binding is installed. The
-    // OverlayErrorBoundary's onError signature doesn't expose
-    // componentStack today so we pass undefined; ExceptionEntry.kind is
-    // 'js' rather than 'react' for the same reason.
+    // native `OnlookRuntime.reportError` JSI binding is installed.
+    // Component stack now comes through when the boundary supplies it,
+    // promoting `ExceptionEntry.kind` from `'js'` to `'react'` in
+    // `ExceptionStreamer.toMessage` so the editor can route the message
+    // to the React-error UI instead of the generic JS-error tab.
     try {
-        exceptionCatcher.captureException(error);
+        // `errorInfo.componentStack` is `string | null` from React's type
+        // but `captureException` accepts `string | undefined`; coerce.
+        exceptionCatcher.captureException(
+            error,
+            errorInfo?.componentStack ?? undefined,
+        );
     } catch {
         // captureException sinks must not take down the host app; swallow.
     }
