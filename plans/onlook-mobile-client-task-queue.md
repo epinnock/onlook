@@ -764,7 +764,7 @@ Goal: console relay, network inspector, error boundary, in-app dev menu. All flo
   - Files: `apps/mobile-client/src/components/ErrorBoundary.tsx`, `apps/mobile-client/src/components/index.ts`
   - Deps: MCF5
   - Validate: `bun --filter @onlook/mobile-client typecheck`
-  - Status: **✅ Done** — React class component wrapping `getDerivedStateFromError` + `componentDidCatch`. Default fallback renders `ErrorScreen` (MC3.17) with error message, component stack, and retry button. Supports optional `fallback` prop for custom UI and `onError` callback for external reporting. Barrel-exported from `src/components/index.ts`.
+  - Status: **✅ Done; production-wired 2026-04-25** — React class component wrapping `getDerivedStateFromError` + `componentDidCatch`. Default fallback renders `ErrorScreen` (MC3.17) with error message, component stack, and retry button. Supports optional `fallback` prop for custom UI and `onError` callback for external reporting. Barrel-exported from `src/components/index.ts`. **2026-04-25 wiring:** App.tsx wraps its tree in `<ErrorBoundary onError={(err, info) => exceptionCatcher.captureException(err, info.componentStack)}>` so React render errors flow into the same `onlook:error` ship pipeline as ErrorUtils-caught exceptions (via ExceptionStreamer / `25da7d27`).
 
 - **MC5.7** — Native JS exception catcher (Hermes exceptions from `runApplication`) ✅
   - Files: `apps/mobile-client/src/debug/exceptionCatcher.ts`, `apps/mobile-client/src/debug/__tests__/exceptionCatcher.test.ts`, `apps/mobile-client/src/debug/index.ts`

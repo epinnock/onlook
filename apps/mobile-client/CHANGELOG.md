@@ -319,3 +319,13 @@ Audit-pattern catch #11: `RecentSessionsList` (MC3.9, 177 LOC + tests) was autho
 
 ### Tests
 - **+5 mobile-client tests** (506 total, was 501): `recentSessions.test.ts` adds coverage for `onRecentSessionsChange` — fires after add + clear, unsubscribe stops further notifications, multi-listener fan-out, and throw-isolation (one bad listener doesn't block others or the underlying write).
+
+## [Unreleased] - 2026-04-25 — ErrorBoundary at App root + render-error → exceptionCatcher bridge
+
+Audit-pattern catch #12: `ErrorBoundary` (MC5.6, 89 LOC + tests) was shipped 2026-04-16 but had ZERO render sites in production. Without it, a thrown render in any descendant of `<App>` (overlay component, AppRouter screen, DevMenu, etc.) crashed the JS bundle with an RN red-box rather than rendering the friendly ErrorScreen fallback OR forwarding to the editor.
+
+### Added
+- **App.tsx wraps its tree in `<ErrorBoundary>`**. Default fallback (`ErrorScreen` with retry) handles the local UX. The `onError` callback bridges into `exceptionCatcher.captureException(err, componentStack)` so React render errors land in the same ring buffer + listener fanout that `ExceptionStreamer` (25da7d27) consumes to ship `onlook:error` messages to the editor's source-map decoration receive-chain. Without this bridge, a thrown render would render the local fallback but never reach the editor's MobileNetworkTab/console panels.
+
+### Tests
+- mobile-client total stays at 506 (no new tests; `ErrorBoundary.test.ts` covers the boundary's contract and `App.composition.test.ts`'s widened guard already accepts the wrapping). Existing 506 tests all pass.

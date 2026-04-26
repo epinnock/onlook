@@ -20,6 +20,7 @@ import { dynamicWsSender } from './relay/wsSender';
 import {
     DevMenu,
     DevMenuTrigger,
+    ErrorBoundary,
     RecentLogsModal,
     type DevMenuAction,
 } from './components';
@@ -231,7 +232,17 @@ export default function App() {
     }, []);
 
     return (
-        <>
+        <ErrorBoundary
+            // Forward render-time errors caught by the React boundary into
+            // the same `exceptionCatcher` ring buffer + listener fanout that
+            // `ExceptionStreamer` (25da7d27) consumes to ship `onlook:error`
+            // messages to the editor's source-map decoration receive-chain.
+            // Without this, a thrown render would render the ErrorScreen
+            // fallback locally but never reach the editor.
+            onError={(err, info) => {
+                exceptionCatcher.captureException(err, info.componentStack ?? undefined);
+            }}
+        >
             {/* DevMenuTrigger wraps the app body so a three-finger long-press
                 anywhere opens the dev menu. The trigger is transparent — its
                 children render normally. RecentLogsModal sits outside the
@@ -249,6 +260,6 @@ export default function App() {
                 visible={recentLogsVisible}
                 onClose={() => setRecentLogsVisible(false)}
             />
-        </>
+        </ErrorBoundary>
     );
 }
