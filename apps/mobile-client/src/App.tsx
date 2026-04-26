@@ -30,6 +30,11 @@ import {
     createViewLogsAction,
     createToggleInspectorAction,
 } from './actions';
+import {
+    isDevMenuEnabled,
+    loadDevMenuEnabled,
+    onDevMenuEnabledChange,
+} from './storage';
 
 /**
  * Boot-time placeholder for the session id stamped on outgoing
@@ -132,6 +137,20 @@ export default function App() {
     const closeDevMenu = useCallback(() => setDevMenuVisible(false), []);
     const openDevMenu = useCallback(() => setDevMenuVisible(true), []);
 
+    // Dev-menu trigger gating — defaults to OFF on first launch (matching
+    // SettingsScreen UX); flips when the user toggles the Settings switch
+    // (which calls `setDevMenuEnabled` in the same `storage` module). Both
+    // sides observe the same in-memory state via `onDevMenuEnabledChange`,
+    // so the toggle takes effect immediately without an app restart.
+    const [devMenuTriggerEnabled, setDevMenuTriggerEnabled] = useState(
+        isDevMenuEnabled(),
+    );
+    useEffect(() => {
+        void loadDevMenuEnabled().then((v) => setDevMenuTriggerEnabled(v));
+        const off = onDevMenuEnabledChange((v) => setDevMenuTriggerEnabled(v));
+        return () => off();
+    }, []);
+
     // Dev menu actions list — built once, stable across re-renders so
     // DevMenu doesn't re-render its action buttons unnecessarily. Each
     // factory returns a `DevMenuAction` `{label, onPress, destructive?}`.
@@ -217,7 +236,7 @@ export default function App() {
                 anywhere opens the dev menu. The trigger is transparent — its
                 children render normally. RecentLogsModal sits outside the
                 trigger so it stays mounted after the dev menu dismisses. */}
-            <DevMenuTrigger onTrigger={openDevMenu}>
+            <DevMenuTrigger onTrigger={openDevMenu} disabled={!devMenuTriggerEnabled}>
                 <AppRouter />
                 <OverlayHost />
             </DevMenuTrigger>

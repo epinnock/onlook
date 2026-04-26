@@ -292,5 +292,18 @@ Audit-pattern catch #10: the entire mobile-client DevMenu surface (MC5.9 compone
 - mobile-client task queue MC5.9–MC5.13 statuses follow up in a separate commit.
 
 ### Known limitations
-- `SettingsScreen.tsx` exposes a `dev_menu_enabled` toggle persisted to AsyncStorage. The wiring above does NOT consult that key — the trigger is always armed. The three-finger long-press gesture is intentional enough that accidental fires are unlikely; respecting the setting is a follow-up.
 - `createToggleInspectorAction` toggles a global boolean but the inspector overlay UI itself isn't wired — same root cause as TapHandler (gated on `findNodeAtPoint` / MC4.2 unimplemented). The action runs without error but produces no visible effect today.
+
+## [Unreleased] - 2026-04-25 — DevMenu / Settings sync (workstream F continued)
+
+Closes the previous tick's documented gap: SettingsScreen had a `dev_menu_enabled` toggle that wrote to SecureStore, but App.tsx's DevMenuTrigger ignored it (always armed). Now both sides observe the same in-memory state so a settings toggle takes effect immediately without an app restart.
+
+### Added
+- **`src/storage/devMenuEnabled.ts`**: in-memory observable + SecureStore persistence for the `onlook_dev_menu_enabled` key. Mirrors the `actions/toggleInspector.ts` Set-based listener pattern; default is OFF (matching SettingsScreen UX). Exposes `loadDevMenuEnabled()`, `setDevMenuEnabled()`, `isDevMenuEnabled()`, `onDevMenuEnabledChange()`. 11 unit tests covering load/persist/notify/unsubscribe paths with an in-memory expo-secure-store mock.
+
+### Changed
+- **App.tsx** subscribes to `onDevMenuEnabledChange` and passes `disabled={!devMenuTriggerEnabled}` to `<DevMenuTrigger>` so the gesture is gated on the user setting.
+- **SettingsScreen.tsx** uses the shared module instead of inline SecureStore calls. The toggle now goes through `setDevMenuEnabled(value)` which fires both the persistence write AND the in-memory observable. Subscribes to `onDevMenuEnabledChange` so external state changes (e.g. future dev-menu actions) sync the local UI state.
+
+### Tests
+- **+11 mobile-client tests** (501 total, was 490): `devMenuEnabled.test.ts` covering default value, load returns absent/true/false, set persists + notifies, unchanged-value short-circuit, listener unsubscribe, multiple listeners.
