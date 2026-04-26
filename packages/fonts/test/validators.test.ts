@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { parse, traverse, t, T, NodePath } from '@onlook/parser';
+import { parse, traverse, t, type T, type NodePath } from '@onlook/parser';
 import {
     isTailwindThemeProperty,
     hasPropertyName,
@@ -58,7 +58,7 @@ describe('isValidLocalFontDeclaration', () => {
         const ast = parse('const myFont = localFont({ src: "foo.woff2" })');
         const declStmt = ast.program.body[0];
         if (t.isVariableDeclaration(declStmt)) {
-            const decl = declStmt.declarations[0];
+            const decl = declStmt.declarations[0]!;
             expect(isValidLocalFontDeclaration(decl, 'myFont')).toBe(true);
         }
     });
@@ -66,7 +66,7 @@ describe('isValidLocalFontDeclaration', () => {
         const ast = parse('const otherFont = localFont({ src: "foo.woff2" })');
         const declStmt = ast.program.body[0];
         if (t.isVariableDeclaration(declStmt)) {
-            const decl = declStmt.declarations[0];
+            const decl = declStmt.declarations[0]!;
             expect(isValidLocalFontDeclaration(decl, 'myFont')).toBe(false);
         }
     });
@@ -74,7 +74,7 @@ describe('isValidLocalFontDeclaration', () => {
         const ast = parse('const myFont = notLocalFont({ src: "foo.woff2" })');
         const declStmt = ast.program.body[0];
         if (t.isVariableDeclaration(declStmt)) {
-            const decl = declStmt.declarations[0];
+            const decl = declStmt.declarations[0]!;
             expect(isValidLocalFontDeclaration(decl, 'myFont')).toBe(false);
         }
     });
@@ -82,7 +82,7 @@ describe('isValidLocalFontDeclaration', () => {
         const ast = parse('const myFont = localFont()');
         const declStmt = ast.program.body[0];
         if (t.isVariableDeclaration(declStmt)) {
-            const decl = declStmt.declarations[0];
+            const decl = declStmt.declarations[0]!;
             expect(isValidLocalFontDeclaration(decl, 'myFont')).toBe(false);
         }
     });

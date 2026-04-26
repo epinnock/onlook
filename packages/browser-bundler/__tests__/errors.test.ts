@@ -42,7 +42,7 @@ describe('browser bundler error normalizer', () => {
         expect(result[0]).toMatchObject({
             message: 'Build exploded',
         });
-        expect(result[0].detail).toContain('Build exploded');
+        expect(result[0]?.detail).toContain('Build exploded');
     });
 
     test('normalizes unknown thrown values', () => {

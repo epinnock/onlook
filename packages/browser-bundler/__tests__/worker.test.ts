@@ -4,13 +4,13 @@ import {
     BROWSER_BUNDLER_WORKER_ERROR_TYPE,
     BROWSER_BUNDLER_WORKER_REQUEST_TYPE,
     BROWSER_BUNDLER_WORKER_SUCCESS_TYPE,
+    type BrowserBundlerWorkerResponse,
 } from '../src/worker-protocol';
 import {
     createBrowserBundlerWorkerRuntime,
     handleBrowserBundlerWorkerMessage,
     handleParsedBrowserBundlerWorkerRequest,
     type BrowserBundlerWorkerDependencies,
-    type BrowserBundlerWorkerResponse,
 } from '../src/worker';
 
 describe('browser bundler worker runtime', () => {

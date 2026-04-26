@@ -10,7 +10,9 @@ import {
 
 function createPluginHarness(files: Record<string, string>) {
     let callback:
-        | ((args: VirtualFsResolveArgs) => VirtualFsResolveResult | Promise<VirtualFsResolveResult>)
+        | ((
+              args: VirtualFsResolveArgs,
+          ) => VirtualFsResolveResult | Promise<VirtualFsResolveResult> | undefined | void)
         | undefined;
     let filter: RegExp | undefined;
 
