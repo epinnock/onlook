@@ -18,6 +18,7 @@ describe('BranchContext', () => {
         },
         sandbox: {
             id: 'sandbox-789',
+            providerType: 'code_sandbox',
         },
         ...overrides,
     });

@@ -155,7 +155,7 @@ describe('extractTextFromParts', () => {
 
 describe('ensureToolCallResults', () => {
     test('returns unchanged parts when undefined', () => {
-        const result = ensureToolCallResults(undefined);
+        const result = ensureToolCallResults(undefined as any);
         expect(result).toBeUndefined();
     });
 
@@ -163,7 +163,7 @@ describe('ensureToolCallResults', () => {
         const parts = [{ type: 'text', text: 'Hello world' }];
 
         const result = ensureToolCallResults(parts as any);
-        expect(result).toEqual(parts);
+        expect(result as any).toEqual(parts);
     });
 
     test('adds stub results for tool calls without results', () => {
@@ -358,7 +358,7 @@ describe('ensureToolCallResults', () => {
         expect(result).toHaveLength(2);
 
         // Error state should remain unchanged
-        expect(result[0]).toEqual({
+        expect(result[0] as any).toEqual({
             type: 'tool-divide',
             toolCallId: 'call_1',
             state: 'error',
@@ -397,7 +397,7 @@ describe('ensureToolCallResults', () => {
         expect(result).toHaveLength(2);
 
         // Part without toolCallId should remain unchanged
-        expect(result[0]).toEqual({
+        expect(result[0] as any).toEqual({
             type: 'tool-sum',
             state: 'input-available',
             input: { a: 1, b: 2 },
@@ -434,7 +434,7 @@ describe('ensureToolCallResults', () => {
         expect(result).toHaveLength(2);
 
         // Part without state should remain unchanged
-        expect(result[0]).toEqual({
+        expect(result[0] as any).toEqual({
             type: 'tool-sum',
             toolCallId: 'call_1',
             input: { a: 1, b: 2 },
@@ -477,14 +477,14 @@ describe('ensureToolCallResults', () => {
         expect(result).toHaveLength(3);
 
         // Unknown states should remain unchanged
-        expect(result[0]).toEqual({
+        expect(result[0] as any).toEqual({
             type: 'tool-sum',
             toolCallId: 'call_1',
             state: 'unknown-state',
             input: { a: 1, b: 2 },
         });
 
-        expect(result[1]).toEqual({
+        expect(result[1] as any).toEqual({
             type: 'tool-multiply',
             toolCallId: 'call_2',
             state: 'processing',
