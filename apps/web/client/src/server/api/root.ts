@@ -4,6 +4,7 @@ import {
     domainRouter,
     frameRouter,
     githubRouter,
+    imageRouter,
     invitationRouter,
     memberRouter,
     projectRouter,
@@ -44,6 +45,14 @@ export const appRouter = createTRPCRouter({
     usage: usageRouter,
     publish: publishRouter,
     mobileInspector: mobileInspectorRouter,
+    // Audit-pattern catch (2026-04-25): `imageRouter` (compress
+    // procedure backed by sharp via `@onlook/image-server`) was
+    // barrel-exported from `routers/index.ts` but never registered
+    // here, so `trpc.image.compress` was unreachable on the client.
+    // Registering closes the half-wired state without changing
+    // existing call-sites (no production caller exists today; the
+    // procedure is now reachable for future consumers).
+    image: imageRouter,
 });
 
 // export type definition of API
