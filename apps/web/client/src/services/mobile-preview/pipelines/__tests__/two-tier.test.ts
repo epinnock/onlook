@@ -1329,11 +1329,62 @@ describe('TwoTierMobilePreviewPipeline.sync', () => {
                     },
                 },
             );
-            // `react-native-skia` is NOT in DEFAULT_BASE_EXTERNALS so
-            // preflight should flag it as unknown-specifier. Static
-            // analysis only — does NOT gate the build (test would need
-            // a more complete bundler to actually fail; we just confirm
-            // the issue surface).
+            // `lodash` is NOT in DEFAULT_BASE_EXTERNALS and is NOT in
+            // DISALLOWED_NATIVE_ALIASES, so preflight flags it as
+            // unknown-specifier (the most common dev-time gotcha — bare
+            // import the base bundle doesn't serve, but with no native-
+            // module concern). Static analysis only — does NOT gate the
+            // build.
+            await pipeline.sync({
+                fileSystem: makeVfs({
+                    ...FILES,
+                    'App.tsx':
+                        "import _ from 'lodash'; export default function App() { return null; }",
+                }),
+            });
+
+            expect(calls).toHaveLength(1);
+            const issues = calls[0]!;
+            const lodashIssue = issues.find((i) => i.specifier === 'lodash');
+            expect(lodashIssue).toBeDefined();
+            expect(lodashIssue?.kind).toBe('unknown-specifier');
+        } finally {
+            await relay.close();
+            resetPipelineFlag();
+        }
+    });
+
+    test('preflight: callback receives unsupported-native issues for DISALLOWED_NATIVE_ALIASES', async () => {
+        // `react-native-skia` is in `DISALLOWED_NATIVE_ALIASES` (deep
+        // Hermes integration the base bundle doesn't include). Preflight
+        // should flag it as `'unsupported-native'` — distinct from
+        // `'unknown-specifier'` so the editor can surface a clearer
+        // "this needs a base/binary rebuild" diagnostic vs "add it to
+        // the base bundle or rewrite the import".
+        pipelineFlagState.v1Enabled = false;
+        const relay = await startFakeRelay();
+        try {
+            const { service } = makeEsbuildService();
+            const calls: Array<readonly { specifier: string; kind: string }[]> = [];
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                {
+                    esbuildService: service,
+                    createSessionId: () => 'preflight-disallowed',
+                    onPreflight: (issues) => {
+                        calls.push(
+                            issues.map((i) => ({
+                                specifier: i.specifier,
+                                kind: i.kind,
+                            })),
+                        );
+                    },
+                },
+            );
             await pipeline.sync({
                 fileSystem: makeVfs({
                     ...FILES,
@@ -1348,7 +1399,7 @@ describe('TwoTierMobilePreviewPipeline.sync', () => {
                 (i) => i.specifier === 'react-native-skia',
             );
             expect(skiaIssue).toBeDefined();
-            expect(skiaIssue?.kind).toBe('unknown-specifier');
+            expect(skiaIssue?.kind).toBe('unsupported-native');
         } finally {
             await relay.close();
             resetPipelineFlag();

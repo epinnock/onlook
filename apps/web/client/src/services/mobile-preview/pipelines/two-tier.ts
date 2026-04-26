@@ -37,6 +37,7 @@ import {
     wrapOverlayV1,
     type AbiV1PreflightIssue,
 } from '../../../../../../../packages/browser-bundler/src';
+import { DISALLOWED_NATIVE_ALIASES } from '../../../../../../../packages/base-bundle-builder/src/runtime-capabilities';
 import { isMobilePreviewOverlayV1PipelineEnabled } from '../pipeline-flag';
 
 const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.json'] as const;
@@ -263,13 +264,18 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
                     const issues = preflightAbiV1Imports({
                         files: fileMap,
                         baseAliases: DEFAULT_BASE_EXTERNALS,
-                        // `disallowed` is intentionally empty here — we don't
-                        // currently have a clean source of
-                        // `DISALLOWED_NATIVE_ALIASES` from base-bundle-builder
-                        // wired into the editor's runtime config. Empty set
-                        // means we'll only flag `unknown-specifier` issues
-                        // (the most common dev-time gotcha); native-binary
-                        // gating still happens at the relay/build layer.
+                        // `DISALLOWED_NATIVE_ALIASES` from
+                        // `@onlook/base-bundle-builder/runtime-capabilities`
+                        // — packages that ship JSI workers, native view
+                        // managers, or deep Hermes integration the base
+                        // bundle does not include (e.g. reanimated,
+                        // flash-list, skia, mmkv, vision-camera). Issues
+                        // here surface as `unsupported-native` in the
+                        // dev-panel preflight tab so operators see the
+                        // exact specifier + file before/while the bundle
+                        // pushes. Static analysis only — does NOT gate
+                        // the push.
+                        disallowed: DISALLOWED_NATIVE_ALIASES,
                     });
                     this.onPreflight(issues);
                 } catch {
