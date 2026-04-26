@@ -188,10 +188,18 @@ jobs:
           # gem install xcodeproj   # unblock pbxproj edits if a future wave needs it
       - name: Install workspace deps
         run: bun install --frozen-lockfile
-      - name: Build onlook-runtime bundle
-        # Produces packages/mobile-preview/runtime/bundle.js, which
-        # mobile:build:ios copies into the .app via bundle-runtime.ts.
-        run: bun run build:mobile-runtime
+      - name: Build onlook-runtime bundles
+        # Produces both packages/mobile-preview/runtime/bundle.js (full,
+        # ~258 KB, used by Expo Go / mobile-preview harness) AND
+        # bundle-client-only.js (slim, ~9 KB, shell.js only — used by the
+        # native mobile-client). Mobile-client's scripts/bundle-runtime.ts
+        # copies the slim variant into ios/Resources at build time, so
+        # mobile:build:ios fails with "source bundle not found" if only
+        # the full bundle is built. See CLAUDE.md "Mobile-client bundle
+        # split" for the rationale.
+        run: |
+          bun run build:mobile-runtime
+          bun --filter @onlook/mobile-preview build:runtime:client-only
       - name: CocoaPods install
         run: cd apps/mobile-client/ios && pod install
       - name: Build iOS .app for simulator
@@ -330,10 +338,18 @@ jobs:
           brew install mobile-dev-inc/tap/maestro
       - name: Install workspace deps
         run: bun install --frozen-lockfile
-      - name: Build onlook-runtime bundle
-        # Produces packages/mobile-preview/runtime/bundle.js, which
-        # mobile:build:ios copies into the .app via bundle-runtime.ts.
-        run: bun run build:mobile-runtime
+      - name: Build onlook-runtime bundles
+        # Produces both packages/mobile-preview/runtime/bundle.js (full,
+        # ~258 KB, used by Expo Go / mobile-preview harness) AND
+        # bundle-client-only.js (slim, ~9 KB, shell.js only — used by the
+        # native mobile-client). Mobile-client's scripts/bundle-runtime.ts
+        # copies the slim variant into ios/Resources at build time, so
+        # mobile:build:ios fails with "source bundle not found" if only
+        # the full bundle is built. See CLAUDE.md "Mobile-client bundle
+        # split" for the rationale.
+        run: |
+          bun run build:mobile-runtime
+          bun --filter @onlook/mobile-preview build:runtime:client-only
       - name: CocoaPods install
         run: cd apps/mobile-client/ios && pod install
       - name: Build iOS .app for simulator
@@ -445,10 +461,18 @@ jobs:
           brew install mobile-dev-inc/tap/maestro
       - name: Install workspace deps
         run: bun install --frozen-lockfile
-      - name: Build onlook-runtime bundle
-        # Produces packages/mobile-preview/runtime/bundle.js, which
-        # mobile:build:ios copies into the .app via bundle-runtime.ts.
-        run: bun run build:mobile-runtime
+      - name: Build onlook-runtime bundles
+        # Produces both packages/mobile-preview/runtime/bundle.js (full,
+        # ~258 KB, used by Expo Go / mobile-preview harness) AND
+        # bundle-client-only.js (slim, ~9 KB, shell.js only — used by the
+        # native mobile-client). Mobile-client's scripts/bundle-runtime.ts
+        # copies the slim variant into ios/Resources at build time, so
+        # mobile:build:ios fails with "source bundle not found" if only
+        # the full bundle is built. See CLAUDE.md "Mobile-client bundle
+        # split" for the rationale.
+        run: |
+          bun run build:mobile-runtime
+          bun --filter @onlook/mobile-preview build:runtime:client-only
       - name: CocoaPods install
         run: cd apps/mobile-client/ios && pod install
       - name: Build iOS .app for simulator
