@@ -130,25 +130,22 @@ jobs:
 
   wave1-ios:
     name: Wave 1 — iOS simulator build
-    # ⚠️ KNOWN BLOCKER 2026-04-26 (recorded by structural-types resolution
-    # session): the iOS Podfile fails CocoaPods install on this runner with
-    # "React Native requires XCode >= 16.1. Found 15.4." The pinning below
-    # was authored when the project was on RN 0.79.x; current RN 0.81.6
-    # requires Xcode ≥ 16.1, only available on `macos-15` runner image.
-    # Bumping to macos-15 also requires updating the validate-mc*.sh
-    # scripts that hardcode iOS 17 simulator detection (macos-15 ships
-    # iOS 18 simulators). This is a coordinated iOS-engineer change —
-    # tracked but NOT auto-fixed by the autonomous workflow-validation
-    # patch.
+    # macos-15 + latest-stable Xcode 16.x is required: RN 0.81.6's Podfile
+    # explicitly fails CocoaPods install with "React Native requires
+    # XCode >= 16.1" when run on macos-14 (Xcode 15.4). The local Mac mini
+    # already validated this stack on Xcode 16.4 + iOS 18.6 (per CLAUDE.md
+    # "Two-tier overlay v2 / mobile-client architecture" §"Bridgeless iOS
+    # 18.6 gotchas"), so the runner is now lined up with that.
     #
-    # Original rationale (preserved): macos-14 was pinned on purpose to
-    # keep iOS 17 simulator set stable for the log-scrape validates.
-    # Pinning avoids Xcode version drift silently swapping in newer iPhone
-    # models. The wrapper script `mobile:build:ios` uses
+    # The simulator detection step below picks the first available iPhone
+    # simulator regardless of iOS version (was previously filtered to iOS
+    # 17). The validate-mc*.sh scripts use `xcrun simctl install booted`
+    # so they're version-agnostic; whichever sim macos-15 ships will work.
+    #
+    # The wrapper script `mobile:build:ios` uses
     # `generic/platform=iOS Simulator` so it does NOT bake an iPhone model
-    # name into the build destination; the log-scrape scripts
-    # (validate-mc*.sh) pick up whichever device is booted.
-    runs-on: macos-14
+    # name into the build destination.
+    runs-on: macos-15
     needs: [guard, typecheck-and-unit]
     # Gate twofold:
     #   (a) Only run once MCF8 has committed the ios/ project tree
@@ -168,10 +165,9 @@ jobs:
           bun-version: 1.3.9
       - uses: maxim-lobanov/setup-xcode@v1
         with:
-          # Pin an Xcode 15.x to match the macos-14 runner baseline and
-          # keep the iOS 17 simulator set stable. `latest-stable` on
-          # macos-14 today resolves to Xcode 15.4.
-          xcode-version: '15.4'
+          # Use whatever Xcode the macos-15 runner ships pre-installed
+          # (typically 16.x). RN 0.81.6's Podfile gates on Xcode ≥ 16.1.
+          xcode-version: 'latest-stable'
       - name: Install native tooling
         # cocoapods: required by expo prebuild iOS pods.
         # openjdk@17: not used by this job, but installed so the same
@@ -220,15 +216,16 @@ jobs:
       # bespoke log-scrape scripts.
       - name: Boot iOS Simulator
         # The validate-mc*.sh scripts need a *booted* simulator for
-        # `xcrun simctl install booted`. Pick the first available iOS 17
-        # iPhone simulator the runner has and boot it.
+        # `xcrun simctl install booted`. Pick the first available
+        # iPhone simulator the runner has and boot it (whatever iOS
+        # version macos-15 ships).
         run: |
           DEVICE=$(xcrun simctl list devices available \
-            | awk '/-- iOS /{flag=$0} /iPhone/ && flag ~ /iOS 17/ && !seen {print; seen=1}' \
+            | awk '/-- iOS /{flag=$0} /iPhone/ && !seen {print; seen=1}' \
             | head -1 \
             | sed -E 's/.*\(([0-9A-F-]+)\).*/\1/')
           if [ -z "$DEVICE" ]; then
-            echo 'FAIL: no iOS 17 iPhone simulator available on this runner'
+            echo 'FAIL: no iPhone simulator available on this runner'
             xcrun simctl list devices available
             exit 1
           fi
@@ -258,7 +255,7 @@ jobs:
 
   wave1-android:
     name: Wave 1 — Android emulator build
-    runs-on: macos-14
+    runs-on: macos-15
     needs: [guard, typecheck-and-unit]
     if: ${{ needs.guard.outputs.has_android_build == 'true' }}
     steps:
@@ -281,7 +278,7 @@ jobs:
 
   wave3:
     name: Wave 3 — relay + QR e2e
-    runs-on: macos-14
+    runs-on: macos-15
     needs: [guard, wave1-ios]
     if: ${{ needs.guard.outputs.has_ios_workspace == 'true' }}
     steps:
@@ -291,10 +288,10 @@ jobs:
 
   wave4-ios:
     name: Wave 4 — inspector tap-to-cursor (iOS)
-    # macos-14 + Xcode 15.4: same pin as `wave1-ios`/`wave5` so the iOS 17
-    # simulator set stays stable and the validate-mc*.sh log-scrape predicates
-    # don't drift across Xcode bumps.
-    runs-on: macos-14
+    # macos-15 + latest-stable Xcode 16.x: same as `wave1-ios`/`wave5` so
+    # all iOS jobs share one runner image. Xcode 16.1+ is required by RN
+    # 0.81.6's Podfile.
+    runs-on: macos-15
     # Intentionally NOT `needs: [wave1-ios]`. Mirror the wave5 rationale: each
     # Wave 4 `validate-mc4*.sh` script boots its own simulator and reinstalls
     # the .app, so running on a dedicated runner in parallel with wave1-ios
@@ -320,7 +317,7 @@ jobs:
           bun-version: 1.3.9
       - uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '15.4'
+          xcode-version: 'latest-stable'
       - name: Install native tooling
         # Mirror wave1-ios / wave5 tooling footprint. cocoapods is required
         # by `pod install`. maestro is installed for future Wave 4 flows
@@ -349,14 +346,15 @@ jobs:
       - name: Boot iOS Simulator
         # The validate-mc4*.sh scripts need a booted simulator for
         # `xcrun simctl install booted` and `xcrun simctl spawn booted
-        # log stream`. Pick the first available iOS 17 iPhone simulator.
+        # log stream`. Pick the first available iPhone simulator
+        # (whatever iOS version macos-15 ships).
         run: |
           DEVICE=$(xcrun simctl list devices available \
-            | awk '/-- iOS /{flag=$0} /iPhone/ && flag ~ /iOS 17/ && !seen {print; seen=1}' \
+            | awk '/-- iOS /{flag=$0} /iPhone/ && !seen {print; seen=1}' \
             | head -1 \
             | sed -E 's/.*\(([0-9A-F-]+)\).*/\1/')
           if [ -z "$DEVICE" ]; then
-            echo 'FAIL: no iOS 17 iPhone simulator available on this runner'
+            echo 'FAIL: no iPhone simulator available on this runner'
             xcrun simctl list devices available
             exit 1
           fi
@@ -409,10 +407,10 @@ jobs:
 
   wave5:
     name: Wave 5 — debug surface
-    # macos-14 + Xcode 15.4: same pin as `wave1-ios` so the iOS 17 sim
-    # set stays stable and the validate-mc*.sh log-scrape predicates don't
-    # drift across Xcode bumps.
-    runs-on: macos-14
+    # macos-15 + latest-stable Xcode 16.x: same as `wave1-ios` so all iOS
+    # jobs share one runner image. Xcode 16.1+ is required by RN 0.81.6's
+    # Podfile.
+    runs-on: macos-15
     # Intentionally NOT `needs: [wave1-ios]`. The Wave 5 debug-surface
     # validates (log-scrape scripts — today: MC1.4 hermes-ready + MC2.3
     # OnlookRuntime installed; tomorrow: MC5.8 crash overlay, MC5.10 dev
@@ -435,7 +433,7 @@ jobs:
           bun-version: 1.3.9
       - uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '15.4'
+          xcode-version: 'latest-stable'
       - name: Install native tooling
         # Mirror wave1-ios tooling footprint. cocoapods is required by
         # `pod install`. maestro is installed for future Wave 5 flows that
@@ -462,14 +460,15 @@ jobs:
       - name: Boot iOS Simulator
         # The validate-mc*.sh scripts need a booted simulator for
         # `xcrun simctl install booted` and `xcrun simctl spawn booted
-        # log stream`. Pick the first available iOS 17 iPhone simulator.
+        # log stream`. Pick the first available iPhone simulator
+        # (whatever iOS version macos-15 ships).
         run: |
           DEVICE=$(xcrun simctl list devices available \
-            | awk '/-- iOS /{flag=$0} /iPhone/ && flag ~ /iOS 17/ && !seen {print; seen=1}' \
+            | awk '/-- iOS /{flag=$0} /iPhone/ && !seen {print; seen=1}' \
             | head -1 \
             | sed -E 's/.*\(([0-9A-F-]+)\).*/\1/')
           if [ -z "$DEVICE" ]; then
-            echo 'FAIL: no iOS 17 iPhone simulator available on this runner'
+            echo 'FAIL: no iPhone simulator available on this runner'
             xcrun simctl list devices available
             exit 1
           fi
@@ -530,7 +529,7 @@ jobs:
 
   testflight-dryrun:
     name: Wave 6 — TestFlight dry-run
-    runs-on: macos-14
+    runs-on: macos-15
     needs: [guard, wave1-ios]
     if: ${{ needs.guard.outputs.has_eas_json == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/feat/mobile-client' }}
     steps:
@@ -570,7 +569,7 @@ jobs:
   # dispatch.
   testflight-upload:
     name: Wave 6 — TestFlight upload (dispatch-only)
-    runs-on: macos-14
+    runs-on: macos-15
     needs: [guard, typecheck-and-unit]
     # Belt-and-braces: three independent conditions must ALL hold.
     #   a) The eas.json config MC6.5 introduced must exist (guards against
@@ -650,7 +649,7 @@ jobs:
 
   play-dryrun:
     name: Wave 6 — Play internal dry-run
-    runs-on: macos-14
+    runs-on: macos-15
     needs: [guard, wave1-android]
     if: ${{ needs.guard.outputs.has_play_internal_script == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/feat/mobile-client' }}
     steps:
