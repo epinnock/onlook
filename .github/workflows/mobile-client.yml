@@ -53,6 +53,47 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ─── guard: cheap file-existence probes to gate downstream jobs ──────────
+  #
+  # GitHub Actions does NOT permit `hashFiles()` inside job-level `if:`
+  # expressions — it's only available in step-level `if:` and `with:`
+  # contexts. Calling it at job level fails workflow validation (HTTP 422
+  # "Unrecognized function: 'hashFiles'") and aborts the entire run before
+  # any job starts. The previous shape of this workflow had hashFiles() in
+  # six job-level if's; every push triggered a 0-second failure with no jobs.
+  #
+  # Fix: this guard job runs first on a tiny ubuntu runner, computes the
+  # presence of each gating file via `hashFiles()` at the STEP level (where
+  # it is permitted), and exposes a boolean string output. Downstream jobs
+  # gate themselves on `needs.guard.outputs.<flag> == 'true'` — a plain
+  # string comparison that is allowed at the job level.
+  guard:
+    name: Guard — file-existence probes
+    runs-on: ubuntu-latest
+    outputs:
+      has_ios_workspace: ${{ steps.probe.outputs.has_ios_workspace }}
+      has_inspector_swift: ${{ steps.probe.outputs.has_inspector_swift }}
+      has_android_build: ${{ steps.probe.outputs.has_android_build }}
+      has_eas_json: ${{ steps.probe.outputs.has_eas_json }}
+      has_play_internal_script: ${{ steps.probe.outputs.has_play_internal_script }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: probe
+        run: |
+          set -e
+          ios_workspace=$([ -n "${{ hashFiles('apps/mobile-client/ios/**/OnlookMobileClient.xcworkspace/**') }}" ] && echo true || echo false)
+          inspector_swift=$([ -n "${{ hashFiles('apps/mobile-client/ios/**/OnlookInspector.swift') }}" ] && echo true || echo false)
+          android_build=$([ -n "${{ hashFiles('apps/mobile-client/android/**/build.gradle') }}" ] && echo true || echo false)
+          eas_json=$([ -n "${{ hashFiles('apps/mobile-client/eas.json') }}" ] && echo true || echo false)
+          play_internal_script=$([ -n "${{ hashFiles('apps/mobile-client/scripts/build-play-internal.sh') }}" ] && echo true || echo false)
+          {
+            echo "has_ios_workspace=${ios_workspace}"
+            echo "has_inspector_swift=${inspector_swift}"
+            echo "has_android_build=${android_build}"
+            echo "has_eas_json=${eas_json}"
+            echo "has_play_internal_script=${play_internal_script}"
+          } | tee -a "$GITHUB_OUTPUT"
+
   # ─── always-on: type + unit tests for the tool-free Phase F work ────────
 
   typecheck-and-unit:
@@ -91,13 +132,15 @@ jobs:
     # name into the build destination; the log-scrape scripts
     # (validate-mc*.sh) pick up whichever device is booted.
     runs-on: macos-14
-    needs: [typecheck-and-unit]
+    needs: [guard, typecheck-and-unit]
     # Gate twofold:
-    #   (a) Only run once MCF8 has committed the ios/ project tree.
+    #   (a) Only run once MCF8 has committed the ios/ project tree
+    #       (probed by the `guard` job; hashFiles is not permitted at
+    #       job-level `if:`).
     #   (b) When dispatched with a specific `phase` input, skip unless
     #       the caller asked for this phase (empty phase == run all).
     if: >-
-      ${{ hashFiles('apps/mobile-client/ios/**/OnlookMobileClient.xcworkspace/**') != ''
+      ${{ needs.guard.outputs.has_ios_workspace == 'true'
           && (github.event_name != 'workflow_dispatch'
               || inputs.phase == ''
               || inputs.phase == 'wave1-ios') }}
@@ -199,8 +242,8 @@ jobs:
   wave1-android:
     name: Wave 1 — Android emulator build
     runs-on: macos-14
-    needs: [typecheck-and-unit]
-    if: ${{ hashFiles('apps/mobile-client/android/**/build.gradle') != '' }}
+    needs: [guard, typecheck-and-unit]
+    if: ${{ needs.guard.outputs.has_android_build == 'true' }}
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -222,8 +265,8 @@ jobs:
   wave3:
     name: Wave 3 — relay + QR e2e
     runs-on: macos-14
-    needs: [wave1-ios]
-    if: ${{ hashFiles('apps/mobile-client/ios/**/OnlookMobile.xcworkspace/**') != '' }}
+    needs: [guard, wave1-ios]
+    if: ${{ needs.guard.outputs.has_ios_workspace == 'true' }}
     steps:
       - run: echo "Wave 3 job slot — filled by MC3.22 append"
 
@@ -241,15 +284,15 @@ jobs:
     # produces the inspector-specific `verification/results.json` artifact
     # even when wave1-ios is skipped or fails early (e.g., when dispatched
     # with `inputs.phase == 'wave4-ios'`).
-    needs: [typecheck-and-unit]
+    needs: [guard, typecheck-and-unit]
     # Gate twofold:
     #   (a) Only run once MC4.1 has committed OnlookInspector.swift into the
-    #       ios/ project tree. Until then the slot is skipped — no wasted
-    #       runner time on a job with no scripts to run.
+    #       ios/ project tree (probed by the `guard` job — hashFiles is not
+    #       permitted at job-level `if:`). Until then the slot is skipped.
     #   (b) When dispatched with a specific `phase` input, skip unless the
     #       caller asked for this phase (empty phase == run all).
     if: >-
-      ${{ hashFiles('apps/mobile-client/ios/**/OnlookInspector.swift') != ''
+      ${{ needs.guard.outputs.has_inspector_swift == 'true'
           && (github.event_name != 'workflow_dispatch'
               || inputs.phase == ''
               || inputs.phase == 'wave4-ios') }}
@@ -362,9 +405,9 @@ jobs:
     # if wave1-ios fails for an unrelated reason (e.g., maestro brew
     # hiccup), the Wave 5 debug-surface pass still runs and produces its
     # own `verification/results.json` artifact.
-    needs: [typecheck-and-unit]
+    needs: [guard, typecheck-and-unit]
     if: >-
-      ${{ hashFiles('apps/mobile-client/ios/**/OnlookMobileClient.xcworkspace/**') != ''
+      ${{ needs.guard.outputs.has_ios_workspace == 'true'
           && (github.event_name != 'workflow_dispatch'
               || inputs.phase == ''
               || inputs.phase == 'wave5') }}
@@ -471,8 +514,8 @@ jobs:
   testflight-dryrun:
     name: Wave 6 — TestFlight dry-run
     runs-on: macos-14
-    needs: [wave1-ios]
-    if: ${{ hashFiles('apps/mobile-client/eas.json') != '' && github.event_name == 'push' && github.ref == 'refs/heads/feat/mobile-client' }}
+    needs: [guard, wave1-ios]
+    if: ${{ needs.guard.outputs.has_eas_json == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/feat/mobile-client' }}
     steps:
       - run: echo "TestFlight dry-run slot — filled by MC6.7 append"
 
@@ -511,7 +554,7 @@ jobs:
   testflight-upload:
     name: Wave 6 — TestFlight upload (dispatch-only)
     runs-on: macos-14
-    needs: [typecheck-and-unit]
+    needs: [guard, typecheck-and-unit]
     # Belt-and-braces: three independent conditions must ALL hold.
     #   a) The eas.json config MC6.5 introduced must exist (guards against
     #      the job running before MC6.5 merges on a branch that somehow
@@ -523,7 +566,7 @@ jobs:
     #      not directly available in `if:` expressions, so we thread it
     #      through an env var (`HAS_EXPO_TOKEN`) set at the job level.
     if: >-
-      ${{ hashFiles('apps/mobile-client/eas.json') != ''
+      ${{ needs.guard.outputs.has_eas_json == 'true'
           && github.event_name == 'workflow_dispatch'
           && (inputs.phase == '' || inputs.phase == 'testflight-upload')
           && env.HAS_EXPO_TOKEN == 'true' }}
@@ -591,8 +634,8 @@ jobs:
   play-dryrun:
     name: Wave 6 — Play internal dry-run
     runs-on: macos-14
-    needs: [wave1-android]
-    if: ${{ hashFiles('apps/mobile-client/scripts/build-play-internal.sh') != '' && github.event_name == 'push' && github.ref == 'refs/heads/feat/mobile-client' }}
+    needs: [guard, wave1-android]
+    if: ${{ needs.guard.outputs.has_play_internal_script == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/feat/mobile-client' }}
     steps:
       - run: echo "Play dry-run slot — filled by MC6.8 append"
 
@@ -629,7 +672,7 @@ jobs:
   play-store-upload:
     name: Wave 6 — Play Store upload (dispatch-only)
     runs-on: ubuntu-latest
-    needs: [typecheck-and-unit]
+    needs: [guard, typecheck-and-unit]
     # Belt-and-braces: three independent conditions must ALL hold.
     #   a) The eas.json config MC6.5 introduced must exist.
     #   b) The invocation must be a manual dispatch, and if a specific phase
@@ -638,7 +681,7 @@ jobs:
     #      through `env.HAS_GOOGLE_PLAY_KEY` because repo secrets are not
     #      available directly inside `if:` expressions).
     if: >-
-      ${{ hashFiles('apps/mobile-client/eas.json') != ''
+      ${{ needs.guard.outputs.has_eas_json == 'true'
           && github.event_name == 'workflow_dispatch'
           && (inputs.phase == '' || inputs.phase == 'play-store-upload')
           && env.HAS_GOOGLE_PLAY_KEY == 'true' }}
