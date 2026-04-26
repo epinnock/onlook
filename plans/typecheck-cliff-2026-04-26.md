@@ -56,9 +56,17 @@ Used to type two `UIMessagePart<...>` / `UIMessage<...>` parameters. ChatTools =
 
 Naive replacement with `UITools` from `'ai'` package compiles but loses tool-name narrowing across **57 consumers** in the editor (most do `part.type === 'tool-getProjectFiles'`-style discrimination on the union). Would require consumer-side adjustments in those 57 sites.
 
-Cleaner sub-option: extract the `allToolset` definition out of `@onlook/ai/tools/toolset.ts` into a leaf package (`@onlook/chat-tools` or similar) that doesn't pull in `@onlook/ui`. Models depends on the leaf package. AI depends on the leaf package. Cycle broken.
+**Cleaner sub-option (deeper than initially thought):** extract the `allToolset` definition. Investigation 2026-04-26 found this isn't a clean leaf — every tool class in `packages/ai/src/tools/classes/*.ts` has TWO inbound coupling problems:
 
-**Effort:** 1–2 days. Low risk if leaf-package extraction is clean.
+1. `import { Icons } from '@onlook/ui/icons'` — static class property `static readonly icon = Icons.X` for chat-UI rendering. Couples tool definition (data + handler) to UI rendering.
+
+2. `import type { EditorEngine } from '@onlook/web-client/src/components/store/editor/engine'` — direct deep import from `apps/web/client/src/...`. This is the actual SOURCE of the `@/trpc/client` cliff: when models → ai → tools/classes/* → @onlook/web-client/src/components/store/editor/engine, tsc tries to compile the editor source files which use web-client-only path aliases.
+
+Fixing properly requires:
+- Moving `Icons` references out of tool classes into a separate UI-concern adapter (or passing them as injected deps).
+- Either (a) extracting `EditorEngine` out of `apps/web/client/src/` into a package, or (b) typing tool handlers with a structural `EditorEngine`-like interface that doesn't require importing the concrete class.
+
+**Effort:** 3–4 days. Multiple files in `packages/ai/src/tools/classes/` (~20 tool classes) plus consumer-side adjustments.
 
 ### Option B — TypeScript project references
 
@@ -84,12 +92,17 @@ Net: error count per failing package roughly halved; the remaining errors are ex
 
 ## Recommended next step
 
-**Option A's leaf-package extraction** is the smallest scope with clearest payoff. Suggested PR shape:
+**Option C** (extract shared types out of `apps/web/client/src/`) is now the recommended path after the deeper investigation, because Option A's effort scales with the number of tool classes (~20) and Option B is even bigger.
 
-1. Create `packages/chat-tools/` with the toolset definition pulled out of `packages/ai/src/tools/toolset.ts`.
-2. `packages/ai/src/tools/toolset.ts` re-exports from the new package (no behavior change).
-3. `packages/models/src/chat/message/message.ts` imports `ChatTools` from `@onlook/chat-tools` instead of `@onlook/ai`.
-4. Verify: `bun --filter '*' typecheck` shows the 14 packages now passing (target: 33/33 instead of 19/33).
-5. Extend the root `typecheck` filter in `package.json` to include all 33 packages.
+Suggested PR shape for Option C:
 
-Bonus follow-up — file the same set of packages into the root `test` script (a separate audit-pattern catch from `b5ce0934` + `27370df7`).
+1. Identify the leaf types pulled in by the chain. The crucial ones are `EditorEngine` (the class) and a few related types in `apps/web/client/src/components/store/editor/`.
+2. Create `packages/editor-engine-types/` (or similar) with a structural interface `EditorEngineLike` that mirrors the surface tool classes consume (`api.webSearch`, `api.applyDiff`, etc.).
+3. Update `packages/ai/src/tools/classes/*.ts` to import `EditorEngineLike` from the new package instead of the concrete `EditorEngine` from web-client.
+4. The concrete `apps/web/client/src/.../engine.ts:EditorEngine` class implements `EditorEngineLike` (structural conformance, no explicit `implements` needed in TypeScript).
+5. Verify: `bun --filter '*' typecheck` should drop the 14 failures to 0 (target: 33/33 instead of 19/33).
+6. Extend root `typecheck` filter + `test` filter to include the newly-clean packages.
+
+**Why Option C over Option A:** Option C only touches the tool-class import lines (~20 simple `import type` rewrites). Option A requires removing the `Icons` static class property from each tool class AND finding an alternate home for the static-icon mapping that the chat UI consumes — that's two coordination axes vs one.
+
+Bonus follow-up — file the same set of packages into the root `test` script (a separate audit-pattern catch from `b5ce0934` + `27370df7` + `711a5124`).
