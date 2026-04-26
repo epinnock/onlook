@@ -33,7 +33,7 @@
         "db:reset": "cd apps/backend && bun run reset",
         "format": "bun --filter '*' format",
         "lint": "bun --filter '*' lint",
-        "typecheck": "bun --filter @onlook/web-client --filter @onlook/mobile-client --filter @onlook/mobile-preview typecheck",
+        "typecheck": "bun --filter @onlook/ai --filter @onlook/docs --filter @onlook/web-client --filter @onlook/mobile-client --filter @onlook/mobile-preview --filter @onlook/base-bundle-builder --filter @onlook/browser-bundler --filter @onlook/browser-metro --filter @onlook/cf-esm-builder --filter @onlook/cf-esm-cache --filter @onlook/cf-expo-relay --filter @onlook/code-provider --filter @onlook/constants --filter @onlook/db --filter @onlook/email --filter @onlook/file-system --filter @onlook/fonts --filter @onlook/git --filter @onlook/github --filter @onlook/growth --filter @onlook/image-server --filter @onlook/mobile-client-protocol --filter @onlook/models --filter @onlook/parser --filter @onlook/penpal --filter @onlook/rpc --filter @onlook/sandbox-worker --filter @onlook/scripts --filter @onlook/stripe --filter @onlook/types --filter @onlook/ui --filter @onlook/utility --filter @onlook/web-preload --filter @onlook/web-server typecheck",
         "clean": "git clean -xdf node_modules",
         "clean:workspaces": "bun --filter '*' clean",
         "setup:env": "cd packages/scripts && bun run start",

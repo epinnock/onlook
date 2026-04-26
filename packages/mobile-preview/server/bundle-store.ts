@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { MobilePreviewBundlePlatform, MobilePreviewManifestFields } from './routes';
@@ -30,6 +30,12 @@ export interface RuntimeBundleMeta {
 }
 
 export let currentRuntimeHash: string | null = null;
+// mtimeMs of the source `runtime/bundle.js` at the moment we last staged it.
+// Drives source-bundle drift detection in `ensureRuntimeStaged` so a rebuild
+// (e.g. after fixing entry.js — see PR #20) is picked up without a server
+// restart. Reset alongside `currentRuntimeHash` whenever staleness is
+// detected. Module-private; not exported.
+let currentRuntimeSourceMtimeMs: number | null = null;
 
 export function getBundleStorePaths(
   bundleHash: string,
@@ -80,22 +86,31 @@ export function ensureRuntimeStaged(options: RuntimeStageOptions = {}): string {
   const runtimePath = options.runtimePath ?? RUNTIME_BUNDLE_PATH;
   const storeDir = options.storeDir ?? STORE_DIR;
 
-  // Check the cached hash BUT confirm the on-disk files still exist.
-  // macOS's launchd tmpwatch job periodically wipes `/tmp/cf-builds/*`
-  // at midnight, so a long-running server would happily hand out a
-  // stale `currentRuntimeHash` that points at an empty directory —
-  // every manifest request then 404s until the server is restarted.
-  // Re-stage when we detect the cache is a lie.
+  // Two staleness modes to defend against:
+  //   1. macOS's launchd tmpwatch job wipes `/tmp/cf-builds/*` at midnight,
+  //      leaving `currentRuntimeHash` pointing at an empty directory.
+  //   2. The source `runtime/bundle.js` gets rebuilt under our feet (e.g.
+  //      a developer ran `bun run build:runtime` after pulling a fix —
+  //      PR #20 was the canonical example). The on-disk hash dir still
+  //      exists, but it was staged from the OLD bundle, so we'd happily
+  //      serve a stale manifest pointing at the OLD bundle URL.
+  // Bail out of the cache when EITHER signal indicates a re-stage is needed.
   if (currentRuntimeHash) {
     const cachedPaths = getBundleStorePaths(currentRuntimeHash, storeDir);
-    if (
+    const filesPresent =
       existsSync(cachedPaths.manifestFieldsPath) &&
-      existsSync(cachedPaths.iosBundlePath)
-    ) {
+      existsSync(cachedPaths.iosBundlePath);
+    const sourceMtimeMs = existsSync(runtimePath)
+      ? statSync(runtimePath).mtimeMs
+      : null;
+    const sourceUnchanged =
+      sourceMtimeMs !== null && sourceMtimeMs === currentRuntimeSourceMtimeMs;
+    if (filesPresent && sourceUnchanged) {
       return currentRuntimeHash;
     }
     // Cache is stale — fall through to re-stage.
     currentRuntimeHash = null;
+    currentRuntimeSourceMtimeMs = null;
   }
 
   if (!existsSync(runtimePath)) {
@@ -141,5 +156,6 @@ export function ensureRuntimeStaged(options: RuntimeStageOptions = {}): string {
   writeFileSync(paths.metaPath, JSON.stringify(meta, null, 2));
 
   currentRuntimeHash = hash;
+  currentRuntimeSourceMtimeMs = statSync(runtimePath).mtimeMs;
   return hash;
 }

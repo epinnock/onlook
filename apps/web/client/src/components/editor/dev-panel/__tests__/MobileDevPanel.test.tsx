@@ -17,6 +17,7 @@ import type {
 import { formatPreflightSummary } from '@/services/expo-relay/preflight-formatter';
 
 import {
+    deriveAbiIndicatorVisible,
     deriveAckCount,
     deriveAckOverBudgetCount,
     derivePreflightIssueCount,
@@ -128,5 +129,33 @@ describe('deriveAckOverBudgetCount', () => {
             makeAck({ mountDurationMs: 50 }) as unknown as WsMessage,
         ];
         expect(deriveAckOverBudgetCount(stream, undefined)).toBe(1);
+    });
+});
+
+describe('deriveAbiIndicatorVisible (Phase 11b dev-panel)', () => {
+    // Pin the indicator's visibility contract here since the parent's
+    // render path goes through Radix Tabs (not server-renderable in
+    // isolation). The component itself is unit-tested in
+    // AbiCompatibilityIndicator.test.tsx.
+
+    test('returns false when abiCompatibility is omitted (legacy/shim contexts)', () => {
+        expect(deriveAbiIndicatorVisible(undefined)).toBe(false);
+    });
+
+    test('returns true for "unknown" — indicator must show waiting state', () => {
+        expect(deriveAbiIndicatorVisible('unknown')).toBe(true);
+    });
+
+    test('returns true for "ok" — indicator shows handshake-completed state', () => {
+        expect(deriveAbiIndicatorVisible('ok')).toBe(true);
+    });
+
+    test('returns true for an OnlookRuntimeError — indicator shows mismatch state', () => {
+        expect(
+            deriveAbiIndicatorVisible({
+                kind: 'abi-mismatch',
+                message: 'phone running v0',
+            }),
+        ).toBe(true);
     });
 });

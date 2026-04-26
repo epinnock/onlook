@@ -8,6 +8,15 @@ export {
     addRecentSession,
     clearRecentSessions,
     getRecentSessions,
+    onRecentSessionsChange,
     RecentSessionSchema,
 } from './recentSessions';
 export type { RecentSession } from './recentSessions';
+
+export {
+    DEV_MENU_ENABLED_KEY,
+    isDevMenuEnabled,
+    loadDevMenuEnabled,
+    onDevMenuEnabledChange,
+    setDevMenuEnabled,
+} from './devMenuEnabled';

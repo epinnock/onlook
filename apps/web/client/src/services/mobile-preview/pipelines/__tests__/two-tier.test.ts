@@ -60,12 +60,14 @@ function makeVfs(files: Record<string, string>): MobilePreviewPipelineVfs {
     };
 }
 
-async function startFakeRelay(): Promise<{
+async function startFakeRelay(opts: { failAssetUploads?: boolean } = {}): Promise<{
     baseUrl: string;
     pushes: Array<{ sessionId: string; body: string }>;
+    assetUploads: Array<{ hash: string; mime: string; bytes: number }>;
     close(): Promise<void>;
 }> {
     const pushes: Array<{ sessionId: string; body: string }> = [];
+    const assetUploads: Array<{ hash: string; mime: string; bytes: number }> = [];
     const server = http.createServer((req, res) => {
         if (req.method === 'POST' && req.url?.startsWith('/push/')) {
             const sessionId = req.url.slice('/push/'.length);
@@ -78,6 +80,29 @@ async function startFakeRelay(): Promise<{
             });
             return;
         }
+        // Phase 9 R2 upload — PUT /base-bundle/assets/<hash>
+        if (req.method === 'PUT' && req.url?.startsWith('/base-bundle/assets/')) {
+            const hash = decodeURIComponent(req.url.slice('/base-bundle/assets/'.length));
+            const chunks: Buffer[] = [];
+            req.on('data', (c) => chunks.push(c as Buffer));
+            req.on('end', () => {
+                if (opts.failAssetUploads) {
+                    res.writeHead(500);
+                    res.end('forced fail');
+                    return;
+                }
+                const bytes = Buffer.concat(chunks).byteLength;
+                assetUploads.push({
+                    hash,
+                    mime: req.headers['content-type'] ?? '',
+                    bytes,
+                });
+                // Match the real relay: 201 (created), no body.
+                res.writeHead(201);
+                res.end();
+            });
+            return;
+        }
         res.writeHead(404);
         res.end();
     });
@@ -86,6 +111,7 @@ async function startFakeRelay(): Promise<{
     return {
         baseUrl: `http://127.0.0.1:${port}`,
         pushes,
+        assetUploads,
         close: () => new Promise<void>((r, j) => server.close((e) => (e ? j(e) : r()))),
     };
 }
@@ -779,6 +805,630 @@ describe('TwoTierMobilePreviewPipeline.sync', () => {
         } finally {
             await relay.close();
             uninstallPostHogStub();
+            resetPipelineFlag();
+        }
+    });
+
+    // Phase 11b adoption — production push gates on the editor's
+    // RelayWsClient-derived compatibility provider. See ADR-0009 §"Pre-flip
+    // check": pushing v1 to a phone whose abi handshake has not completed
+    // would self-eval but render nothing — must fail-closed pre-network.
+    test('v1 branch: compatibilityProvider returning "ok" lets the push through', async () => {
+        pipelineFlagState.v1Enabled = true;
+        const relay = await startFakeRelay();
+        try {
+            const { service } = makeEsbuildService('module.exports = {};');
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                {
+                    esbuildService: service,
+                    createSessionId: () => 'v1-gate-ok',
+                    compatibilityProvider: () => 'ok',
+                },
+            );
+            await pipeline.sync({ fileSystem: makeVfs(FILES) });
+            expect(relay.pushes).toHaveLength(1);
+        } finally {
+            await relay.close();
+            resetPipelineFlag();
+        }
+    });
+
+    test('v1 branch: compatibilityProvider returning "unknown" fails-closed pre-network', async () => {
+        pipelineFlagState.v1Enabled = true;
+        const relay = await startFakeRelay();
+        try {
+            const { service } = makeEsbuildService('module.exports = {};');
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                {
+                    esbuildService: service,
+                    createSessionId: () => 'v1-gate-unknown',
+                    compatibilityProvider: () => 'unknown',
+                },
+            );
+            const statuses: Array<{ kind: string; message?: string }> = [];
+            await expect(
+                pipeline.sync({
+                    fileSystem: makeVfs(FILES),
+                    onStatus: (s) => statuses.push(s),
+                }),
+            ).rejects.toThrow(/handshake has not completed/);
+            // Gate fired BEFORE the network round-trip — no relay push body.
+            expect(relay.pushes).toHaveLength(0);
+            expect(statuses.some((s) => s.kind === 'error')).toBe(true);
+        } finally {
+            await relay.close();
+            resetPipelineFlag();
+        }
+    });
+
+    test('v1 branch: compatibilityProvider returning OnlookRuntimeError fails-closed', async () => {
+        pipelineFlagState.v1Enabled = true;
+        const relay = await startFakeRelay();
+        try {
+            const { service } = makeEsbuildService('module.exports = {};');
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                {
+                    esbuildService: service,
+                    createSessionId: () => 'v1-gate-mismatch',
+                    compatibilityProvider: () => ({
+                        kind: 'abi-mismatch',
+                        message: 'phone running v0',
+                    }),
+                },
+            );
+            await expect(
+                pipeline.sync({ fileSystem: makeVfs(FILES) }),
+            ).rejects.toThrow(/abi-mismatch/);
+            expect(relay.pushes).toHaveLength(0);
+        } finally {
+            await relay.close();
+            resetPipelineFlag();
+        }
+    });
+
+    test('v1 branch: omitted compatibilityProvider preserves legacy behavior (push proceeds)', async () => {
+        pipelineFlagState.v1Enabled = true;
+        const relay = await startFakeRelay();
+        try {
+            const { service } = makeEsbuildService('module.exports = {};');
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                {
+                    esbuildService: service,
+                    createSessionId: () => 'v1-gate-omitted',
+                    // no compatibilityProvider
+                },
+            );
+            await pipeline.sync({ fileSystem: makeVfs(FILES) });
+            expect(relay.pushes).toHaveLength(1);
+        } finally {
+            await relay.close();
+            resetPipelineFlag();
+        }
+    });
+
+    test('legacy branch ignores compatibilityProvider — gate is v1-only', async () => {
+        pipelineFlagState.v1Enabled = false;
+        const relay = await startFakeRelay();
+        try {
+            const { service } = makeEsbuildService('module.exports = {};');
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                {
+                    esbuildService: service,
+                    createSessionId: () => 'legacy-gate',
+                    // Even with a fail-closed provider the legacy push
+                    // still proceeds — the legacy `pushOverlay` doesn't
+                    // accept a `compatibility` option (no v1 envelope to
+                    // gate). This pins the documented behavior so a
+                    // future refactor doesn't silently expand the gate.
+                    compatibilityProvider: () => 'unknown',
+                },
+            );
+            await pipeline.sync({ fileSystem: makeVfs(FILES) });
+            expect(relay.pushes).toHaveLength(1);
+        } finally {
+            await relay.close();
+            resetPipelineFlag();
+        }
+    });
+
+    // Phase 9 R2 source-map upload — pipeline uploads result.sourceMap
+    // to /base-bundle/assets/<hash> and threads the URI back via the
+    // onSourceMapUploaded deps callback. Activates the source-map
+    // decoration receive-chain (commits 0b09549f..be9586be).
+    test('v1 branch: uploads sourceMap + fires onSourceMapUploaded with URI', async () => {
+        pipelineFlagState.v1Enabled = true;
+        const relay = await startFakeRelay();
+        try {
+            const { service } = makeEsbuildService('module.exports = {};');
+            const uploadCalls: string[] = [];
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                {
+                    esbuildService: service,
+                    createSessionId: () => 'v1-srcmap',
+                    onSourceMapUploaded: (url: string) => uploadCalls.push(url),
+                },
+            );
+            await pipeline.sync({ fileSystem: makeVfs(FILES) });
+
+            // Asset upload fired exactly once.
+            expect(relay.assetUploads).toHaveLength(1);
+            expect(relay.assetUploads[0]!.mime).toBe('application/json');
+            expect(relay.assetUploads[0]!.bytes).toBeGreaterThan(0);
+
+            // Callback fired with the relay-derived URI.
+            expect(uploadCalls).toHaveLength(1);
+            expect(uploadCalls[0]).toMatch(
+                new RegExp(
+                    `^${relay.baseUrl.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}/base-bundle/assets/[0-9a-f]{64}$`,
+                ),
+            );
+
+            // Push body's meta carries the URI.
+            const pushed = JSON.parse(relay.pushes[0]!.body) as {
+                meta: { sourceMapUrl?: string };
+            };
+            expect(pushed.meta.sourceMapUrl).toBe(uploadCalls[0]);
+        } finally {
+            await relay.close();
+            resetPipelineFlag();
+        }
+    });
+
+    test('v1 branch: omitted onSourceMapUploaded — upload still fires but callback skipped', async () => {
+        pipelineFlagState.v1Enabled = true;
+        const relay = await startFakeRelay();
+        try {
+            const { service } = makeEsbuildService('module.exports = {};');
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                {
+                    esbuildService: service,
+                    createSessionId: () => 'v1-srcmap-no-cb',
+                    // no onSourceMapUploaded
+                },
+            );
+            await pipeline.sync({ fileSystem: makeVfs(FILES) });
+            expect(relay.assetUploads).toHaveLength(1); // upload still fires
+            const pushed = JSON.parse(relay.pushes[0]!.body) as {
+                meta: { sourceMapUrl?: string };
+            };
+            expect(pushed.meta.sourceMapUrl).toBeDefined(); // URI in push
+        } finally {
+            await relay.close();
+            resetPipelineFlag();
+        }
+    });
+
+    test('v1 branch: upload failure (5xx) — push falls through without sourceMap', async () => {
+        pipelineFlagState.v1Enabled = true;
+        const relay = await startFakeRelay({ failAssetUploads: true });
+        try {
+            const { service } = makeEsbuildService('module.exports = {};');
+            const uploadCalls: string[] = [];
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                {
+                    esbuildService: service,
+                    createSessionId: () => 'v1-srcmap-fail',
+                    onSourceMapUploaded: (url: string) => uploadCalls.push(url),
+                },
+            );
+            // Sync should not throw — best-effort upload.
+            await pipeline.sync({ fileSystem: makeVfs(FILES) });
+
+            // Callback NOT fired (upload failed).
+            expect(uploadCalls).toHaveLength(0);
+
+            // Push still happens — overlay mounts, just without source-map mapping.
+            expect(relay.pushes).toHaveLength(1);
+            const pushed = JSON.parse(relay.pushes[0]!.body) as {
+                meta: { sourceMapUrl?: string };
+            };
+            expect(pushed.meta.sourceMapUrl).toBeUndefined();
+        } finally {
+            await relay.close();
+            resetPipelineFlag();
+        }
+    });
+
+    test('legacy branch: ignores onSourceMapUploaded — gate is v1-only', async () => {
+        pipelineFlagState.v1Enabled = false;
+        const relay = await startFakeRelay();
+        try {
+            const { service } = makeEsbuildService('module.exports = {};');
+            const uploadCalls: string[] = [];
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                {
+                    esbuildService: service,
+                    createSessionId: () => 'legacy-no-srcmap',
+                    onSourceMapUploaded: (url: string) => uploadCalls.push(url),
+                },
+            );
+            await pipeline.sync({ fileSystem: makeVfs(FILES) });
+
+            // Legacy push doesn't go through the R2 upload path.
+            expect(relay.assetUploads).toHaveLength(0);
+            expect(uploadCalls).toEqual([]);
+        } finally {
+            await relay.close();
+            resetPipelineFlag();
+        }
+    });
+
+    // 2026-04-25 — Phase 11b additional perf signal. evaluateSizeDelta is
+    // called after every successful push and compares the wrapped bundle's
+    // byte size against the previous successful push's wrapped size on the
+    // same pipeline instance. Surfaces `size-grew` / `size-shrunk` in the
+    // soak dashboard so an overlay that suddenly balloons (regression) or
+    // shrinks (cleanup) is observable per-pipeline.
+    test('size-delta: first push emits no size-grew event (no baseline yet)', async () => {
+        pipelineFlagState.v1Enabled = false;
+        const captures = installPostHogStub();
+        const relay = await startFakeRelay();
+        try {
+            const { service } = makeEsbuildService('module.exports = {a: 1};');
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                {
+                    esbuildService: service,
+                    createSessionId: () => 'first-push',
+                },
+            );
+            await pipeline.sync({ fileSystem: makeVfs(FILES) });
+
+            const sizeEvents = captures
+                .filter((c) => c.event === 'onlook_overlay_perf')
+                .filter(
+                    (c) =>
+                        c.props!.category === 'size-grew' ||
+                        c.props!.category === 'size-shrunk',
+                );
+            expect(sizeEvents).toHaveLength(0);
+        } finally {
+            await relay.close();
+            uninstallPostHogStub();
+            resetPipelineFlag();
+        }
+    });
+
+    test('size-delta: consecutive pushes with ≥20% growth emit size-grew warn on second push', async () => {
+        pipelineFlagState.v1Enabled = false;
+        const captures = installPostHogStub();
+        const relay = await startFakeRelay();
+        try {
+            // Two services produce different-size bundles; reuse the same
+            // pipeline instance across both syncs so previousOverlayBytes
+            // is preserved for the size-delta check.
+            const smallCode = 'x'.repeat(1024); // ~1 KB raw
+            const largeCode = 'x'.repeat(2048); // ~2 KB raw → 100% growth
+            let buildCount = 0;
+            const switchingService: BrowserBundlerEsbuildService = {
+                async build() {
+                    buildCount += 1;
+                    return {
+                        outputFiles: [
+                            {
+                                path: 'out.js',
+                                text: buildCount === 1 ? smallCode : largeCode,
+                            },
+                            { path: 'out.js.map', text: '{}' },
+                        ],
+                        warnings: [],
+                    };
+                },
+            };
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                {
+                    esbuildService: switchingService,
+                    createSessionId: () => 'size-grew',
+                },
+            );
+            await pipeline.sync({ fileSystem: makeVfs(FILES) });
+            // Mutate one file so the incremental cache doesn't short-circuit
+            // the second build (otherwise esbuild would only run once).
+            await pipeline.sync({
+                fileSystem: makeVfs({ ...FILES, 'app.tsx': '/* changed */' }),
+            });
+
+            const sizeGrewEvents = captures
+                .filter((c) => c.event === 'onlook_overlay_perf')
+                .filter((c) => c.props!.category === 'size-grew');
+            expect(sizeGrewEvents.length).toBeGreaterThan(0);
+            expect(sizeGrewEvents[0]!.props!.severity).toBe('warn');
+            expect(sizeGrewEvents[0]!.props!.pipeline).toBe('overlay-legacy');
+            // Detail fields populated.
+            expect(typeof sizeGrewEvents[0]!.props!.previousBytes).toBe('number');
+            expect(typeof sizeGrewEvents[0]!.props!.currentBytes).toBe('number');
+            const previous = sizeGrewEvents[0]!.props!.previousBytes as number;
+            const current = sizeGrewEvents[0]!.props!.currentBytes as number;
+            expect(current).toBeGreaterThan(previous);
+        } finally {
+            await relay.close();
+            uninstallPostHogStub();
+            resetPipelineFlag();
+        }
+    });
+
+    test('size-delta: dispose() resets the baseline (next push treated as first)', async () => {
+        pipelineFlagState.v1Enabled = false;
+        const captures = installPostHogStub();
+        const relay = await startFakeRelay();
+        try {
+            const smallCode = 'x'.repeat(1024);
+            const largeCode = 'x'.repeat(2048);
+            let buildCount = 0;
+            const switchingService: BrowserBundlerEsbuildService = {
+                async build() {
+                    buildCount += 1;
+                    return {
+                        outputFiles: [
+                            {
+                                path: 'out.js',
+                                text: buildCount === 1 ? smallCode : largeCode,
+                            },
+                            { path: 'out.js.map', text: '{}' },
+                        ],
+                        warnings: [],
+                    };
+                },
+            };
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                {
+                    esbuildService: switchingService,
+                    createSessionId: () => 'size-reset',
+                },
+            );
+            await pipeline.sync({ fileSystem: makeVfs(FILES) });
+            // Reset baseline — emulates session teardown / pipeline dispose.
+            // dispose is optional on the MobilePreviewPipeline interface, so
+            // the optional-chain call is the correct shape for the factory's
+            // return type even though the concrete TwoTierMobilePreviewPipeline
+            // class always implements it.
+            pipeline.dispose?.();
+            await pipeline.sync({
+                fileSystem: makeVfs({ ...FILES, 'app.tsx': '/* changed */' }),
+            });
+
+            // Even though the second push is much larger than the first, the
+            // baseline got cleared in between → no size-grew event.
+            const sizeGrewEvents = captures
+                .filter((c) => c.event === 'onlook_overlay_perf')
+                .filter((c) => c.props!.category === 'size-grew');
+            expect(sizeGrewEvents).toHaveLength(0);
+        } finally {
+            await relay.close();
+            uninstallPostHogStub();
+            resetPipelineFlag();
+        }
+    });
+
+    // 2026-04-25 — preflight wiring (a9cac3b8).
+    // The pipeline runs `preflightAbiV1Imports` after collecting the file
+    // map and fires `onPreflight(issues)` once per sync. Closes the gap
+    // where OverlayPreflightPanel rendered with a permanently-null
+    // summary because no production code ever called preflightAbiV1Imports.
+    test('preflight: onPreflight callback fires once per sync with the issue list', async () => {
+        pipelineFlagState.v1Enabled = false;
+        const relay = await startFakeRelay();
+        try {
+            const { service } = makeEsbuildService();
+            const calls: Array<readonly { specifier: string; kind: string }[]> = [];
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                {
+                    esbuildService: service,
+                    createSessionId: () => 'preflight-test',
+                    onPreflight: (issues) => {
+                        calls.push(
+                            issues.map((i) => ({
+                                specifier: i.specifier,
+                                kind: i.kind,
+                            })),
+                        );
+                    },
+                },
+            );
+            await pipeline.sync({ fileSystem: makeVfs(FILES) });
+
+            // The default FILES fixture imports `./App` (a relative path,
+            // not a bare specifier) so preflight finds zero issues. The
+            // assertion is on the CALLBACK firing exactly once per sync,
+            // not on the issue count — that confirms the producer is
+            // wired even when the build is clean.
+            expect(calls).toHaveLength(1);
+            expect(Array.isArray(calls[0])).toBe(true);
+        } finally {
+            await relay.close();
+            resetPipelineFlag();
+        }
+    });
+
+    test('preflight: callback receives unknown-specifier issues for unwired bare imports', async () => {
+        pipelineFlagState.v1Enabled = false;
+        const relay = await startFakeRelay();
+        try {
+            const { service } = makeEsbuildService();
+            const calls: Array<readonly { specifier: string; kind: string }[]> = [];
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                {
+                    esbuildService: service,
+                    createSessionId: () => 'preflight-issues',
+                    onPreflight: (issues) => {
+                        calls.push(
+                            issues.map((i) => ({
+                                specifier: i.specifier,
+                                kind: i.kind,
+                            })),
+                        );
+                    },
+                },
+            );
+            // `lodash` is NOT in DEFAULT_BASE_EXTERNALS and is NOT in
+            // DISALLOWED_NATIVE_ALIASES, so preflight flags it as
+            // unknown-specifier (the most common dev-time gotcha — bare
+            // import the base bundle doesn't serve, but with no native-
+            // module concern). Static analysis only — does NOT gate the
+            // build.
+            await pipeline.sync({
+                fileSystem: makeVfs({
+                    ...FILES,
+                    'App.tsx':
+                        "import _ from 'lodash'; export default function App() { return null; }",
+                }),
+            });
+
+            expect(calls).toHaveLength(1);
+            const issues = calls[0]!;
+            const lodashIssue = issues.find((i) => i.specifier === 'lodash');
+            expect(lodashIssue).toBeDefined();
+            expect(lodashIssue?.kind).toBe('unknown-specifier');
+        } finally {
+            await relay.close();
+            resetPipelineFlag();
+        }
+    });
+
+    test('preflight: callback receives unsupported-native issues for DISALLOWED_NATIVE_ALIASES', async () => {
+        // `react-native-skia` is in `DISALLOWED_NATIVE_ALIASES` (deep
+        // Hermes integration the base bundle doesn't include). Preflight
+        // should flag it as `'unsupported-native'` — distinct from
+        // `'unknown-specifier'` so the editor can surface a clearer
+        // "this needs a base/binary rebuild" diagnostic vs "add it to
+        // the base bundle or rewrite the import".
+        pipelineFlagState.v1Enabled = false;
+        const relay = await startFakeRelay();
+        try {
+            const { service } = makeEsbuildService();
+            const calls: Array<readonly { specifier: string; kind: string }[]> = [];
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                {
+                    esbuildService: service,
+                    createSessionId: () => 'preflight-disallowed',
+                    onPreflight: (issues) => {
+                        calls.push(
+                            issues.map((i) => ({
+                                specifier: i.specifier,
+                                kind: i.kind,
+                            })),
+                        );
+                    },
+                },
+            );
+            await pipeline.sync({
+                fileSystem: makeVfs({
+                    ...FILES,
+                    'App.tsx':
+                        "import { Skia } from 'react-native-skia'; export default function App() { return null; }",
+                }),
+            });
+
+            expect(calls).toHaveLength(1);
+            const issues = calls[0]!;
+            const skiaIssue = issues.find(
+                (i) => i.specifier === 'react-native-skia',
+            );
+            expect(skiaIssue).toBeDefined();
+            expect(skiaIssue?.kind).toBe('unsupported-native');
+        } finally {
+            await relay.close();
+            resetPipelineFlag();
+        }
+    });
+
+    test('preflight: omitted onPreflight callback is a no-op (legacy callers)', async () => {
+        pipelineFlagState.v1Enabled = false;
+        const relay = await startFakeRelay();
+        try {
+            const { service } = makeEsbuildService();
+            const pipeline = createTwoTierMobilePreviewPipeline(
+                {
+                    kind: 'two-tier',
+                    builderBaseUrl: 'https://builder',
+                    relayBaseUrl: relay.baseUrl,
+                },
+                {
+                    esbuildService: service,
+                    createSessionId: () => 'preflight-omit',
+                    // No onPreflight passed; the pipeline must not fail.
+                },
+            );
+            await pipeline.sync({ fileSystem: makeVfs(FILES) });
+            // No assertion needed beyond completing without throw — if
+            // the pipeline tried to call an undefined onPreflight, sync
+            // would throw and the test would fail.
+        } finally {
+            await relay.close();
             resetPipelineFlag();
         }
     });

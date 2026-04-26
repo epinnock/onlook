@@ -398,7 +398,7 @@ Goal: replace Spike B's scraping path with a documented `global.OnlookRuntime.ru
   - Shipped body: on `+registerHandler`, hops to the main queue, walks `UIApplication.keyWindow.rootViewController.view` breadth-first to find the first subview advertising a `reactTag` (the Fabric root), and attaches a `UITapGestureRecognizer` with `cancelsTouchesInView = NO`. Each tap translates coordinates into the root view's space and dual-publishes: (1) an `onlook:tap` `NSNotification` (for future native-side observers) and (2) via `OnlookTapForwarder`'s `+forwardTap:reactTag:source:` (MC4.6) which crosses the RN bridge as an `onlookTap` event. The JS-side `tapBridge.ts` subscribes to that event and re-dispatches as `onlook:tap` on `OnlookRuntime`. Bounded retry loop (12 × 100ms) handles the async-mount case; `NSClassFromString` + `NSInvocation` avoid a static header dependency on `OnlookTapForwarder.h`.
   - Rationale for not hooking Fabric `registerEventHandler` directly: under Expo SDK 54 / RN 0.81 bridgeless (`newArchEnabled: true`), `[RCTBridge currentBridge]` returns `nil` and the Fabric event-handler registration API is not publicly exposed from Obj-C++. The prior compile-failure fix in `674b4980` documents the header-instability side of this. Two earlier agent attempts burned multi-hour research loops on this path without producing a compileable diff. The UITapGestureRecognizer approach is an observe-only substitute that surfaces taps to JS without touching private Fabric internals; hit-testing + `reactTag` resolution stay in JS (MC4.2's `findNodeAtPoint`), which matches how the JS runtime shell already operates. See the `FabricEventBootstrap.mm` header comment for the full ADR.
   - Deps: MC2.3, MC4.6 (dual-publish via `OnlookTapForwarder`)
-  - Validate: `bun --filter @onlook/mobile-client typecheck` passes. `bun run mobile:build:ios` (Mac mini — BUILD SUCCEEDED) is the native exit criterion. `bun run mobile:e2e:ios -- 05-fabric-event-registered.yaml` remains deferred — the flow name referenced the original registerEventHandler spec; the pragmatic path is covered end-to-end by MC4.18's tap-to-editor flow once MC4.6 + MC4.17 land.
+  - Validate: `bun --filter @onlook/mobile-client typecheck` passes. `bun run mobile:build:ios` (Mac mini — BUILD SUCCEEDED) is the native exit criterion. `bun run mobile:e2e:ios -- 05-fabric-event-registered.yaml` remains deferred — the flow name referenced the original registerEventHandler spec; the pragmatic path is covered end-to-end by MC4.18's tap-to-editor flow once MC4.6 lands (MC4.17 cursor jump shipped 2026-04-25).
 
 - **MC2.6** — Native-side Fabric `registerEventHandler` pre-JS call (Android)
   - Files: `apps/mobile-client/android/app/src/main/cpp/fabric_event_bootstrap.cpp`
@@ -508,10 +508,11 @@ Goal: fresh app launch → scan QR → load bundle from `cf-expo-relay` → moun
   - Deps: MCF1
   - Validate: `bun test apps/mobile-client/src/storage/__tests__/recentSessions.test.ts` (round-trip a fake session, assert it reads back)
 
-- **MC3.9** — Recent sessions UI list — **component authored 2026-04-16, maestro deferred**
+- **MC3.9** — Recent sessions UI list — **component authored 2026-04-16; production-wired 2026-04-25; maestro deferred**
   - Files: `apps/mobile-client/src/screens/RecentSessionsList.tsx`
   - Deps: MC3.8, MC3.5
   - Validate: `bun run mobile:e2e:ios -- 14-recent-sessions.yaml`
+  - Wiring: LauncherScreen renders `<RecentSessionsList onSelect={onRecentSessionSelect} />` in its existing `recentSection`; AppRouter constructs an `onlook://launch?…` deep-link from the tapped row and routes it through `buildUrlPipelineRunner(actions)` — same path as a fresh QR scan. Storage layer extended with `onRecentSessionsChange(handler)` so RecentSessionsList auto-refreshes after each `addRecentSession` / `clearRecentSessions` (necessary because AppRouter's screen-stack reuses the LauncherScreen instance across navigation).
 
 - **MC3.10** — Settings screen (relay host override, clear cache, toggle dev menu) — **component authored 2026-04-16, maestro deferred**
   - Files: `apps/mobile-client/src/screens/SettingsScreen.tsx`
@@ -692,14 +693,24 @@ iOS and Android paths fan out in parallel — 4.1–4.6 are iOS, 4.7–4.11 are 
   - New router `mobileInspector` registered on `appRouter` exposing two skeleton procedures: `getActiveSession` (public query, returns `null` placeholder until the session registry lands) and `onSelect` (public mutation, input validated against `SelectMessageSchema` from `@onlook/mobile-client-protocol`, logs for now). Matches the existing import style in `root.ts` (nested path for routers outside the barrel — same pattern as `branchRouter` / `cfSandboxRouter`). No test harness existed at `apps/web/client/src/server/api/__tests__/root.test.ts`; left un-added pending a broader server-side test rig.
   - Validate: `bun --filter @onlook/web-client typecheck` clean for the new router/root changes (remaining errors are pre-existing in unrelated code paths — 21 before, 21 after).
 
-- **MC4.17** — Editor-side Monaco cursor jump on `onlook:select`
-  - Files: `apps/web/client/src/components/editor/monaco/cursor-jump-from-mobile.tsx`
+- **MC4.17** — Editor-side cursor jump on `onlook:select`
+  - Files: `apps/web/client/src/services/expo-relay/wireOnlookSelectToIdeManager.ts`,
+    `apps/web/client/src/components/store/editor/ide/index.ts` (`openCodeLocation` method),
+    `apps/web/client/src/app/project/[id]/_components/main.tsx` (production `useEffect` mount).
   - Deps: MC4.15
-  - Validate: `bun test apps/web/client/src/components/editor/monaco/__tests__/cursor-jump-from-mobile.test.tsx` (uses existing editor test rig: posts a fake `onlook:select`, asserts cursor position)
-  - Status: **shipped 2026-04-16 as d9f90113** — Monaco cursor jump driven by `onlook:select`.
+  - Validate: `bun test apps/web/client/src/services/expo-relay/__tests__/wireOnlookSelectToIdeManager.test.ts` (6 tests).
+  - Status: **shipped 2026-04-25 as `9eda7ddb`+`47a01022`+`2be936c8`+`99f246d0`+`abc8526d`** —
+    audit caught a stale Monaco-shaped helper (`wireCursorJump` /
+    `monacoCursorJump`) at the originally-planned path that
+    couldn't have fired in this codebase since the editor uses
+    CodeMirror's `EditorView`, not Monaco. Replaced with a
+    CodeMirror-native path via the existing `_codeNavigationOverride`
+    MobX state pattern (which `openCodeBlock` already used), wired
+    into `Main`'s mount effect. Stale Monaco shim deleted
+    (`2be936c8`); v2 task queue row #85 also updated.
 
-- **MC4.18** — End-to-end inspector flow (device tap → editor cursor jump) — **Status: JS integration shipped 2026-04-11; Maestro flow pending MC4.6 + MC4.17.**
-  - Files: `apps/mobile-client/src/flow/inspectorFlow.ts`, `apps/mobile-client/src/flow/__tests__/inspectorFlow.test.ts`, `apps/mobile-client/src/flow/index.ts` (barrel). Maestro `apps/mobile-client/e2e/flows/27-tap-to-editor.yaml` + fixture bundle still to land once native tap capture (MC4.6, blocked on Wave 2 MC2.5) and Monaco cursor jump (MC4.17) ship.
+- **MC4.18** — End-to-end inspector flow (device tap → editor cursor jump) — **Status: JS integration shipped 2026-04-11; editor-side cursor jump shipped 2026-04-25 (see MC4.17); Maestro flow pending MC4.6 hardware + a fresh device tap capture YAML.**
+  - Files: `apps/mobile-client/src/flow/inspectorFlow.ts`, `apps/mobile-client/src/flow/__tests__/inspectorFlow.test.ts`, `apps/mobile-client/src/flow/index.ts` (barrel). Maestro `apps/mobile-client/e2e/flows/27-tap-to-editor.yaml` + fixture bundle still to land once native tap capture (MC4.6, blocked on Wave 2 MC2.5) ships. The previous "Monaco cursor jump (MC4.17) ship" precondition is now satisfied — see MC4.17's revised entry for the CodeMirror-native canonical path.
   - Deps: MC4.6, MC4.14, MC4.17
   - `wireInspectorFlow(client, sessionId)` bundles MC4.14's `TapHandler` into a single callable: returns `{ tapHandler, destroy }`. The wrapper component (later) binds `onPress` to `tapHandler.handleTap(extractSource(props))`, the handler stamps `sessionId` + `reactTag` into an `onlook:select` wire message, and `client.send()` posts it to the relay — where MC4.15's `dispatchOnlookSelect` fans it out to the Monaco cursor-jump handler (MC4.17). `destroy()` short-circuits future sends (idempotent) and blanks the internal session id so a re-wire picks up the next session cleanly. An empty-string sessionId throws so misconfigured callers fail loudly.
   - Validate: `bun test apps/mobile-client/src/flow/__tests__/inspectorFlow.test.ts` — 8 tests covering handle shape, wire format, sessionId flow-through across distinct clients, reactTag passthrough, destroy-stops-sends, destroy idempotence, empty-sessionId guard, and send-error swallow.
@@ -729,7 +740,7 @@ Goal: console relay, network inspector, error boundary, in-app dev menu. All flo
   - Files: `apps/mobile-client/src/debug/consoleStreamer.ts`
   - Deps: MC5.1, MC3.13
   - Validate: `bun test apps/mobile-client/src/debug/__tests__/consoleStreamer.test.ts`
-  - Status: **shipped 2026-04-16 as d40537d5** — console streamer forwards entries to the relay WS.
+  - Status: **shipped 2026-04-16 as d40537d5; wired to production 2026-04-25** — console streamer forwards entries to the relay WS. **2026-04-25 production wiring:** `ConsoleStreamer` constructor widened from `OnlookRelayClient` (dead-on-arrival) to structural `WsSenderHandle` interface from new `src/relay/wsSender.ts`. AppRouter Spike B WS registers itself on `ws.onopen` via `registerActiveWsSender({isConnected, send})`; App.tsx instantiates `new ConsoleStreamer(dynamicWsSender, 'pending')` at boot and rotates the sessionId on deeplink resolve. Pre-WS-open entries buffer locally; they drain on the next forward call after AppRouter registers a sender. Editor's `MobileConsoleTab` now receives entries on a real session. 11 new tests in `wsSender.test.ts`; existing ConsoleStreamer tests pass unchanged. NetworkStreamer (MC5.5) and ExceptionCatcher (MC5.7) wiring deferred — NetworkStreamer needs fetch/xhr patch installation; ExceptionCatcher has no streamer companion yet.
 
 - **MC5.3** — Network inspector: `fetch` patch in runtime bundle ✅
   - Files: `apps/mobile-client/src/debug/fetchPatch.ts`
@@ -747,19 +758,19 @@ Goal: console relay, network inspector, error boundary, in-app dev menu. All flo
   - Files: `apps/mobile-client/src/debug/networkStreamer.ts`, `apps/mobile-client/src/debug/__tests__/networkStreamer.test.ts`, `apps/mobile-client/src/debug/index.ts`
   - Deps: MC5.3, MC5.4, MC3.13
   - Validate: `bun test apps/mobile-client/src/debug/__tests__/networkStreamer.test.ts && bun --filter @onlook/mobile-client typecheck`
-  - Status: **✅ Done** — `NetworkStreamer` class wires `FetchPatch` + `XhrPatch` into `OnlookRelayClient`. Each `NetworkEntry` is mapped to the protocol's `NetworkMessage` (`type: 'onlook:network'`) with `requestId`, `method`, `url`, optional `status`/`durationMs`, `phase` (`'error'` when the entry carries an error, otherwise `'end'` — patches emit only after terminal events), and a millisecond `timestamp` parsed from `endTime`/`startTime`. `sessionId` is supplied via constructor options or `setSessionId`. When `client.isConnected` is false (or `send` throws mid-race) messages queue locally (capped at 200, oldest-dropped) and drain on the next `start()` in arrival order. Sources default to the module singletons. 12 tests passing, typecheck clean.
+  - Status: **✅ Done; production-wired 2026-04-25** — `NetworkStreamer` class wires `FetchPatch` + `XhrPatch` into a `WsSenderHandle`. Each `NetworkEntry` is mapped to the protocol's `NetworkMessage` (`type: 'onlook:network'`) with `requestId`, `method`, `url`, optional `status`/`durationMs`, `phase` (`'error'` when the entry carries an error, otherwise `'end'` — patches emit only after terminal events), and a millisecond `timestamp` parsed from `endTime`/`startTime`. `sessionId` is supplied via constructor options or `setSessionId`. When `client.isConnected` is false (or `send` throws mid-race) messages queue locally (capped at 200, oldest-dropped) and drain on the next `start()` in arrival order. Sources default to the module singletons. 12 tests passing, typecheck clean. **2026-04-25 production wiring:** constructor type widened from `OnlookRelayClient` to structural `WsSenderHandle` (same pattern as MC5.2 ConsoleStreamer). App.tsx installs `fetchPatch` + `xhrPatch` and instantiates `new NetworkStreamer(dynamicWsSender, {}, {sessionId: 'pending'})` at boot alongside ConsoleStreamer + ExceptionStreamer. Deeplink resolve rotates the session id stamp. Editor's `MobileNetworkTab` now receives entries on a real session.
 
 - **MC5.6** — Error boundary in runtime bundle (catches React errors)
   - Files: `apps/mobile-client/src/components/ErrorBoundary.tsx`, `apps/mobile-client/src/components/index.ts`
   - Deps: MCF5
   - Validate: `bun --filter @onlook/mobile-client typecheck`
-  - Status: **✅ Done** — React class component wrapping `getDerivedStateFromError` + `componentDidCatch`. Default fallback renders `ErrorScreen` (MC3.17) with error message, component stack, and retry button. Supports optional `fallback` prop for custom UI and `onError` callback for external reporting. Barrel-exported from `src/components/index.ts`.
+  - Status: **✅ Done; production-wired 2026-04-25** — React class component wrapping `getDerivedStateFromError` + `componentDidCatch`. Default fallback renders `ErrorScreen` (MC3.17) with error message, component stack, and retry button. Supports optional `fallback` prop for custom UI and `onError` callback for external reporting. Barrel-exported from `src/components/index.ts`. **2026-04-25 wiring:** App.tsx wraps its tree in `<ErrorBoundary onError={(err, info) => exceptionCatcher.captureException(err, info.componentStack)}>` so React render errors flow into the same `onlook:error` ship pipeline as ErrorUtils-caught exceptions (via ExceptionStreamer / `25da7d27`).
 
 - **MC5.7** — Native JS exception catcher (Hermes exceptions from `runApplication`) ✅
   - Files: `apps/mobile-client/src/debug/exceptionCatcher.ts`, `apps/mobile-client/src/debug/__tests__/exceptionCatcher.test.ts`, `apps/mobile-client/src/debug/index.ts`
   - Deps: MCF1
   - Validate: `bun test apps/mobile-client/src/debug/__tests__/exceptionCatcher.test.ts && bun --filter @onlook/mobile-client typecheck`
-  - Status: **✅ Done** — `ExceptionCatcher` class patches `globalThis.ErrorUtils.setGlobalHandler` (RN/Hermes error hook) and `window.onerror` when available, forwards to any prior handler, and captures unhandled JS exceptions + manual `captureException(error, componentStack)` calls from `ErrorBoundary` (MC5.6). Each entry is logged with `[onlook-runtime]` prefix, pushed to a 50-slot ring buffer, and fanned out to registered listeners. Availability of `ErrorUtils` / `window` is probed lazily so the catcher is safe in bare JS and test contexts. 15 tests passing.
+  - Status: **✅ Done; production-wired 2026-04-25** — `ExceptionCatcher` class patches `globalThis.ErrorUtils.setGlobalHandler` (RN/Hermes error hook) and `window.onerror` when available, forwards to any prior handler, and captures unhandled JS exceptions + manual `captureException(error, componentStack)` calls from `ErrorBoundary` (MC5.6). Each entry is logged with `[onlook-runtime]` prefix, pushed to a 50-slot ring buffer, and fanned out to registered listeners. Availability of `ErrorUtils` / `window` is probed lazily so the catcher is safe in bare JS and test contexts. 15 tests passing. **2026-04-25 production wiring:** new `ExceptionStreamer` class (`src/debug/exceptionStreamer.ts`) subscribes to `exceptionCatcher.onException` and forwards each entry as an `onlook:error` wire message via `WsSenderHandle` (8 tests, including disconnect/throw buffering, kind promotion to 'react' on `componentStack`, 50-cap drop-oldest). App.tsx wires `exceptionCatcher.install()` + `new ExceptionStreamer(dynamicWsSender, 'pending')` + `start()` at boot alongside ConsoleStreamer. Closes the producer half of the editor's source-map decoration chain (`wireBufferDecorationOnError` was wired in `5da582fe` + `3b18789d` but had no producer until now).
 
 - **MC5.8** — Crash overlay UI (friendly "your app crashed" + "view in editor" CTA) ✅
   - Files: `apps/mobile-client/src/screens/CrashScreen.tsx`
@@ -771,32 +782,32 @@ Goal: console relay, network inspector, error boundary, in-app dev menu. All flo
   - Files: `apps/mobile-client/src/components/DevMenu.tsx`
   - Deps: MCF1
   - Validate: `bun --filter @onlook/mobile-client typecheck`
-  - Status: Done — modal overlay with slide-up animation, dark theme, action list with destructive support
+  - Status: Done — modal overlay with slide-up animation, dark theme, action list with destructive support. **2026-04-25 production-wired in `d19177b5`** — App.tsx renders the modal next to AppRouter; opens via DevMenuTrigger gesture (MC5.10).
 
 - **MC5.10** — Dev menu trigger: three-finger long-press gesture handler
   - Files: `apps/mobile-client/src/components/DevMenuTrigger.tsx`
   - Deps: MC5.9
   - Validate: `bun --filter @onlook/mobile-client typecheck`
   - Note: Maestro can simulate multi-finger gestures on iOS Simulator. If the agent discovers it can't for Android, this task gets an Android `device-only` follow-up.
-  - Status: Done — PanResponder-based three-finger long-press (800ms) gesture handler, transparent wrapper component
+  - Status: Done — PanResponder-based three-finger long-press (800ms) gesture handler, transparent wrapper component. **2026-04-25 production-wired in `d19177b5`** — wraps `<AppRouter />` + `<OverlayHost />` in App.tsx; on trigger sets `devMenuVisible=true`.
 
 - **MC5.11** — Dev menu action: reload bundle
   - Files: `apps/mobile-client/src/actions/reloadBundle.ts`, `apps/mobile-client/src/actions/index.ts`
   - Deps: MC5.9, MC2.8
   - Validate: `bun test apps/mobile-client/src/actions/__tests__/reloadBundle.test.ts && bun --filter @onlook/mobile-client typecheck`
-  - Status: Done — `createReloadAction()` returns DevMenuAction; `reloadApp()` standalone helper. Tries `globalThis.OnlookRuntime.reloadBundle()` first, falls back to RN `DevSettings.reload()`. 5 tests pass, typecheck clean.
+  - Status: Done — `createReloadAction()` returns DevMenuAction; `reloadApp()` standalone helper. Tries `globalThis.OnlookRuntime.reloadBundle()` first, falls back to RN `DevSettings.reload()`. 5 tests pass, typecheck clean. **2026-04-25 production-wired in `d19177b5`**.
 
 - **MC5.12** — Dev menu action: clear async storage
   - Files: `apps/mobile-client/src/actions/clearStorage.ts`, `apps/mobile-client/src/actions/index.ts`
   - Deps: MC5.9
   - Validate: `bun test apps/mobile-client/src/actions/__tests__/clearStorage.test.ts && bun --filter @onlook/mobile-client typecheck`
-  - Status: Done — `createClearStorageAction()` returns destructive DevMenuAction; `clearAllStorage()` standalone helper wipes recent sessions (MC3.8 `clearRecentSessions`) plus `onlook_relay_host_override` and `onlook_dev_menu_enabled` (MC3.10 SettingsScreen keys) and logs `[onlook-runtime] storage cleared`. 5 tests pass, typecheck clean.
+  - Status: Done — `createClearStorageAction()` returns destructive DevMenuAction; `clearAllStorage()` standalone helper wipes recent sessions (MC3.8 `clearRecentSessions`) plus `onlook_relay_host_override` and `onlook_dev_menu_enabled` (MC3.10 SettingsScreen keys) and logs `[onlook-runtime] storage cleared`. 5 tests pass, typecheck clean. **2026-04-25 production-wired in `d19177b5`**.
 
 - **MC5.13** — Dev menu action: toggle inspector overlay ✅
   - Files: `apps/mobile-client/src/actions/toggleInspector.ts`
   - Deps: MC5.9
   - Validate: `bun test apps/mobile-client/src/actions/__tests__/toggleInspector.test.ts && bun --filter @onlook/mobile-client typecheck`
-  - Status: **Done** — 7 tests pass, plain-object observable with Set-based listener pattern
+  - Status: **Done** — 7 tests pass, plain-object observable with Set-based listener pattern. **2026-04-25 production-wired in `d19177b5`**. Note: the inspector overlay UI itself isn't wired (same root cause as MC4.14 TapHandler — gated on `findNodeAtPoint` / MC4.2 unimplemented), so the action runs without error but produces no visible effect today.
 
 - **MC5.14** — Dev menu action: copy session ID ✅
   - Files: `apps/mobile-client/src/actions/copySessionId.ts`, `apps/mobile-client/src/actions/index.ts`
@@ -1014,7 +1025,7 @@ Photographic DoD for the whole phase: `plans/adr/assets/v2-pipeline/v2r-hello.pn
   - Files: `apps/cf-expo-relay/scripts/smoke-events.sh` (events-channel smoke); cf-esm-cache local stand-in (tracked as #106)
   - Deps: MCG.10 is nice-to-have but not strictly required
   - Validate: `bun run mobile:validate:v2` — spins up cf-expo-relay locally, editor pushes a real browser-bundler-compiled overlay, mobile-client renders on a sim, screenshot diff against `v2r-*.png` within pixel tolerance.
-  - Status: **fully shipped 2026-04-22** — real cf-expo-relay wrangler dev replaces `/tmp/mock-relay.js` end-to-end. Two helper scripts ship under `apps/cf-expo-relay/scripts/`: `local-esm-cache-worker.ts` + `wrangler-local-esm-cache.jsonc` run the fake cf-esm-cache as a sibling wrangler dev process (service-binding avoids workerd's loopback-fetch restriction); `local-esm-cache.ts` is the standalone HTTP variant for non-workerd consumers; `smoke-events.sh` + `smoke-e2e.sh` exercise the full pipeline via curl against live wranglers. `smoke-e2e.sh` asserts 11 checkpoints: cache /status, relay /manifest (real Expo manifest body, 200), relay `/:hash.ios.bundle` proxy through cache, /events/push (202), /events?since cursor cycle. All green on live wrangler.
+  - Status: **fully shipped 2026-04-22** — real cf-expo-relay wrangler dev replaces `/tmp/mock-relay.js` end-to-end. Two helper scripts ship under `apps/cf-expo-relay/scripts/`: `local-esm-cache-worker.ts` + `wrangler-local-esm-cache.jsonc` run the fake cf-esm-cache as a sibling wrangler dev process (service-binding avoids workerd's loopback-fetch restriction); `local-esm-cache.ts` is the standalone HTTP variant for non-workerd consumers; `smoke-events.sh` + `smoke-e2e.sh` exercise the full pipeline via curl against live wranglers. `smoke-e2e.sh` covers 7 steps end-to-end: cache /status, relay /manifest (real Expo manifest body, 200), relay `/:hash.ios.bundle` proxy through cache, /events/push (202), /events?since cursor cycle, plus three workerd-runtime sub-script smokes (AbiHello WS chain, overlay-v1 push fan-out, asset PUT/HEAD round-trip). All green on live wrangler.
 
 - **MCG.12** — Commit Phase G deliverables to `feat/two-tier-bundle`
   - Files: all files touched by MCG.1–MCG.6 (MCG.7–MCG.11 ship in follow-up commits)
@@ -1124,7 +1135,7 @@ Origin advanced `27abae84` → `db155597` (+17 commits) across the session — t
 - **MCG.10 completed end-to-end** across 4 surfaces: phone WS.send (mobile-client), relay fan-out (cf-expo-relay HmrSession), editor ingest (RelayWsClient), dev-panel UI (MobileOverlayAckTab). One layer remaining: wiring the component into the actual editor panel layout (parent container, tab group).
 - **#81 component shipped** (OverlayPreflightPanel) — renders unsupported-native + unknown-specifier imports in-editor before the overlay is pushed. Formatter-driven, isolated, unit-tested via react-dom/server.
 - **#99 perceptual pixel-diff** replaced the size-tolerance false-positive via a pure-TS PNG decoder (no `sharp` dep). CLI at `apps/mobile-client/scripts/screenshot-diff.ts` — three-tier (hash → perceptual → size-fallback) with 22+ tests.
-- **Local two-wrangler dev setup** shipped — workerd's loopback-fetch restriction means cf-esm-cache needs to run as a sibling wrangler-dev process for the service binding to resolve. `apps/cf-expo-relay/scripts/wrangler-local-esm-cache.jsonc` + `local-esm-cache-worker.ts` handle it. `smoke-e2e.sh` hits the full pipeline with 11 assertions.
+- **Local two-wrangler dev setup** shipped — workerd's loopback-fetch restriction means cf-esm-cache needs to run as a sibling wrangler-dev process for the service binding to resolve. `apps/cf-expo-relay/scripts/wrangler-local-esm-cache.jsonc` + `local-esm-cache-worker.ts` handle it. `smoke-e2e.sh` hits the full pipeline with 7 end-to-end steps (HTTP routes + AbiHello / overlay-push / asset-upload workerd-runtime WS smokes).
 - **CLAUDE.md Phase G section added** — 40+ lines of architecture + gotchas + key-file references so the next agent isn't starting from scratch.
 - **v2 queue status log 10 rows updated** — #35, #37, #38–43, #71, #72, #76, #81, #82, #83, #97 moved pending/partial → done with evidence pointers.
 

@@ -18,16 +18,28 @@
  *   - Pass `--sim=<name>` to force a specific simulator (e.g. for local
  *     repro of a device-specific build phase). The wrapper then uses
  *     `platform=iOS Simulator,name=<name>` as the destination.
- *   - `CODE_SIGNING_ALLOWED=NO` since simulator builds don't need signing
- *     and requiring a dev identity would break CI.
+ *   - Pass `--device` (or `--device=<UDID>`) to build a real-iPhone
+ *     `Debug-iphoneos` `.app` instead of the simulator one. This switches
+ *     `-sdk` from `iphonesimulator` to `iphoneos`, drops
+ *     `CODE_SIGNING_ALLOWED=NO`, adds `-allowProvisioningUpdates`, and (if
+ *     `DEVELOPMENT_TEAM` env var or `--team=<id>` is supplied) threads the
+ *     team id through to xcodebuild for automatic signing. The companion
+ *     `mobile:install:device` script then picks up the new
+ *     `Debug-iphoneos/OnlookMobileClient.app`.
+ *   - `CODE_SIGNING_ALLOWED=NO` for the simulator path since simulator
+ *     builds don't need signing and requiring a dev identity would break
+ *     CI. Device builds always sign.
  *   - iOS only for now. Android (`mobile:build:android`) is deferred with
  *     the rest of the Android-side Wave 1 tasks per the handoff doc's
  *     "iOS first" cut line.
  *
  * Usage:
- *   bun run scripts/run-build.ts
- *   bun run scripts/run-build.ts --sim='iPhone 16'
- *   bun run mobile:build:ios                    (package.json alias)
+ *   bun run scripts/run-build.ts                              # sim build (default)
+ *   bun run scripts/run-build.ts --sim='iPhone 16'            # sim, named device
+ *   bun run scripts/run-build.ts --device                     # real device
+ *   bun run scripts/run-build.ts --device --team=W4RQTR9JNP   # explicit team
+ *   DEVELOPMENT_TEAM=W4RQTR9JNP bun run scripts/run-build.ts --device
+ *   bun run mobile:build:ios                                  # package.json alias
  *
  * Exit code mirrors `xcodebuild`'s.
  */
@@ -43,9 +55,27 @@ function main(): number {
     const argv = process.argv.slice(2);
     const simArg = argv.find((a) => a.startsWith('--sim='));
     const simName = simArg ? simArg.slice('--sim='.length) : undefined;
-    const destination = simName
-        ? `platform=iOS Simulator,name=${simName}`
-        : 'generic/platform=iOS Simulator';
+    // `--device` (bare) selects the iphoneos sdk + device destination.
+    // `--device=<UDID>` is accepted for symmetry with mobile:install:device
+    // and other tooling, but the UDID isn't needed by xcodebuild (it builds
+    // a generic iOS .app; ios-deploy targets the specific device at install
+    // time). The flag still triggers the device build mode.
+    const deviceArg = argv.find((a) => a === '--device' || a.startsWith('--device='));
+    const isDeviceBuild = deviceArg !== undefined;
+    if (isDeviceBuild && simArg !== undefined) {
+        console.error('[run-build] --device and --sim are mutually exclusive.');
+        return 2;
+    }
+    const teamArg = argv.find((a) => a.startsWith('--team='));
+    const developmentTeam =
+        teamArg?.slice('--team='.length).trim() ||
+        process.env.DEVELOPMENT_TEAM?.trim() ||
+        undefined;
+    const destination = isDeviceBuild
+        ? 'generic/platform=iOS'
+        : simName
+            ? `platform=iOS Simulator,name=${simName}`
+            : 'generic/platform=iOS Simulator';
 
     const iosDir = resolve(import.meta.dir, '..', 'ios');
     if (!existsSync(resolve(iosDir, WORKSPACE))) {
@@ -141,7 +171,7 @@ function main(): number {
         return exportResult.status ?? 1;
     }
 
-    const args = [
+    const args: string[] = [
         '-workspace',
         WORKSPACE,
         '-scheme',
@@ -149,12 +179,19 @@ function main(): number {
         '-configuration',
         'Debug',
         '-sdk',
-        'iphonesimulator',
+        isDeviceBuild ? 'iphoneos' : 'iphonesimulator',
         '-destination',
         destination,
-        'CODE_SIGNING_ALLOWED=NO',
-        'build',
     ];
+    if (isDeviceBuild) {
+        args.push('-allowProvisioningUpdates', 'CODE_SIGN_STYLE=Automatic');
+        if (developmentTeam !== undefined) {
+            args.push(`DEVELOPMENT_TEAM=${developmentTeam}`);
+        }
+    } else {
+        args.push('CODE_SIGNING_ALLOWED=NO');
+    }
+    args.push('build');
     console.log(`[run-build] (cwd=${iosDir}) xcodebuild ${args.join(' ')}`);
     const result = spawnSync('xcodebuild', args, {
         cwd: iosDir,

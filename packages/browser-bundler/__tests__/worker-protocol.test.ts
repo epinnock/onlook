@@ -51,8 +51,9 @@ describe('browser bundler worker protocol', () => {
 
         const parsed = parseBrowserBundlerWorkerResponse(message);
         expect(parsed?.type).toBe(BROWSER_BUNDLER_WORKER_SUCCESS_TYPE);
-        expect(parsed?.code).toBe('module.exports = {};');
-        expect(parsed?.warnings).toEqual([{ text: 'ok' }]);
+        if (parsed?.type !== BROWSER_BUNDLER_WORKER_SUCCESS_TYPE) throw new Error('expected success response');
+        expect(parsed.code).toBe('module.exports = {};');
+        expect(parsed.warnings).toEqual([{ text: 'ok' }]);
     });
 
     test('parses an error response with normalized error payload', () => {
@@ -66,8 +67,9 @@ describe('browser bundler worker protocol', () => {
 
         const parsed = parseBrowserBundlerWorkerResponse(message);
         expect(parsed?.type).toBe(BROWSER_BUNDLER_WORKER_ERROR_TYPE);
-        expect(parsed?.error.message).toBe('boom');
-        expect(parsed?.error.name).toBe('Error');
+        if (parsed?.type !== BROWSER_BUNDLER_WORKER_ERROR_TYPE) throw new Error('expected error response');
+        expect(parsed.error.message).toBe('boom');
+        expect(parsed.error.name).toBe('Error');
     });
 
     test('rejects malformed messages', () => {

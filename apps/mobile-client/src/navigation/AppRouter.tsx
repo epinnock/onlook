@@ -17,7 +17,12 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { Platform, View, StyleSheet } from 'react-native';
+import { buildPhoneAbiHello } from '../relay/abiHello';
+import {
+    registerActiveWsSender,
+    unregisterActiveWsSender,
+} from '../relay/wsSender';
 import {
     CrashScreen,
     ErrorScreen,
@@ -30,8 +35,10 @@ import {
 } from '../screens';
 import { qrToMount } from '../flow/qrToMount';
 import { parseOnlookDeepLink } from '../deepLink/parse';
+import { useDeepLinkHandler } from '../deepLink/handler';
 import { fetchManifest } from '../relay/manifestFetcher';
 import { fetchBundle } from '../relay/bundleFetcher';
+import { isPrivateLanHost } from './private-lan';
 
 type RuntimeWithRun = { runApplication?: (src: string, props: { sessionId: string }) => void };
 
@@ -192,9 +199,45 @@ export function extractRelayHostPort(
     }
 }
 
+/**
+ * Rebuild the canonical `onlook://<action>?session=…&relay=…` URL from a
+ * parsed deep-link record. Used by the AppRouter deep-link callback to feed
+ * the URL-pipeline runner (which re-parses the URL itself) without expanding
+ * the `useDeepLinkHandler` callback signature to also carry the raw URL.
+ *
+ * Returns `null` when sessionId or relay are absent — the pipeline cannot
+ * run without them, and silently dropping is preferable to surfacing a
+ * misleading error screen for an obviously incomplete link.
+ */
+export function buildDeepLinkPipelineUrl(parsed: {
+    action: string;
+    sessionId?: string;
+    relay?: string;
+}): string | null {
+    if (!parsed.sessionId || !parsed.relay) {
+        return null;
+    }
+    return (
+        `onlook://${parsed.action}?session=${encodeURIComponent(parsed.sessionId)}` +
+        `&relay=${encodeURIComponent(parsed.relay)}`
+    );
+}
+
 function buildUrlPipelineRunner(actions: NavActions) {
-    return (data: string) => {
+    const runner = (data: string) => {
         const log: string[] = [];
+        // `showError` is the same as `show` but adds an `onRetry` handler so the
+        // ErrorScreen renders a Retry button. Used by the preflight + manifest
+        // + bundle stages where transient network state (Wi-Fi flap, server
+        // restart, host typo just corrected) is a likely cause and the user
+        // shouldn't have to navigate back to the launcher and re-paste.
+        const showError = (title: string, extra = '') => {
+            actions.resetTo('error', {
+                errorTitle: title,
+                errorMessage: log.join('\n') + (extra ? '\n' + extra : ''),
+                onRetry: () => runner(data),
+            });
+        };
         const show = (title: string, extra = '') => {
             actions.resetTo('error', {
                 errorTitle: title,
@@ -205,25 +248,46 @@ function buildUrlPipelineRunner(actions: NavActions) {
             log.push(`url=${data.slice(0, 140)}`);
             show('Opening…');
 
-            // Stage 0a: external fetch
-            try {
-                log.push('preflight GET https://1.1.1.1/');
-                show('Preflight A (external)…');
-                const r = await timeout(
-                    fetch('https://1.1.1.1/', { method: 'GET' }),
-                    8000,
-                    'preflight external',
-                );
-                log.push(`preflight A ${r.status}`);
-            } catch (e: unknown) {
-                const msg = e instanceof Error ? e.message : String(e);
-                show('Preflight A failed (external)', msg);
-                return;
+            const hostMatch = data.match(/^(?:exp|https?):\/\/([^\/]+)/i);
+            const host = hostMatch?.[1];
+            const lanOnly = host !== undefined && isPrivateLanHost(host);
+
+            // Stage 0a: external fetch — diagnostic-only, never a hard fail.
+            //
+            // Skipped entirely for RFC-1918 / loopback URLs (LAN-only dev
+            // rigs may not have upstream internet). For public hosts we
+            // attempt the probe but treat ANY outcome as informational:
+            //   - success → log status
+            //   - failure → log error and continue (Stage 0b is the
+            //     authoritative connectivity check; if the actual manifest
+            //     host is reachable, the user has connectivity, even if
+            //     1.1.1.1 specifically is blocked by their carrier/ISP)
+            //
+            // History: this used to hard-fail and bail. Caught during the
+            // spectra Mac mini iPhone 8 e2e session — iPhone's Wi-Fi loaded
+            // Apple developer-trust verification fine but blocks 1.1.1.1
+            // specifically (some cellular carriers / corporate Wi-Fi do
+            // this), so a working tunneled manifest path was being killed
+            // by an overly strict diagnostic ping.
+            if (lanOnly) {
+                log.push('preflight A skipped (LAN host)');
+            } else {
+                try {
+                    log.push('preflight GET https://1.1.1.1/');
+                    show('Preflight A (external)…');
+                    const r = await timeout(
+                        fetch('https://1.1.1.1/', { method: 'GET' }),
+                        8000,
+                        'preflight external',
+                    );
+                    log.push(`preflight A ${r.status}`);
+                } catch (e: unknown) {
+                    const msg = e instanceof Error ? e.message : String(e);
+                    log.push(`preflight A failed (continuing): ${msg}`);
+                }
             }
-            // Stage 0b: LAN fetch to /status
+            // Stage 0b: LAN fetch to /status (host already extracted above)
             try {
-                const hostMatch = data.match(/^(?:exp|https?):\/\/([^\/]+)/i);
-                const host = hostMatch?.[1];
                 if (host) {
                     const statusUrl = `http://${host}/status`;
                     log.push(`preflight GET ${statusUrl}`);
@@ -238,7 +302,7 @@ function buildUrlPipelineRunner(actions: NavActions) {
                 }
             } catch (e: unknown) {
                 const msg = e instanceof Error ? e.message : String(e);
-                show('Preflight B failed (LAN)', msg);
+                showError('Preflight B failed (LAN)', msg);
                 return;
             }
 
@@ -263,7 +327,7 @@ function buildUrlPipelineRunner(actions: NavActions) {
                 manifest = r.manifest;
             } catch (e: unknown) {
                 const msg = e instanceof Error ? e.message : String(e);
-                show('Manifest threw', msg);
+                showError('Manifest threw', msg);
                 return;
             }
             const bundleUrl = manifest.launchAsset.url;
@@ -281,7 +345,7 @@ function buildUrlPipelineRunner(actions: NavActions) {
                 bundleSource = r.source;
             } catch (e: unknown) {
                 const msg = e instanceof Error ? e.message : String(e);
-                show('Bundle threw', msg);
+                showError('Bundle threw', msg);
                 return;
             }
             log.push(`bundle ok bytes=${bundleSource.length}`);
@@ -348,6 +412,8 @@ function buildUrlPipelineRunner(actions: NavActions) {
                 onmessage: ((ev: { data: string }) => void) | null;
                 onerror: ((ev: unknown) => void) | null;
                 onclose: (() => void) | null;
+                readyState: number;
+                send(data: string): void;
             }) | undefined;
             if (typeof WSCtor === 'function') {
                 try {
@@ -357,9 +423,66 @@ function buildUrlPipelineRunner(actions: NavActions) {
                     const wsUrl = `ws://${relayHost}:${relayPort}`;
                     slog('ws (native): connecting to ' + wsUrl);
                     const ws = new WSCtor(wsUrl);
+                    // Phase 11b handshake: send phone-side AbiHello on every
+                    // open so the editor's `compatibility()` gate resolves
+                    // instead of staying 'unknown' and rejecting overlay
+                    // pushes by default. RuntimeCapabilities are best-effort
+                    // here — `baseHash`/`aliases` get refined when base-bundle
+                    // wiring lands; today the editor only gates on the `abi`
+                    // string equality (see `checkAbiCompatibility`).
+                    const wsAny = ws as unknown as { send?: (data: string) => void };
+                    const sendAbiHello = (): void => {
+                        try {
+                            const platformOS: 'ios' | 'android' =
+                                Platform.OS === 'android' ? 'android' : 'ios';
+                            const hello = buildPhoneAbiHello({
+                                sessionId: parsed.sessionId!,
+                                capabilities: {
+                                    abi: 'v1',
+                                    // Until base-bundle wiring lands, use the
+                                    // sessionId as a stable non-empty
+                                    // placeholder. The editor does not gate
+                                    // on baseHash; it's surfaced for telemetry
+                                    // + future cache-coherency checks only.
+                                    baseHash: parsed.sessionId!,
+                                    rnVersion: '0.81.6',
+                                    expoSdk: '54.0.0',
+                                    platform: platformOS,
+                                    aliases: [],
+                                },
+                            });
+                            if (typeof wsAny.send === 'function') {
+                                wsAny.send(JSON.stringify(hello));
+                                slog('ws (native): sent abiHello');
+                            }
+                        } catch (err: unknown) {
+                            const m = err instanceof Error ? err.message : String(err);
+                            slog('ws (native): abiHello send err ' + m);
+                        }
+                    };
                     ws.onopen = () => {
                         gt.wsConnected = true;
                         slog('ws (native): OPEN');
+                        sendAbiHello();
+                        // Expose this WS as the active sender for
+                        // observability streamers (ConsoleStreamer, etc.)
+                        // wired in App.tsx via dynamicWsSender. The
+                        // streamer holds dynamicWsSender for its
+                        // lifetime; the registry handles WS reconnects
+                        // transparently.
+                        try {
+                            registerActiveWsSender({
+                                get isConnected() {
+                                    return ws.readyState === WebSocket.OPEN;
+                                },
+                                send(msg) {
+                                    ws.send(JSON.stringify(msg));
+                                },
+                            });
+                        } catch (err: unknown) {
+                            const m = err instanceof Error ? err.message : String(err);
+                            slog('ws (native): registerActiveWsSender err ' + m);
+                        }
                     };
                     ws.onmessage = (ev) => {
                         try {
@@ -382,6 +505,12 @@ function buildUrlPipelineRunner(actions: NavActions) {
                     ws.onclose = () => {
                         gt.wsConnected = false;
                         slog('ws (native): CLOSED');
+                        try {
+                            unregisterActiveWsSender();
+                        } catch (err: unknown) {
+                            const m = err instanceof Error ? err.message : String(err);
+                            slog('ws (native): unregisterActiveWsSender err ' + m);
+                        }
                     };
                 } catch (e: unknown) {
                     const msg = e instanceof Error ? e.message : String(e);
@@ -397,6 +526,7 @@ function buildUrlPipelineRunner(actions: NavActions) {
             // rootTag=11, overwriting the custom reconciler's output.
         })();
     };
+    return runner;
 }
 
 export default function AppRouter() {
@@ -449,6 +579,29 @@ export default function AppRouter() {
         return () => clearTimeout(t);
     }, [navigate, goBack, resetTo]);
 
+    // Wire the platform deep-link channel (`Linking`) into the URL-pipeline
+    // runner so `onlook://launch?session=…&relay=…` (and the exp:// alias the
+    // parser normalises) auto-route to mount on cold-start AND warm-start.
+    // Without this, deep-links land silently on the launcher and require the
+    // user to re-paste the URL — which defeats the point of registering the
+    // scheme in Info.plist.
+    //
+    // The pipeline runner is a stable stringly-typed entry point that
+    // re-parses the URL itself, so we rebuild a canonical onlook:// URL from
+    // the validated parse instead of plumbing the raw URL through the hook
+    // (which would expand its public callback signature). The reconstruction
+    // is faithful because both schemes the parser accepts collapse to the
+    // same `{action, sessionId, relay}` shape.
+    const onDeepLink = useCallback(
+        (parsed: { action: string; sessionId?: string; relay?: string }) => {
+            const canonical = buildDeepLinkPipelineUrl(parsed);
+            if (canonical === null) return;
+            buildUrlPipelineRunner({ navigate, goBack, resetTo })(canonical);
+        },
+        [navigate, goBack, resetTo],
+    );
+    useDeepLinkHandler(onDeepLink);
+
     return (
         <NavigationContext.Provider value={contextValue}>
             <View style={styles.root}>
@@ -476,6 +629,22 @@ function renderScreen(
                     onScanPress={() => actions.navigate('scan')}
                     onSettingsPress={() => actions.navigate('settings')}
                     onUrlSubmit={buildUrlPipelineRunner(actions)}
+                    onRecentSessionSelect={(session) => {
+                        // Re-mount a recent session by re-running the URL
+                        // pipeline against an `onlook://launch?…` deep-link
+                        // built from the stored relayHost + sessionId. This
+                        // round-trips through `parseOnlookDeepLink` so any
+                        // future changes to the deeplink shape stay in
+                        // exactly one place. RecentSession.relayHost is
+                        // already a full URL (`http://192.168.x.y:8788`)
+                        // per MC3.8's storage shape — pass through verbatim.
+                        const deepLink =
+                            'onlook://launch?session=' +
+                            encodeURIComponent(session.sessionId) +
+                            '&relay=' +
+                            encodeURIComponent(session.relayHost);
+                        buildUrlPipelineRunner(actions)(deepLink);
+                    }}
                 />
             );
 

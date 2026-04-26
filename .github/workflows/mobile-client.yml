@@ -53,6 +53,54 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ─── guard: cheap file-existence probes to gate downstream jobs ──────────
+  #
+  # GitHub Actions does NOT permit `hashFiles()` inside job-level `if:`
+  # expressions — it's only available in step-level `if:` and `with:`
+  # contexts. Calling it at job level fails workflow validation (HTTP 422
+  # "Unrecognized function: 'hashFiles'") and aborts the entire run before
+  # any job starts. The previous shape of this workflow had hashFiles() in
+  # six job-level if's; every push triggered a 0-second failure with no jobs.
+  #
+  # Fix: this guard job runs first on a tiny ubuntu runner, computes the
+  # presence of each gating file via `hashFiles()` at the STEP level (where
+  # it is permitted), and exposes a boolean string output. Downstream jobs
+  # gate themselves on `needs.guard.outputs.<flag> == 'true'` — a plain
+  # string comparison that is allowed at the job level.
+  guard:
+    name: Guard — file + secret probes
+    runs-on: ubuntu-latest
+    outputs:
+      has_ios_workspace: ${{ steps.probe.outputs.has_ios_workspace }}
+      has_inspector_swift: ${{ steps.probe.outputs.has_inspector_swift }}
+      has_android_build: ${{ steps.probe.outputs.has_android_build }}
+      has_eas_json: ${{ steps.probe.outputs.has_eas_json }}
+      has_play_internal_script: ${{ steps.probe.outputs.has_play_internal_script }}
+      has_expo_token: ${{ steps.probe.outputs.has_expo_token }}
+      has_google_play_key: ${{ steps.probe.outputs.has_google_play_key }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: probe
+        env:
+          EXPO_TOKEN_PRESENT: ${{ secrets.EXPO_TOKEN != '' && 'true' || 'false' }}
+          GOOGLE_PLAY_KEY_PRESENT: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_KEY != '' && 'true' || 'false' }}
+        run: |
+          set -e
+          ios_workspace=$([ -n "${{ hashFiles('apps/mobile-client/ios/**/OnlookMobileClient.xcworkspace/**') }}" ] && echo true || echo false)
+          inspector_swift=$([ -n "${{ hashFiles('apps/mobile-client/ios/**/OnlookInspector.swift') }}" ] && echo true || echo false)
+          android_build=$([ -n "${{ hashFiles('apps/mobile-client/android/**/build.gradle') }}" ] && echo true || echo false)
+          eas_json=$([ -n "${{ hashFiles('apps/mobile-client/eas.json') }}" ] && echo true || echo false)
+          play_internal_script=$([ -n "${{ hashFiles('apps/mobile-client/scripts/build-play-internal.sh') }}" ] && echo true || echo false)
+          {
+            echo "has_ios_workspace=${ios_workspace}"
+            echo "has_inspector_swift=${inspector_swift}"
+            echo "has_android_build=${android_build}"
+            echo "has_eas_json=${eas_json}"
+            echo "has_play_internal_script=${play_internal_script}"
+            echo "has_expo_token=${EXPO_TOKEN_PRESENT}"
+            echo "has_google_play_key=${GOOGLE_PLAY_KEY_PRESENT}"
+          } | tee -a "$GITHUB_OUTPUT"
+
   # ─── always-on: type + unit tests for the tool-free Phase F work ────────
 
   typecheck-and-unit:
@@ -82,22 +130,31 @@ jobs:
 
   wave1-ios:
     name: Wave 1 — iOS simulator build
-    # macos-14 is pinned on purpose: it ships Xcode 15.x, which keeps the
-    # iOS 17 simulator set our log-scrape validates were authored against
-    # stable across runs. Pinning avoids Xcode version drift silently
-    # swapping in newer iPhone models and surprising the Validate lines
-    # below. The wrapper script `mobile:build:ios` uses
+    # macos-15 + latest-stable Xcode 16.x is required: RN 0.81.6's Podfile
+    # explicitly fails CocoaPods install with "React Native requires
+    # XCode >= 16.1" when run on macos-14 (Xcode 15.4). The local Mac mini
+    # already validated this stack on Xcode 16.4 + iOS 18.6 (per CLAUDE.md
+    # "Two-tier overlay v2 / mobile-client architecture" §"Bridgeless iOS
+    # 18.6 gotchas"), so the runner is now lined up with that.
+    #
+    # The simulator detection step below picks the first available iPhone
+    # simulator regardless of iOS version (was previously filtered to iOS
+    # 17). The validate-mc*.sh scripts use `xcrun simctl install booted`
+    # so they're version-agnostic; whichever sim macos-15 ships will work.
+    #
+    # The wrapper script `mobile:build:ios` uses
     # `generic/platform=iOS Simulator` so it does NOT bake an iPhone model
-    # name into the build destination; the log-scrape scripts
-    # (validate-mc*.sh) pick up whichever device is booted.
-    runs-on: macos-14
-    needs: [typecheck-and-unit]
+    # name into the build destination.
+    runs-on: macos-15
+    needs: [guard, typecheck-and-unit]
     # Gate twofold:
-    #   (a) Only run once MCF8 has committed the ios/ project tree.
+    #   (a) Only run once MCF8 has committed the ios/ project tree
+    #       (probed by the `guard` job; hashFiles is not permitted at
+    #       job-level `if:`).
     #   (b) When dispatched with a specific `phase` input, skip unless
     #       the caller asked for this phase (empty phase == run all).
     if: >-
-      ${{ hashFiles('apps/mobile-client/ios/**/OnlookMobileClient.xcworkspace/**') != ''
+      ${{ needs.guard.outputs.has_ios_workspace == 'true'
           && (github.event_name != 'workflow_dispatch'
               || inputs.phase == ''
               || inputs.phase == 'wave1-ios') }}
@@ -108,10 +165,9 @@ jobs:
           bun-version: 1.3.9
       - uses: maxim-lobanov/setup-xcode@v1
         with:
-          # Pin an Xcode 15.x to match the macos-14 runner baseline and
-          # keep the iOS 17 simulator set stable. `latest-stable` on
-          # macos-14 today resolves to Xcode 15.4.
-          xcode-version: '15.4'
+          # Use whatever Xcode the macos-15 runner ships pre-installed
+          # (typically 16.x). RN 0.81.6's Podfile gates on Xcode ≥ 16.1.
+          xcode-version: 'latest-stable'
       - name: Install native tooling
         # cocoapods: required by expo prebuild iOS pods.
         # openjdk@17: not used by this job, but installed so the same
@@ -126,16 +182,43 @@ jobs:
         #   is the pattern for programmatic pbxproj edits. Not required
         #   by this job — we build via `mobile:build:ios` which doesn't
         #   mutate the pbxproj — but documented here for later waves.
+        # maestro's tap downloads a tarball from S3 / GitHub which has been
+        # observed to flake on transient 5xx + DNS hiccups (caught Wave 5
+        # green for 5 consecutive runs then bombed: "Failed to download
+        # resource maestro (2.4.0)"). Retry the brew installs up to 3x with
+        # exponential backoff — they're idempotent (`brew install` is a
+        # no-op once the formula is present) so re-running is safe.
         run: |
-          brew install cocoapods openjdk@17
-          brew install mobile-dev-inc/tap/maestro
+          retry() {
+            local n=0; local max=3; local delay=5
+            until "$@"; do
+              n=$((n+1))
+              if [ "$n" -ge "$max" ]; then
+                echo "::error::brew install failed after $max attempts: $*"
+                return 1
+              fi
+              echo "::warning::brew install attempt $n failed; retrying in ${delay}s — $*"
+              sleep "$delay"
+              delay=$((delay*2))
+            done
+          }
+          retry brew install cocoapods openjdk@17
+          retry brew install mobile-dev-inc/tap/maestro
           # gem install xcodeproj   # unblock pbxproj edits if a future wave needs it
       - name: Install workspace deps
         run: bun install --frozen-lockfile
-      - name: Build onlook-runtime bundle
-        # Produces packages/mobile-preview/runtime/bundle.js, which
-        # mobile:build:ios copies into the .app via bundle-runtime.ts.
-        run: bun run build:mobile-runtime
+      - name: Build onlook-runtime bundles
+        # Produces both packages/mobile-preview/runtime/bundle.js (full,
+        # ~258 KB, used by Expo Go / mobile-preview harness) AND
+        # bundle-client-only.js (slim, ~9 KB, shell.js only — used by the
+        # native mobile-client). Mobile-client's scripts/bundle-runtime.ts
+        # copies the slim variant into ios/Resources at build time, so
+        # mobile:build:ios fails with "source bundle not found" if only
+        # the full bundle is built. See CLAUDE.md "Mobile-client bundle
+        # split" for the rationale.
+        run: |
+          bun run build:mobile-runtime
+          bun --filter @onlook/mobile-preview build:runtime:client-only
       - name: CocoaPods install
         run: cd apps/mobile-client/ios && pod install
       - name: Build iOS .app for simulator
@@ -160,15 +243,16 @@ jobs:
       # bespoke log-scrape scripts.
       - name: Boot iOS Simulator
         # The validate-mc*.sh scripts need a *booted* simulator for
-        # `xcrun simctl install booted`. Pick the first available iOS 17
-        # iPhone simulator the runner has and boot it.
+        # `xcrun simctl install booted`. Pick the first available
+        # iPhone simulator the runner has and boot it (whatever iOS
+        # version macos-15 ships).
         run: |
           DEVICE=$(xcrun simctl list devices available \
-            | awk '/-- iOS /{flag=$0} /iPhone/ && flag ~ /iOS 17/ && !seen {print; seen=1}' \
+            | awk '/-- iOS /{flag=$0} /iPhone/ && !seen {print; seen=1}' \
             | head -1 \
             | sed -E 's/.*\(([0-9A-F-]+)\).*/\1/')
           if [ -z "$DEVICE" ]; then
-            echo 'FAIL: no iOS 17 iPhone simulator available on this runner'
+            echo 'FAIL: no iPhone simulator available on this runner'
             xcrun simctl list devices available
             exit 1
           fi
@@ -198,9 +282,9 @@ jobs:
 
   wave1-android:
     name: Wave 1 — Android emulator build
-    runs-on: macos-14
-    needs: [typecheck-and-unit]
-    if: ${{ hashFiles('apps/mobile-client/android/**/build.gradle') != '' }}
+    runs-on: macos-15
+    needs: [guard, typecheck-and-unit]
+    if: ${{ needs.guard.outputs.has_android_build == 'true' }}
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -221,9 +305,9 @@ jobs:
 
   wave3:
     name: Wave 3 — relay + QR e2e
-    runs-on: macos-14
-    needs: [wave1-ios]
-    if: ${{ hashFiles('apps/mobile-client/ios/**/OnlookMobile.xcworkspace/**') != '' }}
+    runs-on: macos-15
+    needs: [guard, wave1-ios]
+    if: ${{ needs.guard.outputs.has_ios_workspace == 'true' }}
     steps:
       - run: echo "Wave 3 job slot — filled by MC3.22 append"
 
@@ -231,25 +315,25 @@ jobs:
 
   wave4-ios:
     name: Wave 4 — inspector tap-to-cursor (iOS)
-    # macos-14 + Xcode 15.4: same pin as `wave1-ios`/`wave5` so the iOS 17
-    # simulator set stays stable and the validate-mc*.sh log-scrape predicates
-    # don't drift across Xcode bumps.
-    runs-on: macos-14
+    # macos-15 + latest-stable Xcode 16.x: same as `wave1-ios`/`wave5` so
+    # all iOS jobs share one runner image. Xcode 16.1+ is required by RN
+    # 0.81.6's Podfile.
+    runs-on: macos-15
     # Intentionally NOT `needs: [wave1-ios]`. Mirror the wave5 rationale: each
     # Wave 4 `validate-mc4*.sh` script boots its own simulator and reinstalls
     # the .app, so running on a dedicated runner in parallel with wave1-ios
     # produces the inspector-specific `verification/results.json` artifact
     # even when wave1-ios is skipped or fails early (e.g., when dispatched
     # with `inputs.phase == 'wave4-ios'`).
-    needs: [typecheck-and-unit]
+    needs: [guard, typecheck-and-unit]
     # Gate twofold:
     #   (a) Only run once MC4.1 has committed OnlookInspector.swift into the
-    #       ios/ project tree. Until then the slot is skipped — no wasted
-    #       runner time on a job with no scripts to run.
+    #       ios/ project tree (probed by the `guard` job — hashFiles is not
+    #       permitted at job-level `if:`). Until then the slot is skipped.
     #   (b) When dispatched with a specific `phase` input, skip unless the
     #       caller asked for this phase (empty phase == run all).
     if: >-
-      ${{ hashFiles('apps/mobile-client/ios/**/OnlookInspector.swift') != ''
+      ${{ needs.guard.outputs.has_inspector_swift == 'true'
           && (github.event_name != 'workflow_dispatch'
               || inputs.phase == ''
               || inputs.phase == 'wave4-ios') }}
@@ -260,7 +344,7 @@ jobs:
           bun-version: 1.3.9
       - uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '15.4'
+          xcode-version: 'latest-stable'
       - name: Install native tooling
         # Mirror wave1-ios / wave5 tooling footprint. cocoapods is required
         # by `pod install`. maestro is installed for future Wave 4 flows
@@ -268,15 +352,39 @@ jobs:
         # flow once MC4.6 lands native tap capture); the current
         # validate-mc4*.sh scripts are pure log-scrape and do not invoke
         # maestro.
+        # See wave1-ios for the retry rationale — same flaky-tap risk on
+        # mobile-dev-inc/tap/maestro tarball download, same idempotent
+        # safety on retry.
         run: |
-          brew install cocoapods
-          brew install mobile-dev-inc/tap/maestro
+          retry() {
+            local n=0; local max=3; local delay=5
+            until "$@"; do
+              n=$((n+1))
+              if [ "$n" -ge "$max" ]; then
+                echo "::error::brew install failed after $max attempts: $*"
+                return 1
+              fi
+              echo "::warning::brew install attempt $n failed; retrying in ${delay}s — $*"
+              sleep "$delay"
+              delay=$((delay*2))
+            done
+          }
+          retry brew install cocoapods
+          retry brew install mobile-dev-inc/tap/maestro
       - name: Install workspace deps
         run: bun install --frozen-lockfile
-      - name: Build onlook-runtime bundle
-        # Produces packages/mobile-preview/runtime/bundle.js, which
-        # mobile:build:ios copies into the .app via bundle-runtime.ts.
-        run: bun run build:mobile-runtime
+      - name: Build onlook-runtime bundles
+        # Produces both packages/mobile-preview/runtime/bundle.js (full,
+        # ~258 KB, used by Expo Go / mobile-preview harness) AND
+        # bundle-client-only.js (slim, ~9 KB, shell.js only — used by the
+        # native mobile-client). Mobile-client's scripts/bundle-runtime.ts
+        # copies the slim variant into ios/Resources at build time, so
+        # mobile:build:ios fails with "source bundle not found" if only
+        # the full bundle is built. See CLAUDE.md "Mobile-client bundle
+        # split" for the rationale.
+        run: |
+          bun run build:mobile-runtime
+          bun --filter @onlook/mobile-preview build:runtime:client-only
       - name: CocoaPods install
         run: cd apps/mobile-client/ios && pod install
       - name: Build iOS .app for simulator
@@ -289,14 +397,15 @@ jobs:
       - name: Boot iOS Simulator
         # The validate-mc4*.sh scripts need a booted simulator for
         # `xcrun simctl install booted` and `xcrun simctl spawn booted
-        # log stream`. Pick the first available iOS 17 iPhone simulator.
+        # log stream`. Pick the first available iPhone simulator
+        # (whatever iOS version macos-15 ships).
         run: |
           DEVICE=$(xcrun simctl list devices available \
-            | awk '/-- iOS /{flag=$0} /iPhone/ && flag ~ /iOS 17/ && !seen {print; seen=1}' \
+            | awk '/-- iOS /{flag=$0} /iPhone/ && !seen {print; seen=1}' \
             | head -1 \
             | sed -E 's/.*\(([0-9A-F-]+)\).*/\1/')
           if [ -z "$DEVICE" ]; then
-            echo 'FAIL: no iOS 17 iPhone simulator available on this runner'
+            echo 'FAIL: no iPhone simulator available on this runner'
             xcrun simctl list devices available
             exit 1
           fi
@@ -349,10 +458,10 @@ jobs:
 
   wave5:
     name: Wave 5 — debug surface
-    # macos-14 + Xcode 15.4: same pin as `wave1-ios` so the iOS 17 sim
-    # set stays stable and the validate-mc*.sh log-scrape predicates don't
-    # drift across Xcode bumps.
-    runs-on: macos-14
+    # macos-15 + latest-stable Xcode 16.x: same as `wave1-ios` so all iOS
+    # jobs share one runner image. Xcode 16.1+ is required by RN 0.81.6's
+    # Podfile.
+    runs-on: macos-15
     # Intentionally NOT `needs: [wave1-ios]`. The Wave 5 debug-surface
     # validates (log-scrape scripts — today: MC1.4 hermes-ready + MC2.3
     # OnlookRuntime installed; tomorrow: MC5.8 crash overlay, MC5.10 dev
@@ -362,9 +471,9 @@ jobs:
     # if wave1-ios fails for an unrelated reason (e.g., maestro brew
     # hiccup), the Wave 5 debug-surface pass still runs and produces its
     # own `verification/results.json` artifact.
-    needs: [typecheck-and-unit]
+    needs: [guard, typecheck-and-unit]
     if: >-
-      ${{ hashFiles('apps/mobile-client/ios/**/OnlookMobileClient.xcworkspace/**') != ''
+      ${{ needs.guard.outputs.has_ios_workspace == 'true'
           && (github.event_name != 'workflow_dispatch'
               || inputs.phase == ''
               || inputs.phase == 'wave5') }}
@@ -375,22 +484,46 @@ jobs:
           bun-version: 1.3.9
       - uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '15.4'
+          xcode-version: 'latest-stable'
       - name: Install native tooling
         # Mirror wave1-ios tooling footprint. cocoapods is required by
         # `pod install`. maestro is installed for future Wave 5 flows that
         # become maestro-runnable once a renderable user bundle lands; the
         # current validate-mc*.sh scripts are pure log-scrape and do not
         # invoke maestro.
+        # See wave1-ios for the retry rationale — same flaky-tap risk on
+        # mobile-dev-inc/tap/maestro tarball download, same idempotent
+        # safety on retry.
         run: |
-          brew install cocoapods
-          brew install mobile-dev-inc/tap/maestro
+          retry() {
+            local n=0; local max=3; local delay=5
+            until "$@"; do
+              n=$((n+1))
+              if [ "$n" -ge "$max" ]; then
+                echo "::error::brew install failed after $max attempts: $*"
+                return 1
+              fi
+              echo "::warning::brew install attempt $n failed; retrying in ${delay}s — $*"
+              sleep "$delay"
+              delay=$((delay*2))
+            done
+          }
+          retry brew install cocoapods
+          retry brew install mobile-dev-inc/tap/maestro
       - name: Install workspace deps
         run: bun install --frozen-lockfile
-      - name: Build onlook-runtime bundle
-        # Produces packages/mobile-preview/runtime/bundle.js, which
-        # mobile:build:ios copies into the .app via bundle-runtime.ts.
-        run: bun run build:mobile-runtime
+      - name: Build onlook-runtime bundles
+        # Produces both packages/mobile-preview/runtime/bundle.js (full,
+        # ~258 KB, used by Expo Go / mobile-preview harness) AND
+        # bundle-client-only.js (slim, ~9 KB, shell.js only — used by the
+        # native mobile-client). Mobile-client's scripts/bundle-runtime.ts
+        # copies the slim variant into ios/Resources at build time, so
+        # mobile:build:ios fails with "source bundle not found" if only
+        # the full bundle is built. See CLAUDE.md "Mobile-client bundle
+        # split" for the rationale.
+        run: |
+          bun run build:mobile-runtime
+          bun --filter @onlook/mobile-preview build:runtime:client-only
       - name: CocoaPods install
         run: cd apps/mobile-client/ios && pod install
       - name: Build iOS .app for simulator
@@ -402,14 +535,15 @@ jobs:
       - name: Boot iOS Simulator
         # The validate-mc*.sh scripts need a booted simulator for
         # `xcrun simctl install booted` and `xcrun simctl spawn booted
-        # log stream`. Pick the first available iOS 17 iPhone simulator.
+        # log stream`. Pick the first available iPhone simulator
+        # (whatever iOS version macos-15 ships).
         run: |
           DEVICE=$(xcrun simctl list devices available \
-            | awk '/-- iOS /{flag=$0} /iPhone/ && flag ~ /iOS 17/ && !seen {print; seen=1}' \
+            | awk '/-- iOS /{flag=$0} /iPhone/ && !seen {print; seen=1}' \
             | head -1 \
             | sed -E 's/.*\(([0-9A-F-]+)\).*/\1/')
           if [ -z "$DEVICE" ]; then
-            echo 'FAIL: no iOS 17 iPhone simulator available on this runner'
+            echo 'FAIL: no iPhone simulator available on this runner'
             xcrun simctl list devices available
             exit 1
           fi
@@ -470,9 +604,9 @@ jobs:
 
   testflight-dryrun:
     name: Wave 6 — TestFlight dry-run
-    runs-on: macos-14
-    needs: [wave1-ios]
-    if: ${{ hashFiles('apps/mobile-client/eas.json') != '' && github.event_name == 'push' && github.ref == 'refs/heads/feat/mobile-client' }}
+    runs-on: macos-15
+    needs: [guard, wave1-ios]
+    if: ${{ needs.guard.outputs.has_eas_json == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/feat/mobile-client' }}
     steps:
       - run: echo "TestFlight dry-run slot — filled by MC6.7 append"
 
@@ -510,8 +644,8 @@ jobs:
   # dispatch.
   testflight-upload:
     name: Wave 6 — TestFlight upload (dispatch-only)
-    runs-on: macos-14
-    needs: [typecheck-and-unit]
+    runs-on: macos-15
+    needs: [guard, typecheck-and-unit]
     # Belt-and-braces: three independent conditions must ALL hold.
     #   a) The eas.json config MC6.5 introduced must exist (guards against
     #      the job running before MC6.5 merges on a branch that somehow
@@ -523,10 +657,10 @@ jobs:
     #      not directly available in `if:` expressions, so we thread it
     #      through an env var (`HAS_EXPO_TOKEN`) set at the job level.
     if: >-
-      ${{ hashFiles('apps/mobile-client/eas.json') != ''
+      ${{ needs.guard.outputs.has_eas_json == 'true'
           && github.event_name == 'workflow_dispatch'
           && (inputs.phase == '' || inputs.phase == 'testflight-upload')
-          && env.HAS_EXPO_TOKEN == 'true' }}
+          && needs.guard.outputs.has_expo_token == 'true' }}
     env:
       # Populated to the literal string 'true' when the secret is non-empty,
       # empty string otherwise. The `if:` above compares to 'true' so a
@@ -590,9 +724,9 @@ jobs:
 
   play-dryrun:
     name: Wave 6 — Play internal dry-run
-    runs-on: macos-14
-    needs: [wave1-android]
-    if: ${{ hashFiles('apps/mobile-client/scripts/build-play-internal.sh') != '' && github.event_name == 'push' && github.ref == 'refs/heads/feat/mobile-client' }}
+    runs-on: macos-15
+    needs: [guard, wave1-android]
+    if: ${{ needs.guard.outputs.has_play_internal_script == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/feat/mobile-client' }}
     steps:
       - run: echo "Play dry-run slot — filled by MC6.8 append"
 
@@ -629,7 +763,7 @@ jobs:
   play-store-upload:
     name: Wave 6 — Play Store upload (dispatch-only)
     runs-on: ubuntu-latest
-    needs: [typecheck-and-unit]
+    needs: [guard, typecheck-and-unit]
     # Belt-and-braces: three independent conditions must ALL hold.
     #   a) The eas.json config MC6.5 introduced must exist.
     #   b) The invocation must be a manual dispatch, and if a specific phase
@@ -638,10 +772,10 @@ jobs:
     #      through `env.HAS_GOOGLE_PLAY_KEY` because repo secrets are not
     #      available directly inside `if:` expressions).
     if: >-
-      ${{ hashFiles('apps/mobile-client/eas.json') != ''
+      ${{ needs.guard.outputs.has_eas_json == 'true'
           && github.event_name == 'workflow_dispatch'
           && (inputs.phase == '' || inputs.phase == 'play-store-upload')
-          && env.HAS_GOOGLE_PLAY_KEY == 'true' }}
+          && needs.guard.outputs.has_google_play_key == 'true' }}
     env:
       # 'true' iff the secret is non-empty; empty string otherwise. Matches
       # the MC6.7 HAS_EXPO_TOKEN pattern exactly.

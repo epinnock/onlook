@@ -101,7 +101,7 @@ describe('buildSvgComponentModule', () => {
         // Pull the JSON literal back out and parse — it must round-trip.
         const match = /__ONLOOK_SVG_XML__ = (.+);/.exec(src);
         expect(match).not.toBeNull();
-        expect(JSON.parse(match![1])).toBe(tricky);
+        expect(JSON.parse(match![1]!)).toBe(tricky);
     });
 });
 

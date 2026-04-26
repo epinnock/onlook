@@ -223,39 +223,109 @@ globalThis._handleMessage = function(msg) {
 };
 
 // --- RN$AppRegistry ---
+// On Expo Go SDK 54 + bridgeless + new-arch, `globalThis.RN$AppRegistry`
+// is a JSI binding installed by the host. Overwriting it with a plain
+// JS object replaces the JSI-backed `runApplication` callable — when
+// the host bridge later dispatches via `RCTMessageThread::runAsync`,
+// the JSI binding is gone and the C++ side throws "non-std C++
+// exception" inside `RCTJSThreadManager::tryFunc`. Bisected on
+// 2026-04-25 against an iPhone 16 Pro sim with this exact symptom.
+//
+// Compose instead of overwrite: wrap the host's existing
+// `runApplication` (if present) so we still see the rootTag and can
+// drive the reconciler, then delegate back to the host so its native
+// surface mounting still happens. When there's no host (browser
+// preview, mobile-client harness), install our own from scratch.
 globalThis.currentRootTag = null;
 globalThis.global = globalThis; // make 'global' accessible from eval
 
-globalThis.RN$AppRegistry = {
-  runApplication: function(appKey, props) {
-    _log('B13 runApplication rootTag=' + props.rootTag);
-    globalThis.currentRootTag = props.rootTag;
+(function () {
+  var hostAppRegistry = globalThis.RN$AppRegistry;
+  var hostRunApplication =
+    hostAppRegistry && typeof hostAppRegistry.runApplication === 'function'
+      ? hostAppRegistry.runApplication.bind(hostAppRegistry)
+      : null;
+
+  function onlookRunApplication(appKey, props) {
+    _log('B13 runApplication rootTag=' + (props && props.rootTag));
+    if (props && typeof props.rootTag === 'number') {
+      globalThis.currentRootTag = props.rootTag;
+    }
 
     // Initialize the React reconciler (imported from runtime.js)
     if (typeof globalThis._initReconciler === 'function') {
-      globalThis._initReconciler(globalThis.fab, props.rootTag);
-      _log('B13 React reconciler initialized');
+      try {
+        globalThis._initReconciler(globalThis.fab, props && props.rootTag);
+        _log('B13 React reconciler initialized');
+      } catch (e) {
+        _log('B13 _initReconciler threw: ' + (e && e.message));
+      }
     } else {
-      _log('B13 ERROR: _initReconciler not found — runtime not loaded?');
+      _log('B13 _initReconciler not present — falling through to host');
     }
 
-    // Render a default "loading" screen
-    if (typeof globalThis.renderApp === 'function' && typeof globalThis.React !== 'undefined') {
-      var R = globalThis.React;
-      globalThis.renderApp(
-        R.createElement('View', { style: { flex: 1, backgroundColor: 0xFF2d1b69 | 0, justifyContent: 'center', alignItems: 'center' } },
-          R.createElement('RCTText', { style: { fontSize: 24, fontWeight: '700', color: 0xFFFFFFFF | 0 } },
-            R.createElement('RCTRawText', { text: 'Onlook Runtime Ready' })
-          ),
-          R.createElement('RCTText', { style: { fontSize: 14, color: 0xFFA78BFA | 0, marginTop: 12 } },
-            R.createElement('RCTRawText', { text: 'Waiting for component code...' })
+    // Render a default "loading" screen if our React stack is present
+    if (
+      typeof globalThis.renderApp === 'function' &&
+      typeof globalThis.React !== 'undefined'
+    ) {
+      try {
+        var R = globalThis.React;
+        globalThis.renderApp(
+          R.createElement(
+            'View',
+            { style: { flex: 1, backgroundColor: 0xff2d1b69 | 0, justifyContent: 'center', alignItems: 'center' } },
+            R.createElement(
+              'RCTText',
+              { style: { fontSize: 24, fontWeight: '700', color: 0xffffffff | 0 } },
+              R.createElement('RCTRawText', { text: 'Onlook Runtime Ready' })
+            ),
+            R.createElement(
+              'RCTText',
+              { style: { fontSize: 14, color: 0xffa78bfa | 0, marginTop: 12 } },
+              R.createElement('RCTRawText', { text: 'Waiting for component code...' })
+            )
           )
-        )
-      );
-      _log('B13 default screen rendered');
+        );
+        _log('B13 default screen rendered');
+      } catch (e) {
+        _log('B13 default-screen render threw: ' + (e && e.message));
+      }
     }
-  },
-};
+
+    // Always delegate to the host's original runApplication when one
+    // exists. Skipping this is what was crashing Expo Go SDK 54 — the
+    // JSI surface mount still has to fire after we set up our renderer.
+    if (hostRunApplication) {
+      try {
+        return hostRunApplication(appKey, props);
+      } catch (e) {
+        _log('B13 host runApplication threw: ' + (e && e.message));
+      }
+    }
+    return undefined;
+  }
+
+  if (hostAppRegistry) {
+    // Mutate the existing object so the JSI binding identity survives.
+    // Reassigning `globalThis.RN$AppRegistry` to a new object is what
+    // breaks the bridgeless C++ dispatch — keep the binding, swap only
+    // the function property.
+    try {
+      hostAppRegistry.runApplication = onlookRunApplication;
+    } catch (e) {
+      // If the host installed RN$AppRegistry as a frozen / non-writable
+      // binding (some Hermes builds do this), fall back to defining a
+      // wrapper object — the bridgeless path will still crash here, but
+      // at least this branch is reached only when mutation also fails.
+      _log('B13 RN$AppRegistry mutation threw: ' + (e && e.message));
+      globalThis.RN$AppRegistry = { runApplication: onlookRunApplication };
+    }
+  } else {
+    // No host registry — fresh install (browser preview / mobile-client harness).
+    globalThis.RN$AppRegistry = { runApplication: onlookRunApplication };
+  }
+})();
 
 _log('B13 shell ready');
 

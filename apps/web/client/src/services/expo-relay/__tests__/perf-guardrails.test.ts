@@ -5,8 +5,13 @@ import {
     PUSH_SLOW_MS,
     evaluateBuildDuration,
     evaluatePushTelemetry,
+    evaluateSizeDelta,
     type PerfGuardrailEvent,
 } from '../perf-guardrails';
+import {
+    OVERLAY_SIZE_GROW_WARN_PERCENT,
+    OVERLAY_SIZE_SHRINK_INFO_BYTES,
+} from '../overlay-size-delta';
 
 describe('perf-guardrails / evaluatePushTelemetry', () => {
     test('emits push-slow warning when durationMs exceeds threshold', () => {
@@ -151,5 +156,81 @@ describe('perf-guardrails / evaluateBuildDuration', () => {
             emitted = e;
         });
         expect(emitted).toBeNull();
+    });
+});
+
+describe('perf-guardrails / evaluateSizeDelta', () => {
+    test('emits size-grew warn when current bytes are >= warn% larger than previous', () => {
+        // 100 → 130 = 30% jump, above the 20% warn threshold.
+        const events: PerfGuardrailEvent[] = [];
+        const result = evaluateSizeDelta(100, 130, (e) => events.push(e));
+        expect(result?.category).toBe('size-grew');
+        expect(result?.severity).toBe('warn');
+        expect(events).toHaveLength(1);
+        expect(events[0]?.detail.percentDelta).toBe(30);
+        expect(events[0]?.detail.absoluteDeltaBytes).toBe(30);
+    });
+
+    test('does not warn when grow is below the warn threshold', () => {
+        // 100 → 105 = 5%, below 20%.
+        const events: PerfGuardrailEvent[] = [];
+        const result = evaluateSizeDelta(100, 105, (e) => events.push(e));
+        expect(result).toBeNull();
+        expect(events).toHaveLength(0);
+    });
+
+    test('emits size-shrunk info when shrink ≥ shrink-info threshold bytes', () => {
+        // Shrink 12 KB > 10 KB threshold → size-shrunk info event.
+        const events: PerfGuardrailEvent[] = [];
+        const previous = 100 * 1024;
+        const current = previous - (OVERLAY_SIZE_SHRINK_INFO_BYTES + 2000);
+        const result = evaluateSizeDelta(previous, current, (e) => events.push(e));
+        expect(result?.category).toBe('size-shrunk');
+        expect(result?.severity).toBe('info');
+        expect(events).toHaveLength(1);
+        expect((events[0]?.detail.absoluteDeltaBytes as number) < 0).toBe(true);
+    });
+
+    test('does not info-log when shrink is below the threshold', () => {
+        // Shrink 1 KB < 10 KB threshold.
+        const events: PerfGuardrailEvent[] = [];
+        const result = evaluateSizeDelta(50_000, 49_000, (e) => events.push(e));
+        expect(result).toBeNull();
+        expect(events).toHaveLength(0);
+    });
+
+    test('previousBytes=null skips emission (first push of session)', () => {
+        const events: PerfGuardrailEvent[] = [];
+        const result = evaluateSizeDelta(null, 1_000_000, (e) => events.push(e));
+        expect(result).toBeNull();
+        expect(events).toHaveLength(0);
+    });
+
+    test('warn boundary: exactly OVERLAY_SIZE_GROW_WARN_PERCENT does emit', () => {
+        // 100 → 120 = exactly 20% — boundary inclusive per shouldWarnOnSizeDelta (`>=`).
+        const events: PerfGuardrailEvent[] = [];
+        const result = evaluateSizeDelta(100, 120, (e) => events.push(e));
+        expect(result?.category).toBe('size-grew');
+        expect(result?.detail.percentDelta).toBe(OVERLAY_SIZE_GROW_WARN_PERCENT);
+    });
+
+    test('defensive: NaN previous bytes does NOT emit (would poison dashboard)', () => {
+        const events: PerfGuardrailEvent[] = [];
+        const result = evaluateSizeDelta(NaN, 1000, (e) => events.push(e));
+        expect(result).toBeNull();
+    });
+
+    test('defensive: Infinity current bytes does NOT emit', () => {
+        const events: PerfGuardrailEvent[] = [];
+        const result = evaluateSizeDelta(1000, Infinity, (e) => events.push(e));
+        expect(result).toBeNull();
+    });
+
+    test('defensive: negative bytes do NOT emit', () => {
+        const events: PerfGuardrailEvent[] = [];
+        const result = evaluateSizeDelta(-1, 100, (e) => events.push(e));
+        expect(result).toBeNull();
+        const result2 = evaluateSizeDelta(100, -1, (e) => events.push(e));
+        expect(result2).toBeNull();
     });
 });

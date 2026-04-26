@@ -43,16 +43,23 @@ describe('App.tsx composition (MCG.7)', () => {
         expect(APP_TSX_SOURCE).toMatch(/\bOverlayHost\b/);
     });
 
-    test('renders OverlayHost as a sibling of AppRouter inside a fragment', () => {
+    test('renders OverlayHost as an immediate sibling of AppRouter (no nesting)', () => {
         // Strip whitespace so the matcher is resilient to formatting drift.
         const compact = APP_TSX_SOURCE.replace(/\s+/g, ' ');
-        // Acceptable shapes:
+        // The architectural invariant is "AppRouter precedes OverlayHost
+        // as siblings, not nested" — required so overlays span every
+        // screen in the navigator. Acceptable shapes include both the
+        // bare-fragment form and any transparent wrapper (e.g.
+        // `<DevMenuTrigger>` / `<View>`) provided AppRouter is the
+        // immediate previous sibling of OverlayHost in JSX order:
         //   <><AppRouter /><OverlayHost /></>
-        //   <React.Fragment><AppRouter /><OverlayHost /></React.Fragment>
-        // Both leave AppRouter BEFORE OverlayHost (z-order: overlay paints on top).
-        const fragmentSiblingPattern =
-            /<(?:>|React\.Fragment>)\s*<AppRouter\s*\/>\s*<OverlayHost\s*\/>\s*<\/(?:>|React\.Fragment>)/;
-        expect(compact).toMatch(fragmentSiblingPattern);
+        //   <DevMenuTrigger><AppRouter /><OverlayHost /></DevMenuTrigger>
+        //   <View><AppRouter /><OverlayHost /></View>
+        // The matcher requires AppRouter immediately followed by
+        // OverlayHost with only whitespace + JSX comments between.
+        const siblingPattern =
+            /<AppRouter\s*\/>(?:\s|\{\/\*[^*]*\*\/\})*<OverlayHost\s*\/>/;
+        expect(compact).toMatch(siblingPattern);
     });
 
     test('OverlayHost is NOT nested inside AppRouter (AppRouter must be self-closing)', () => {

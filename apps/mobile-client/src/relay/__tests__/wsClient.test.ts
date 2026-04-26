@@ -275,3 +275,116 @@ describe('OnlookRelayClient', () => {
         expect(() => client.send(VALID_BUNDLE_UPDATE)).toThrow('WebSocket is not connected');
     });
 });
+
+describe('OnlookRelayClient abiHelloProvider', () => {
+    const validHello = {
+        type: 'abiHello' as const,
+        abi: 'v1' as const,
+        sessionId: 's',
+        role: 'phone' as const,
+        runtime: {
+            abi: 'v1' as const,
+            baseHash: 'a'.repeat(64),
+            rnVersion: '0.81.6',
+            expoSdk: '54.0.0',
+            platform: 'ios' as const,
+            aliases: ['react'],
+        },
+    };
+
+    test('fires provider on initial open and sends the hello over the wire', () => {
+        const calls: number[] = [];
+        const client = new OnlookRelayClient(RELAY_WS_URL, {
+            abiHelloProvider: () => {
+                calls.push(Date.now());
+                return validHello;
+            },
+        });
+        client.connect();
+        const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1]!;
+        ws.simulateOpen();
+
+        expect(calls).toHaveLength(1);
+        expect(ws.sentMessages).toHaveLength(1);
+        expect(JSON.parse(ws.sentMessages[0]!)).toEqual(validHello);
+    });
+
+    test('skips send when provider returns null', () => {
+        const client = new OnlookRelayClient(RELAY_WS_URL, {
+            abiHelloProvider: () => null,
+        });
+        client.connect();
+        const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1]!;
+        ws.simulateOpen();
+
+        expect(ws.sentMessages).toEqual([]);
+    });
+
+    test('no provider configured = no send', () => {
+        const client = new OnlookRelayClient(RELAY_WS_URL);
+        client.connect();
+        const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1]!;
+        ws.simulateOpen();
+
+        expect(ws.sentMessages).toEqual([]);
+    });
+
+    test('fires provider AGAIN after auto-reconnect open', async () => {
+        const calls: number[] = [];
+        const client = new OnlookRelayClient(RELAY_WS_URL, {
+            abiHelloProvider: () => {
+                calls.push(Date.now());
+                return validHello;
+            },
+        });
+        client.connect();
+        const first = MockWebSocket.instances[MockWebSocket.instances.length - 1]!;
+        first.simulateOpen();
+        expect(calls).toHaveLength(1);
+
+        // Simulate transport drop — the client schedules a reconnect via
+        // setTimeout(DEFAULT_RECONNECT_DELAY=1000ms). Wait long enough for
+        // the timer to fire and a new MockWebSocket to be constructed.
+        first.close();
+        await new Promise((r) => setTimeout(r, 1100));
+
+        const second = MockWebSocket.instances[MockWebSocket.instances.length - 1]!;
+        expect(second).not.toBe(first);
+        second.simulateOpen();
+
+        expect(calls).toHaveLength(2);
+        expect(second.sentMessages).toHaveLength(1);
+        expect(JSON.parse(second.sentMessages[0]!)).toEqual(validHello);
+    });
+
+    test('provider throw does NOT break the WS — error swallowed', () => {
+        const client = new OnlookRelayClient(RELAY_WS_URL, {
+            abiHelloProvider: () => {
+                throw new Error('caps not ready');
+            },
+        });
+        client.connect();
+        const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1]!;
+        // The open path catches both provider throws AND send throws so a
+        // hello-send failure cannot wedge the underlying socket — the
+        // editor's gate just stays 'unknown' (fail-closed semantics).
+        expect(() => ws.simulateOpen()).not.toThrow();
+        expect(ws.sentMessages).toEqual([]);
+        expect(client.isConnected).toBe(true);
+    });
+
+    test('socket send throw is also swallowed', () => {
+        const client = new OnlookRelayClient(RELAY_WS_URL, {
+            abiHelloProvider: () => validHello,
+        });
+        client.connect();
+        const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1]!;
+        // Make the underlying send fail (e.g. socket transitioned to CLOSING
+        // between the readyState check and the send call — a real race).
+        ws.send = () => {
+            throw new Error('socket gone');
+        };
+        expect(() => ws.simulateOpen()).not.toThrow();
+        expect(client.isConnected).toBe(true);
+    });
+});

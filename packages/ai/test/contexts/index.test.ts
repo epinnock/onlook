@@ -33,7 +33,7 @@ describe('Context Index', () => {
         updatedAt: new Date(),
         isDefault: false,
         git: null,
-        sandbox: { id: 'test-sandbox' },
+        sandbox: { id: 'test-sandbox', providerType: 'code_sandbox' },
     });
 
     const createMockContexts = () => ({
@@ -276,18 +276,18 @@ describe('Context Index', () => {
         });
 
         test('should return classes with correct static properties', () => {
-            const fileClass = getContextClass(MessageContextType.FILE);
-            const highlightClass = getContextClass(MessageContextType.HIGHLIGHT);
-            const errorClass = getContextClass(MessageContextType.ERROR);
-            
+            const fileClass = getContextClass(MessageContextType.FILE)!;
+            const highlightClass = getContextClass(MessageContextType.HIGHLIGHT)!;
+            const errorClass = getContextClass(MessageContextType.ERROR)!;
+
             expect(fileClass.contextType).toBe(MessageContextType.FILE);
             expect(fileClass.displayName).toBe('File');
             expect(fileClass.icon).toBeDefined();
-            
+
             expect(highlightClass.contextType).toBe(MessageContextType.HIGHLIGHT);
             expect(highlightClass.displayName).toBe('Code Selection');
             expect(highlightClass.icon).toBeDefined();
-            
+
             expect(errorClass.contextType).toBe(MessageContextType.ERROR);
             expect(errorClass.displayName).toBe('Error');
             expect(errorClass.icon).toBeDefined();
@@ -344,7 +344,7 @@ describe('Context Index', () => {
             const contexts = createMockContexts();
             
             Object.entries(contexts).forEach(([key, context]) => {
-                const contextClass = getContextClass(context.type);
+                const contextClass = getContextClass(context.type)!;
                 const genericPrompt = getContextPrompt(context);
                 const directPrompt = contextClass.getPrompt(context as any);
                 

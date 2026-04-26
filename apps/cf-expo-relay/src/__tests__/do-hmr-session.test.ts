@@ -829,3 +829,202 @@ describe('HmrSession overlayUpdate (v1) — multi-client + disconnect (task #76)
         expect(parsedWarn.softCap).toBe(512 * 1024);
     });
 });
+
+describe('HmrSession AbiHello fan-out (Phase 11b prep)', () => {
+    const validCaps = {
+        abi: 'v1' as const,
+        baseHash: 'a'.repeat(64),
+        rnVersion: '0.81.6',
+        expoSdk: '54.0.0',
+        platform: 'ios' as const,
+        aliases: ['react', 'react-native'],
+    };
+    const editorHello = {
+        type: 'abiHello' as const,
+        abi: 'v1' as const,
+        sessionId: 's',
+        role: 'editor' as const,
+        runtime: validCaps,
+    };
+    const phoneHello = {
+        type: 'abiHello' as const,
+        abi: 'v1' as const,
+        sessionId: 's',
+        role: 'phone' as const,
+        runtime: validCaps,
+    };
+
+    test('forwards editor hello to other connected sockets', async () => {
+        const session = makeSession();
+        const sender = await openSocket(session);
+        const receiver = await openSocket(session);
+
+        sender.server.emit('message', JSON.stringify(editorHello));
+
+        // sender excluded from fan-out
+        expect(sender.server.sent).toEqual([]);
+        expect(receiver.server.sent).toHaveLength(1);
+        expect(JSON.parse(receiver.server.sent[0]!)).toEqual(editorHello);
+    });
+
+    test('forwards phone hello to other connected sockets', async () => {
+        const session = makeSession();
+        const sender = await openSocket(session);
+        const receiver = await openSocket(session);
+
+        sender.server.emit('message', JSON.stringify(phoneHello));
+
+        expect(receiver.server.sent).toHaveLength(1);
+        expect(JSON.parse(receiver.server.sent[0]!)).toEqual(phoneHello);
+    });
+
+    test('late-joining socket receives last editor hello via replay', async () => {
+        const session = makeSession();
+        const editor = await openSocket(session);
+        editor.server.emit('message', JSON.stringify(editorHello));
+
+        const lateJoiner = await openSocket(session);
+
+        // Late joiner gets the editor's hello as part of its connect replay.
+        // Existing replayLastOverlay sends nothing (no overlay pushed) so
+        // the only message in `sent` is the AbiHello replay.
+        expect(lateJoiner.server.sent).toHaveLength(1);
+        expect(JSON.parse(lateJoiner.server.sent[0]!)).toEqual(editorHello);
+    });
+
+    test('late-joining socket receives both hellos when both have spoken', async () => {
+        const session = makeSession();
+        const editor = await openSocket(session);
+        const phone = await openSocket(session);
+        editor.server.emit('message', JSON.stringify(editorHello));
+        phone.server.emit('message', JSON.stringify(phoneHello));
+
+        const lateJoiner = await openSocket(session);
+
+        // Both hellos replayed; order is editor-first per implementation.
+        expect(lateJoiner.server.sent).toHaveLength(2);
+        const replayed = lateJoiner.server.sent.map((m) => JSON.parse(m));
+        expect(replayed).toEqual([editorHello, phoneHello]);
+    });
+
+    test('newer hello overwrites older for the same role', async () => {
+        const session = makeSession();
+        const sender = await openSocket(session);
+
+        const helloA = { ...editorHello, sessionId: 'session-a' };
+        const helloB = { ...editorHello, sessionId: 'session-b' };
+        sender.server.emit('message', JSON.stringify(helloA));
+        sender.server.emit('message', JSON.stringify(helloB));
+
+        const lateJoiner = await openSocket(session);
+
+        // Late joiner sees only the latest editor hello (helloB), not the
+        // earlier one. Phase 11b operators rely on this last-write-wins
+        // semantic so a binary upgrade refreshes the cached capabilities.
+        expect(lateJoiner.server.sent).toHaveLength(1);
+        expect(JSON.parse(lateJoiner.server.sent[0]!)).toEqual(helloB);
+    });
+
+    test('malformed hello (bad role) is dropped silently — not forwarded, not stored', async () => {
+        const session = makeSession();
+        const sender = await openSocket(session);
+        const receiver = await openSocket(session);
+
+        const bogus = { ...editorHello, role: 'admin' };
+        sender.server.emit('message', JSON.stringify(bogus));
+
+        expect(receiver.server.sent).toEqual([]);
+        // Confirm not stored: a fresh joiner gets no replay.
+        const lateJoiner = await openSocket(session);
+        expect(lateJoiner.server.sent).toEqual([]);
+    });
+
+    test('forwarded AbiHello emits hmr.abi-hello.fwd structured log', async () => {
+        const session = makeSession();
+        const sender = await openSocket(session);
+        await openSocket(session);
+
+        const infoLogs: string[] = [];
+        const origInfo = console.info;
+        console.info = ((msg: string) => {
+            if (typeof msg === 'string') infoLogs.push(msg);
+        }) as typeof console.info;
+        try {
+            sender.server.emit('message', JSON.stringify(phoneHello));
+        } finally {
+            console.info = origInfo;
+        }
+
+        const fwdLog = infoLogs.find((l) => l.includes('hmr.abi-hello.fwd'));
+        expect(fwdLog).toBeDefined();
+        const parsed = JSON.parse(fwdLog!) as {
+            event: string;
+            sessionId: string;
+            role: string;
+            abi: string;
+            rnVersion: string;
+            expoSdk: string;
+            platform: string;
+            aliasCount: number;
+            delivered: number;
+            sockets: number;
+        };
+        expect(parsed.event).toBe('hmr.abi-hello.fwd');
+        expect(parsed.sessionId).toBe('s');
+        expect(parsed.role).toBe('phone');
+        expect(parsed.abi).toBe('v1');
+        expect(parsed.rnVersion).toBe('0.81.6');
+        expect(parsed.expoSdk).toBe('54.0.0');
+        expect(parsed.platform).toBe('ios');
+        expect(parsed.aliasCount).toBe(2); // ['react', 'react-native']
+        expect(parsed.delivered).toBe(1); // sender excluded
+        expect(parsed.sockets).toBe(2);
+    });
+
+    test('replay-on-connect emits hmr.abi-hello.replay structured log', async () => {
+        const session = makeSession();
+        const editor = await openSocket(session);
+        editor.server.emit('message', JSON.stringify(editorHello));
+
+        const infoLogs: string[] = [];
+        const origInfo = console.info;
+        console.info = ((msg: string) => {
+            if (typeof msg === 'string') infoLogs.push(msg);
+        }) as typeof console.info;
+        try {
+            await openSocket(session);
+        } finally {
+            console.info = origInfo;
+        }
+
+        const replayLog = infoLogs.find((l) => l.includes('hmr.abi-hello.replay'));
+        expect(replayLog).toBeDefined();
+        const parsed = JSON.parse(replayLog!) as {
+            event: string;
+            editorReplayed: boolean;
+            phoneReplayed: boolean;
+            sockets: number;
+        };
+        expect(parsed.event).toBe('hmr.abi-hello.replay');
+        expect(parsed.editorReplayed).toBe(true);
+        expect(parsed.phoneReplayed).toBe(false);
+        expect(parsed.sockets).toBe(2);
+    });
+
+    test('replay log NOT emitted when nothing to replay', async () => {
+        const session = makeSession();
+        const infoLogs: string[] = [];
+        const origInfo = console.info;
+        console.info = ((msg: string) => {
+            if (typeof msg === 'string') infoLogs.push(msg);
+        }) as typeof console.info;
+        try {
+            await openSocket(session);
+        } finally {
+            console.info = origInfo;
+        }
+        // No prior hellos stored → nothing replayed → no log line.
+        const replayLog = infoLogs.find((l) => l.includes('hmr.abi-hello.replay'));
+        expect(replayLog).toBeUndefined();
+    });
+});

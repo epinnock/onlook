@@ -31,6 +31,7 @@ import {
 } from '@onlook/db';
 import { db } from '@onlook/db/src/client';
 import {
+    AgentType,
     MessageContextType,
     ProjectRole,
     type MessageContext,
@@ -84,6 +85,7 @@ const branch1 = {
     gitCommitSha: null,
     gitRepoUrl: null,
     sandboxId: '123456',
+    providerType: 'code_sandbox',
 } satisfies Branch;
 
 const branch2 = {
@@ -98,6 +100,7 @@ const branch2 = {
     gitCommitSha: null,
     gitRepoUrl: null,
     sandboxId: '123456',
+    providerType: 'code_sandbox',
 } satisfies Branch;
 
 const branch3 = {
@@ -112,6 +115,7 @@ const branch3 = {
     gitCommitSha: null,
     gitRepoUrl: null,
     sandboxId: '123456',
+    providerType: 'code_sandbox',
 } satisfies Branch;
 
 const canvas0 = createDefaultCanvas(project0.id);
@@ -136,6 +140,7 @@ const conversation0 = {
     displayName: 'Test Conversation',
     createdAt: new Date(),
     updatedAt: new Date(),
+    agentType: AgentType.ROOT,
     suggestions: [
         {
             title: 'Test Suggestion',

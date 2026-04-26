@@ -1,3 +1,4 @@
+import { env } from '@/env';
 import { CodeProviderSync } from '@/services/sync-engine/sync-engine';
 import { BrowserMetro, type BundleResult } from '@onlook/browser-metro';
 import { CodeProvider, ExpoBrowserProvider, type Provider } from '@onlook/code-provider';
@@ -233,7 +234,7 @@ export class SandboxManager {
 
         const bundler = new BrowserMetro({
             vfs: this.fs,
-            esmUrl: process.env.NEXT_PUBLIC_BROWSER_METRO_ESM_URL ?? 'https://esm.sh',
+            esmUrl: env.NEXT_PUBLIC_BROWSER_METRO_ESM_URL ?? 'https://esm.sh',
             broadcastChannel: 'onlook-preview',
             logger: {
                 debug: (m) => console.debug('[browser-metro]', m),

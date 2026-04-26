@@ -6,6 +6,7 @@ import {
 } from '../../../../packages/mobile-client-protocol/src/abi-v1.ts';
 import { WsMessageSchema } from '../../../../packages/mobile-client-protocol/src/ws-messages.ts';
 import { OverlayAckMessageSchema } from '../../../../packages/mobile-client-protocol/src/abi-v1.ts';
+import { AbiHelloMessageSchema } from '../../../../packages/mobile-client-protocol/src/abi-v1.ts';
 
 /** Any phone→editor onlook:* message type that the relay just fans out. */
 const ONLOOK_OBSERVABILITY_TYPES: ReadonlySet<string> = new Set([
@@ -48,6 +49,18 @@ export class HmrSession extends DurableObject<Env> {
     private lastOverlayPayload: string | null = null;
     /** Most recently pushed ABI v1 overlayUpdate payload — replayed to late-joining v1 clients. */
     private lastOverlayV1Payload: string | null = null;
+    /**
+     * Per-role AbiHello replay slots — Phase 11b prep. Capability-handshake
+     * messages are connection-scoped (the editor sends one on every WS open
+     * and the phone will too once `buildPhoneAbiHello` is wired into its
+     * connect path). On a new WS join, the relay replays the OPPOSITE role's
+     * last hello so the new side's `compatibility()` resolves immediately
+     * without waiting for a counterpart packet on this fresh socket. Stored
+     * in-memory only — on a DO restart both sides re-send on next connect,
+     * so durability would only mask a transport bug.
+     */
+    private lastEditorHelloPayload: string | null = null;
+    private lastPhoneHelloPayload: string | null = null;
 
     constructor(state: DurableObjectState, env: Env) {
         super(state, env);
@@ -199,6 +212,7 @@ export class HmrSession extends DurableObject<Env> {
         this.sockets.add(server);
 
         await this.replayLastOverlay(server);
+        this.replayLastAbiHellos(server);
 
         server.addEventListener('message', (event: MessageEvent) => {
             void this.onMessage(server, event);
@@ -212,6 +226,44 @@ export class HmrSession extends DurableObject<Env> {
         server.addEventListener('error', cleanup);
 
         return new Response(null, { status: 101, webSocket: client });
+    }
+
+    /**
+     * Send the most recent stored AbiHello from BOTH roles to a freshly-
+     * connected socket. We do not know whether the new socket is an editor
+     * or a phone (the relay treats them symmetrically), so we replay every
+     * hello we have — each side ignores its own role's hello and processes
+     * only the counterpart's. Same fan-out semantics as
+     * {@link replayLastOverlay} but tracked separately because hellos
+     * supersede in lockstep with binary versions, not overlay pushes.
+     */
+    private replayLastAbiHellos(socket: WebSocket): void {
+        if (socket.readyState !== WebSocket.OPEN) return;
+        let editorReplayed = false;
+        let phoneReplayed = false;
+        if (this.lastEditorHelloPayload !== null) {
+            socket.send(this.lastEditorHelloPayload);
+            editorReplayed = true;
+        }
+        if (this.lastPhoneHelloPayload !== null) {
+            socket.send(this.lastPhoneHelloPayload);
+            phoneReplayed = true;
+        }
+        if (editorReplayed || phoneReplayed) {
+            // Operators tracing "phone hello dropped vs replayed" can
+            // correlate this with the matching hmr.abi-hello.fwd line —
+            // a fresh socket joining mid-soak should show a replay log
+            // before its own hello fwd if the counterpart was already
+            // connected.
+            console.info(
+                JSON.stringify({
+                    event: 'hmr.abi-hello.replay',
+                    editorReplayed,
+                    phoneReplayed,
+                    sockets: this.sockets.size,
+                }),
+            );
+        }
     }
 
     private async replayLastOverlay(socket: WebSocket): Promise<void> {
@@ -315,6 +367,51 @@ export class HmrSession extends DurableObject<Env> {
         try {
             parsed = JSON.parse(raw);
         } catch {
+            return;
+        }
+
+        // ABI v1 capability handshake (`abiHello`) — fan out to every OTHER
+        // socket and remember the most recent payload per role so future
+        // late-joiners see their counterpart's hello immediately on connect.
+        // Editor → phone or phone → editor; the relay does not interpret the
+        // capabilities, only routes them. Compatibility decisions stay on
+        // the endpoints. See `apps/web/client/src/services/expo-relay/abi-hello.ts`
+        // for the editor-side handshake driver and `plans/adr/phase-11-legacy-overlay-migration.md`
+        // §"Pre-flip check" for why this gate matters.
+        const helloParse = AbiHelloMessageSchema.safeParse(parsed);
+        if (helloParse.success) {
+            const payload = JSON.stringify(helloParse.data);
+            if (helloParse.data.role === 'editor') {
+                this.lastEditorHelloPayload = payload;
+            } else {
+                this.lastPhoneHelloPayload = payload;
+            }
+            let delivered = 0;
+            for (const socket of this.sockets) {
+                if (socket === sender || socket.readyState !== WebSocket.OPEN) continue;
+                socket.send(payload);
+                delivered += 1;
+            }
+            // Structured log mirroring the hmr.push.v1 shape so operators
+            // grepping the Workers tail / log drain can correlate handshake
+            // activity with downstream gate state. Phase 11b soak signal —
+            // a healthy session has 1 editor hello + 1 phone hello fanned
+            // out to delivered=1 each. Stuck handshakes show role=phone
+            // hellos with delivered=0 (editor not connected yet).
+            console.info(
+                JSON.stringify({
+                    event: 'hmr.abi-hello.fwd',
+                    sessionId: helloParse.data.sessionId,
+                    role: helloParse.data.role,
+                    abi: helloParse.data.abi,
+                    rnVersion: helloParse.data.runtime.rnVersion,
+                    expoSdk: helloParse.data.runtime.expoSdk,
+                    platform: helloParse.data.runtime.platform,
+                    aliasCount: helloParse.data.runtime.aliases.length,
+                    delivered,
+                    sockets: this.sockets.size,
+                }),
+            );
             return;
         }
 

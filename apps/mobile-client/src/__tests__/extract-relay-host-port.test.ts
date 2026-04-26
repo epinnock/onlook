@@ -17,6 +17,7 @@ mock.module('react-native', () => ({
     Pressable: () => null,
     ScrollView: () => null,
     Switch: () => null,
+    Platform: { OS: 'ios' },
     AppState: { addEventListener: () => ({ remove: () => undefined }) },
     DevSettings: {
         addMenuItem: () => undefined,
@@ -39,6 +40,10 @@ mock.module('../flow/qrToMount', () => ({
 }));
 mock.module('../deepLink/parse', () => ({
     parseOnlookDeepLink: () => null,
+}));
+mock.module('../deepLink/handler', () => ({
+    useDeepLinkHandler: () => undefined,
+    registerDeepLinkHandler: () => () => undefined,
 }));
 mock.module('../relay/manifestFetcher', () => ({
     fetchManifest: async () => ({ ok: false, error: 'unused' }),

@@ -17,7 +17,7 @@
  */
 
 import type { NetworkMessage } from '@onlook/mobile-client-protocol';
-import type { OnlookRelayClient } from '../relay/wsClient';
+import type { WsSenderHandle } from '../relay/wsSender';
 import { FetchPatch, fetchPatch, type NetworkEntry } from './fetchPatch';
 import { XhrPatch, xhrPatch } from './xhrPatch';
 
@@ -72,7 +72,8 @@ function toMessage(entry: NetworkEntry, sessionId: string): NetworkMessage {
 
 /**
  * Forwards completed fetch/XHR entries from one or both network patches to
- * the relay via an {@link OnlookRelayClient}.
+ * the relay via a {@link WsSenderHandle} (typically `dynamicWsSender` in
+ * production — see `../relay/wsSender.ts`).
  *
  * Subscribes to `onEntry` on each source in `start()` and unsubscribes in
  * `stop()`. When the client is disconnected at the moment of emission, the
@@ -80,7 +81,7 @@ function toMessage(entry: NetworkEntry, sessionId: string): NetworkMessage {
  * entries) and flushed on the next `start()` call.
  */
 export class NetworkStreamer {
-    private readonly _client: OnlookRelayClient;
+    private readonly _client: WsSenderHandle;
     private readonly _fetchSource: FetchPatch;
     private readonly _xhrSource: XhrPatch;
 
@@ -93,7 +94,7 @@ export class NetworkStreamer {
     private _pending: NetworkMessage[] = [];
 
     constructor(
-        client: OnlookRelayClient,
+        client: WsSenderHandle,
         sources: NetworkStreamerSources = {},
         options: NetworkStreamerOptions = {},
     ) {

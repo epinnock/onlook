@@ -47,13 +47,9 @@ describe('asset-uploader / sha256HexOfBytes', () => {
 });
 
 describe('asset-uploader / uploadAsset', () => {
-    test('POSTs bytes to /assets/upload/:hash and parses uri', async () => {
+    test('PUTs bytes to /base-bundle/assets/:hash and derives uri (201 created)', async () => {
         const { fetch, calls } = fakeFetch(
-            () =>
-                new Response(JSON.stringify({ uri: 'https://r2/assets/abc' }), {
-                    status: 202,
-                    headers: { 'Content-Type': 'application/json' },
-                }),
+            () => new Response(null, { status: 201 }),
         );
         const result = await uploadAsset({
             relayBaseUrl: 'https://relay.example.com',
@@ -63,11 +59,30 @@ describe('asset-uploader / uploadAsset', () => {
             hash: 'abc',
             fetchImpl: fetch,
         });
-        expect(result).toEqual({ ok: true, uri: 'https://r2/assets/abc', hash: 'abc' });
-        expect(calls[0]!.url).toBe('https://relay.example.com/assets/upload/abc');
-        expect(calls[0]!.method).toBe('POST');
+        expect(result).toEqual({
+            ok: true,
+            uri: 'https://relay.example.com/base-bundle/assets/abc',
+            hash: 'abc',
+        });
+        expect(calls[0]!.url).toBe('https://relay.example.com/base-bundle/assets/abc');
+        expect(calls[0]!.method).toBe('PUT');
         expect(calls[0]!.headers.get('Content-Type')).toBe('image/png');
         expect(calls[0]!.headers.get('X-Onlook-Session-Id')).toBe('s1');
+    });
+
+    test('200 (overwrite) is also success — same uri shape', async () => {
+        const { fetch } = fakeFetch(() => new Response(null, { status: 200 }));
+        const result = await uploadAsset({
+            relayBaseUrl: 'https://r',
+            sessionId: 's',
+            bytes: new Uint8Array([1]),
+            mime: 'application/json',
+            hash: 'def',
+            fetchImpl: fetch,
+        });
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        expect(result.uri).toBe('https://r/base-bundle/assets/def');
     });
 
     test('returns ok:false with status on 4xx', async () => {
@@ -85,8 +100,8 @@ describe('asset-uploader / uploadAsset', () => {
         expect(result.status).toBe(403);
     });
 
-    test('returns ok:false when relay response lacks uri field', async () => {
-        const { fetch } = fakeFetch(() => new Response(JSON.stringify({}), { status: 202 }));
+    test('413 (over 10 MB cap) bubbles status verbatim', async () => {
+        const { fetch } = fakeFetch(() => new Response('too big', { status: 413 }));
         const result = await uploadAsset({
             relayBaseUrl: 'https://r',
             sessionId: 's',
@@ -97,7 +112,7 @@ describe('asset-uploader / uploadAsset', () => {
         });
         expect(result.ok).toBe(false);
         if (result.ok) return;
-        expect(result.error).toContain('no uri field');
+        expect(result.status).toBe(413);
     });
 
     test('network error bubbles as ok:false', async () => {
@@ -114,12 +129,25 @@ describe('asset-uploader / uploadAsset', () => {
         if (result.ok) return;
         expect(result.error).toContain('ECONNREFUSED');
     });
+
+    test('trailing slash in relayBaseUrl is normalised', async () => {
+        const { fetch, calls } = fakeFetch(() => new Response(null, { status: 201 }));
+        await uploadAsset({
+            relayBaseUrl: 'https://r/',
+            sessionId: 's',
+            bytes: new Uint8Array([1]),
+            mime: 'image/png',
+            hash: 'norm',
+            fetchImpl: fetch,
+        });
+        expect(calls[0]!.url).toBe('https://r/base-bundle/assets/norm');
+    });
 });
 
 describe('asset-uploader / uploadAssetBytes', () => {
     test('computes sha256 internally and passes through to uploadAsset', async () => {
         const { fetch, calls } = fakeFetch(
-            () => new Response(JSON.stringify({ uri: 'u' }), { status: 202 }),
+            () => new Response(null, { status: 201 }),
         );
         const result = await uploadAssetBytes({
             relayBaseUrl: 'https://r',
@@ -131,6 +159,7 @@ describe('asset-uploader / uploadAssetBytes', () => {
         expect(result.ok).toBe(true);
         if (!result.ok) return;
         expect(result.hash.length).toBe(64);
-        expect(calls[0]!.url).toContain('/assets/upload/' + result.hash);
+        expect(calls[0]!.url).toContain('/base-bundle/assets/' + result.hash);
+        expect(calls[0]!.method).toBe('PUT');
     });
 });

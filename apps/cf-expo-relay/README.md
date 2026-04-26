@@ -101,14 +101,20 @@ bunx wrangler dev --config scripts/wrangler-local-esm-cache.jsonc \
 bunx wrangler dev --port 18788 --inspector-port 9330 --local
 
 # Verify
-bash scripts/smoke-events.sh http://localhost:18788   # 5 /events assertions
-bash scripts/smoke-e2e.sh                             # 11 full-pipeline assertions
+bash scripts/smoke-events.sh http://localhost:18788   # 5 /events HTTP assertions
+bash scripts/smoke-e2e.sh                             # full-pipeline smoke: 7 steps end-to-end
+                                                      # (HTTP routes + 3 workerd-runtime WS smokes)
+
+# Or run a single smoke against an existing relay:
+bun scripts/smoke-abi-hello.ts http://localhost:18788    # Phase 11b handshake — 4 assertions
+bun scripts/smoke-overlay-push.ts http://localhost:18788 # v1 push fan-out — 4 assertions
+bun scripts/smoke-asset-upload.ts http://localhost:18788 # PUT/HEAD assets — 7 assertions
 ```
 
 ## Tests
 
 ```sh
-bun test          # 197 tests across 17 files (covers all route + DO + integration)
+bun test          # 226 tests across 17 files (covers all route + DO + integration)
 bun run typecheck # tsc --noEmit, clean
 ```
 

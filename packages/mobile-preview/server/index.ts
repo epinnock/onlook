@@ -25,6 +25,7 @@ import { handleManifestRequest } from './manifest';
 import {
   HTTP_PORT,
   LAN_IP,
+  PUBLIC_URL,
   WS_PORT,
   broadcastMessage,
   decodeSocketMessage,
@@ -164,6 +165,7 @@ const httpServer = Bun.serve({
         storeDir: STORE_DIR,
         lanIp: LAN_IP,
         httpPort: HTTP_PORT,
+        publicUrl: PUBLIC_URL,
       });
     }
 

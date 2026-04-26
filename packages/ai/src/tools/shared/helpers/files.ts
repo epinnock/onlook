@@ -1,6 +1,5 @@
 import type { CodeFileSystem } from "@onlook/file-system";
-import type { EditorEngine } from "@onlook/web-client/src/components/store/editor/engine";
-import type { SandboxManager } from "@onlook/web-client/src/components/store/editor/sandbox";
+import type { EditorEngineLike as EditorEngine, SandboxManagerLike as SandboxManager } from "../../types/editor-engine";
 
 export async function getFileSystem(branchId: string, editorEngine: EditorEngine): Promise<CodeFileSystem> {
     const fileSystem = editorEngine.branches.getBranchDataById(branchId)?.codeEditor;

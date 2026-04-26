@@ -187,7 +187,7 @@ describe('createAssetsResolvePlugin — image', () => {
         expect(Object.keys(manifest.assets)).toHaveLength(1);
         const [assetId] = Object.keys(manifest.assets);
         expect(assetId).toMatch(/^image\/[0-9a-f]{64}$/);
-        const d = manifest.assets[assetId] as AssetDescriptor;
+        const d = manifest.assets[assetId!] as AssetDescriptor;
         expect(d.kind).toBe('image');
         expect(d.hash).toMatch(/^[0-9a-f]{64}$/);
         if (d.kind === 'image') {
@@ -203,8 +203,8 @@ describe('createAssetsResolvePlugin — image', () => {
         harness.load('a.png');
         const manifest = harness.manifest.build();
         const [assetId] = Object.keys(manifest.assets);
-        const hash = assetId.split('/')[1];
-        const d = manifest.assets[assetId] as Extract<AssetDescriptor, { kind: 'image' }>;
+        const hash = assetId!.split('/')[1]!;
+        const d = manifest.assets[assetId!] as Extract<AssetDescriptor, { kind: 'image' }>;
         expect(d.uri).toContain(hash);
     });
 });
@@ -218,7 +218,7 @@ describe('createAssetsResolvePlugin — font', () => {
         expect(out?.contents).toContain('resolveAsset("font/');
         const manifest = harness.manifest.build();
         const [id] = Object.keys(manifest.assets);
-        const d = manifest.assets[id] as Extract<AssetDescriptor, { kind: 'font' }>;
+        const d = manifest.assets[id!] as Extract<AssetDescriptor, { kind: 'font' }>;
         expect(d.kind).toBe('font');
         expect(d.family).toBe('Inter-Bold');
         expect(d.mime).toBe('font/ttf');
@@ -233,7 +233,7 @@ describe('createAssetsResolvePlugin — svg', () => {
         harness.load('icon.svg');
         const manifest = harness.manifest.build();
         const [id] = Object.keys(manifest.assets);
-        const d = manifest.assets[id] as Extract<AssetDescriptor, { kind: 'svg' }>;
+        const d = manifest.assets[id!] as Extract<AssetDescriptor, { kind: 'svg' }>;
         expect(d.kind).toBe('svg');
         expect(d.mime).toBe('image/svg+xml');
         expect(d.viewBox).toBe('0 0 24 24');

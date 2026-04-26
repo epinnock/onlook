@@ -161,7 +161,7 @@ SUPABASE_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres`;
         };
 
         // Test required key validation
-        const responses = {
+        const responses: Record<string, string> = {
             REQUIRED_KEY: '',
             OPTIONAL_KEY: 'optional_value',
         };
@@ -173,7 +173,7 @@ SUPABASE_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres`;
         expect(missingKeys).toEqual(['REQUIRED_KEY']);
 
         // Test with all required keys provided
-        const validResponses = {
+        const validResponses: Record<string, string> = {
             REQUIRED_KEY: 'required_value',
             OPTIONAL_KEY: '',
         };

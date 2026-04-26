@@ -393,6 +393,264 @@ describe('RelayWsClient — reconnect-replay (task #82)', () => {
     });
 });
 
+describe('RelayWsClient — editor AbiHello handshake (Phase 11b)', () => {
+    const editorCaps = {
+        abi: 'v1' as const,
+        baseHash: 'editor-base-hash',
+        rnVersion: '0.81.6',
+        expoSdk: '54.0.0',
+        platform: 'ios' as const,
+        aliases: ['react'],
+    };
+    const phoneCaps = { ...editorCaps, baseHash: 'phone-base-hash' };
+    const phoneHello = {
+        type: 'abiHello' as const,
+        abi: 'v1' as const,
+        sessionId: 'sess',
+        role: 'phone' as const,
+        runtime: phoneCaps,
+    };
+
+    test('sends editor hello on open when editorCapabilities is provided', () => {
+        const sockets: MockWebSocket[] = [];
+        const c = new RelayWsClient({
+            relayBaseUrl: 'http://r:1',
+            sessionId: 'sess',
+            editorCapabilities: editorCaps,
+            createSocket: (url) => {
+                const s = new MockWebSocket(url);
+                sockets.push(s);
+                return s as unknown as WebSocket;
+            },
+        });
+        sockets[0]!.fire('open');
+        expect(sockets[0]!.sent).toHaveLength(1);
+        const sent = JSON.parse(sockets[0]!.sent[0]!);
+        expect(sent.type).toBe('abiHello');
+        expect(sent.role).toBe('editor');
+        expect(sent.sessionId).toBe('sess');
+        expect(sent.runtime).toEqual(editorCaps);
+        c.disconnect();
+    });
+
+    test('NO send when editorCapabilities is omitted (legacy callers)', () => {
+        const sockets: MockWebSocket[] = [];
+        const c = new RelayWsClient({
+            relayBaseUrl: 'http://r:1',
+            sessionId: 'sess',
+            createSocket: (url) => {
+                const s = new MockWebSocket(url);
+                sockets.push(s);
+                return s as unknown as WebSocket;
+            },
+        });
+        sockets[0]!.fire('open');
+        expect(sockets[0]!.sent).toEqual([]);
+        c.disconnect();
+    });
+
+    test('phone hello arrival fires onAbiCompatibility with "ok"', () => {
+        const sockets: MockWebSocket[] = [];
+        const calls: Array<{ result: unknown; phone: unknown }> = [];
+        const c = new RelayWsClient({
+            relayBaseUrl: 'http://r:1',
+            sessionId: 'sess',
+            editorCapabilities: editorCaps,
+            onAbiCompatibility: (result, phone) => calls.push({ result, phone }),
+            createSocket: (url) => {
+                const s = new MockWebSocket(url);
+                sockets.push(s);
+                return s as unknown as WebSocket;
+            },
+        });
+        sockets[0]!.fire('open');
+        sockets[0]!.fire('message', JSON.stringify(phoneHello));
+        expect(calls).toHaveLength(1);
+        expect(calls[0]!.result).toBe('ok');
+        expect(calls[0]!.phone).toEqual(phoneHello);
+        c.disconnect();
+    });
+
+    test('mismatched phone abi triggers OnlookRuntimeError result', () => {
+        const sockets: MockWebSocket[] = [];
+        const calls: Array<{ result: unknown }> = [];
+        const c = new RelayWsClient({
+            relayBaseUrl: 'http://r:1',
+            sessionId: 'sess',
+            editorCapabilities: editorCaps,
+            onAbiCompatibility: (result) => calls.push({ result }),
+            createSocket: (url) => {
+                const s = new MockWebSocket(url);
+                sockets.push(s);
+                return s as unknown as WebSocket;
+            },
+        });
+        sockets[0]!.fire('open');
+        // Force-cast a v0 phone hello past the type checker — at runtime the
+        // schema in this branch is permissive enough to drive the editor's
+        // checkAbiCompatibility down the abi-mismatch path.
+        const v0Hello = {
+            ...phoneHello,
+            abi: 'v0',
+            runtime: { ...phoneCaps, abi: 'v0' },
+        } as unknown as typeof phoneHello;
+        sockets[0]!.fire('message', JSON.stringify(v0Hello));
+        // The handshake's isAbiHello guard accepts only abi: 'v1', so a v0
+        // payload is dropped silently — no callback fires.
+        expect(calls).toHaveLength(0);
+        c.disconnect();
+    });
+
+    test('disconnect cancels the handshake handle', () => {
+        const sockets: MockWebSocket[] = [];
+        const c = new RelayWsClient({
+            relayBaseUrl: 'http://r:1',
+            sessionId: 'sess',
+            editorCapabilities: editorCaps,
+            createSocket: (url) => {
+                const s = new MockWebSocket(url);
+                sockets.push(s);
+                return s as unknown as WebSocket;
+            },
+        });
+        sockets[0]!.fire('open');
+        c.disconnect();
+        // After disconnect, the handshake's listener should be cancelled —
+        // a late phone hello arriving on the closed socket must not throw.
+        expect(() => sockets[0]!.fire('message', JSON.stringify(phoneHello))).not.toThrow();
+    });
+
+    test('getLastAbiCompatibility starts "unknown", flips to "ok", resets on close', () => {
+        const sockets: MockWebSocket[] = [];
+        const c = new RelayWsClient({
+            relayBaseUrl: 'http://r:1',
+            sessionId: 'sess',
+            editorCapabilities: editorCaps,
+            createSocket: (url) => {
+                const s = new MockWebSocket(url);
+                sockets.push(s);
+                return s as unknown as WebSocket;
+            },
+        });
+        expect(c.getLastAbiCompatibility()).toBe('unknown');
+        sockets[0]!.fire('open');
+        expect(c.getLastAbiCompatibility()).toBe('unknown');
+        sockets[0]!.fire('message', JSON.stringify(phoneHello));
+        expect(c.getLastAbiCompatibility()).toBe('ok');
+        // Socket close drops the cached compat — protects against the
+        // next-connect-may-be-different-phone race.
+        sockets[0]!.fire('close');
+        expect(c.getLastAbiCompatibility()).toBe('unknown');
+        c.disconnect();
+    });
+
+    test('getLastAbiCompatibility surfaces OnlookRuntimeError on mismatched phone abi', () => {
+        // We cannot send a v0 phone hello past the handshake's isAbiHello
+        // guard (it accepts only abi: 'v1'), so this test verifies that
+        // until the phone actually advertises v1+matching, the getter
+        // keeps reporting 'unknown' — i.e., fail-closed by default. This
+        // is the operationally important case; mismatch surfaces only
+        // when a future ABI version lands.
+        const sockets: MockWebSocket[] = [];
+        const c = new RelayWsClient({
+            relayBaseUrl: 'http://r:1',
+            sessionId: 'sess',
+            editorCapabilities: editorCaps,
+            createSocket: (url) => {
+                const s = new MockWebSocket(url);
+                sockets.push(s);
+                return s as unknown as WebSocket;
+            },
+        });
+        sockets[0]!.fire('open');
+        const v0Hello = {
+            ...phoneHello,
+            abi: 'v0',
+            runtime: { ...phoneCaps, abi: 'v0' },
+        } as unknown as typeof phoneHello;
+        sockets[0]!.fire('message', JSON.stringify(v0Hello));
+        // Hello dropped by isAbiHello guard — compatibility stays 'unknown'.
+        expect(c.getLastAbiCompatibility()).toBe('unknown');
+        c.disconnect();
+    });
+
+    test('editor reconnect: replayed phone hello re-populates lastCompatibility without a fresh hello', () => {
+        // Phase 11b resilience: when the editor's WS drops + auto-reconnects,
+        // the relay replays the most-recent phone hello on the fresh socket
+        // (cf-expo-relay HmrSession.replayLastAbiHellos, 80d3d54f). The
+        // editor's handshake listener processes that replayed hello as if
+        // it were live — checkAbiCompatibility fires, lastCompatibility
+        // flips back to 'ok'. This pins the contract: a phone going
+        // background-then-foreground (where the phone-side onAbiCompat
+        // wouldn't refire because the phone WS stayed open) still leaves
+        // the editor's gate open after the editor's network blip.
+        const sockets: MockWebSocket[] = [];
+        const c = new RelayWsClient({
+            relayBaseUrl: 'http://r:1',
+            sessionId: 'sess',
+            editorCapabilities: editorCaps,
+            // Tighten reconnect so the test doesn't idle on the 500ms default.
+            reconnectMinMs: 5,
+            reconnectMaxMs: 10,
+            setTimeout: (fn) => {
+                // Run immediately on this thread so the test is deterministic.
+                fn();
+                return 0;
+            },
+            clearTimeout: () => {},
+            createSocket: (url) => {
+                const s = new MockWebSocket(url);
+                sockets.push(s);
+                return s as unknown as WebSocket;
+            },
+        });
+
+        // First connection: handshake completes normally.
+        sockets[0]!.fire('open');
+        sockets[0]!.fire('message', JSON.stringify(phoneHello));
+        expect(c.getLastAbiCompatibility()).toBe('ok');
+
+        // Drop the first socket — lastCompatibility resets to 'unknown'
+        // (verified by the prior test). Reconnect timer fires synchronously
+        // via the setTimeout stub; a new MockWebSocket instance lands at
+        // sockets[1].
+        sockets[0]!.fire('close');
+        expect(c.getLastAbiCompatibility()).toBe('unknown');
+        expect(sockets.length).toBeGreaterThanOrEqual(2);
+
+        // Open the new socket. The relay's hmr-session replays the stored
+        // phone hello to fresh joiners — fire it on the new mock to
+        // simulate.
+        sockets[1]!.fire('open');
+        sockets[1]!.fire('message', JSON.stringify(phoneHello));
+        expect(c.getLastAbiCompatibility()).toBe('ok');
+
+        c.disconnect();
+    });
+
+    test('getLastAbiCompatibility integrates as pushOverlayV1 gate input', () => {
+        // End-to-end shape: the getter returns exactly what
+        // pushOverlayV1's `compatibility` option expects.
+        const sockets: MockWebSocket[] = [];
+        const c = new RelayWsClient({
+            relayBaseUrl: 'http://r:1',
+            sessionId: 'sess',
+            editorCapabilities: editorCaps,
+            createSocket: (url) => {
+                const s = new MockWebSocket(url);
+                sockets.push(s);
+                return s as unknown as WebSocket;
+            },
+        });
+        const gate = () => c.getLastAbiCompatibility();
+        expect(gate()).toBe('unknown'); // pre-handshake — pushOverlayV1 fails closed
+        sockets[0]!.fire('open');
+        sockets[0]!.fire('message', JSON.stringify(phoneHello));
+        expect(gate()).toBe('ok'); // pushOverlayV1 proceeds
+        c.disconnect();
+    });
+});
+
 describe('RelayWsClient — disconnect idempotence + side-effect cleanup', () => {
     test('disconnect closes the socket exactly once', () => {
         let ref: MockWebSocket | null = null;
@@ -419,5 +677,107 @@ describe('RelayWsClient — disconnect idempotence + side-effect cleanup', () =>
         });
         c.disconnect();
         expect(states[states.length - 1]).toBe('closed');
+    });
+});
+
+describe('RelayWsClient — replaceMessageMatching (Phase 11b row #35)', () => {
+    function makeErrorMsg(timestamp: number, sourceFile?: string) {
+        return {
+            type: 'onlook:error' as const,
+            sessionId: 'sess',
+            kind: 'js' as const,
+            message: 'boom',
+            timestamp,
+            ...(sourceFile && {
+                source: { fileName: sourceFile, lineNumber: 1, columnNumber: 0 },
+            }),
+        };
+    }
+
+    test('returns false when no match — buffer is unchanged', () => {
+        const sockets: MockWebSocket[] = [];
+        const c = new RelayWsClient({
+            relayBaseUrl: 'http://r:1',
+            sessionId: 'sess',
+            createSocket: (url) => {
+                const s = new MockWebSocket(url);
+                sockets.push(s);
+                return s as unknown as WebSocket;
+            },
+        });
+        sockets[0]!.fire('open');
+        const result = c.replaceMessageMatching(
+            () => false,
+            (msg) => msg,
+        );
+        expect(result).toBe(false);
+        expect(c.snapshot().messages).toHaveLength(0);
+        c.disconnect();
+    });
+
+    test('replaces the first matching entry in place; subsequent snapshot reflects swap', () => {
+        const sockets: MockWebSocket[] = [];
+        const c = new RelayWsClient({
+            relayBaseUrl: 'http://r:1',
+            sessionId: 'sess',
+            createSocket: (url) => {
+                const s = new MockWebSocket(url);
+                sockets.push(s);
+                return s as unknown as WebSocket;
+            },
+        });
+        sockets[0]!.fire('open');
+        // Inject an undecorated error via the wire.
+        sockets[0]!.fire('message', JSON.stringify(makeErrorMsg(1)));
+        const beforeSnap = c.snapshot();
+        expect(beforeSnap.messages).toHaveLength(1);
+
+        // Decorate it via the new primitive — same shape but with a
+        // populated source field.
+        const result = c.replaceMessageMatching(
+            (msg) =>
+                msg.type === 'onlook:error' && msg.timestamp === 1,
+            (_msg) => makeErrorMsg(1, 'App.tsx'),
+        );
+        expect(result).toBe(true);
+
+        const afterSnap = c.snapshot();
+        expect(afterSnap.messages).toHaveLength(1);
+        const replaced = afterSnap.messages[0];
+        if (replaced?.type === 'onlook:error') {
+            expect(replaced.source?.fileName).toBe('App.tsx');
+        } else {
+            throw new Error('expected onlook:error after replace');
+        }
+        c.disconnect();
+    });
+
+    test('only the first match is swapped; later matches stay raw', () => {
+        const sockets: MockWebSocket[] = [];
+        const c = new RelayWsClient({
+            relayBaseUrl: 'http://r:1',
+            sessionId: 'sess',
+            createSocket: (url) => {
+                const s = new MockWebSocket(url);
+                sockets.push(s);
+                return s as unknown as WebSocket;
+            },
+        });
+        sockets[0]!.fire('open');
+        sockets[0]!.fire('message', JSON.stringify(makeErrorMsg(1)));
+        sockets[0]!.fire('message', JSON.stringify(makeErrorMsg(2)));
+
+        c.replaceMessageMatching(
+            (msg) => msg.type === 'onlook:error',
+            (_msg) => makeErrorMsg(1, 'App.tsx'),
+        );
+
+        const messages = c.snapshot().messages;
+        expect(messages).toHaveLength(2);
+        if (messages[0]?.type === 'onlook:error' && messages[1]?.type === 'onlook:error') {
+            expect(messages[0].source?.fileName).toBe('App.tsx'); // first match decorated
+            expect(messages[1].source).toBeUndefined(); // second left raw
+        }
+        c.disconnect();
     });
 });

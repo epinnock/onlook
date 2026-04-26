@@ -42,11 +42,13 @@ mock.module('expo-secure-store', () => ({
     deleteItemAsync: async () => {},
 }));
 
-// Narrow RN stub — AppRouter.tsx itself only needs `View` + `StyleSheet`;
-// `../screens` is mocked below so none of its RN-heavy imports run.
+// Narrow RN stub — AppRouter.tsx itself only needs `View` + `StyleSheet` +
+// `Platform` (the latter for the Spike B AbiHello send). `../screens` is
+// mocked below so none of its RN-heavy imports run.
 mock.module('react-native', () => ({
     View: () => null,
     StyleSheet: { create: (s: Record<string, unknown>) => s },
+    Platform: { OS: 'ios' },
 }));
 
 // Short-circuit the heavy screen import chain — these components are never
@@ -71,6 +73,10 @@ mock.module('../flow/qrToMount', () => ({
 }));
 mock.module('../deepLink/parse', () => ({
     parseOnlookDeepLink: () => null,
+}));
+mock.module('../deepLink/handler', () => ({
+    useDeepLinkHandler: () => undefined,
+    registerDeepLinkHandler: () => () => undefined,
 }));
 mock.module('../relay/manifestFetcher', () => ({
     fetchManifest: async () => ({ ok: false, error: 'unused in unit test' }),

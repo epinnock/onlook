@@ -5,7 +5,7 @@ import {
     type OverlayAssetManifest,
 } from '@onlook/mobile-client-protocol';
 
-import { pushOverlay, pushOverlayV1 } from '../push-overlay';
+import { pushOverlay, pushOverlayV1, type PushOverlayTelemetry } from '../push-overlay';
 
 interface FakeFetchCall {
     url: string;
@@ -416,5 +416,128 @@ describe('pushOverlayV1', () => {
         if (result.ok) return;
         expect(result.status).toBe(400);
         expect(calls).toHaveLength(1);
+    });
+
+    // Phase 11b safety gate — pre-flip work; see ADR-0009.
+    describe('compatibility gate', () => {
+        test('proceeds when gate returns "ok"', async () => {
+            const { fetch, calls } = makeFakeFetch([okResponse(1)]);
+            const result = await pushOverlayV1({
+                relayBaseUrl: 'https://r',
+                sessionId: 's',
+                overlay: { code: 'm', buildDurationMs: 0 },
+                fetchImpl: fetch,
+                onTelemetry: null,
+                compatibility: () => 'ok',
+            });
+            expect(result.ok).toBe(true);
+            expect(calls).toHaveLength(1);
+        });
+
+        test('fails-closed when gate returns "unknown" — no network call', async () => {
+            const { fetch, calls } = makeFakeFetch([okResponse(99)]);
+            const events: PushOverlayTelemetry[] = [];
+            const result = await pushOverlayV1({
+                relayBaseUrl: 'https://r',
+                sessionId: 's',
+                overlay: { code: 'm', buildDurationMs: 0 },
+                fetchImpl: fetch,
+                onTelemetry: (e) => events.push(e),
+                compatibility: () => 'unknown',
+            });
+            expect(result.ok).toBe(false);
+            expect(calls).toHaveLength(0); // gate fired BEFORE the fetch
+            if (result.ok) return;
+            expect(result.attempts).toBe(0);
+            expect(result.error).toContain('handshake has not completed');
+            // Telemetry sees the failure with the compat-gate category so
+            // the dashboard can chart Phase 11b fail-closed events
+            // independently of network/validation failures.
+            expect(events).toHaveLength(1);
+            expect(events[0]!.ok).toBe(false);
+            expect(events[0]!.error).toContain('handshake has not completed');
+            expect(events[0]!.category).toBe('compat-gate');
+        });
+
+        test('OnlookRuntimeError gate path is also tagged compat-gate in telemetry', async () => {
+            const events: PushOverlayTelemetry[] = [];
+            const result = await pushOverlayV1({
+                relayBaseUrl: 'https://r',
+                sessionId: 's',
+                overlay: { code: 'm', buildDurationMs: 0 },
+                onTelemetry: (e) => events.push(e),
+                compatibility: () => ({ kind: 'abi-mismatch', message: 'v0' }),
+            });
+            expect(result.ok).toBe(false);
+            expect(events).toHaveLength(1);
+            expect(events[0]!.category).toBe('compat-gate');
+        });
+
+        test('non-gate failures do NOT carry the compat-gate category', async () => {
+            // sessionId/code/fetch failures should leave category undefined
+            // so the dashboard's 'standard' (implicit) bucket stays clean.
+            const events: PushOverlayTelemetry[] = [];
+            await pushOverlayV1({
+                relayBaseUrl: 'https://r',
+                sessionId: '', // invalid → fails BEFORE the gate
+                overlay: { code: 'm', buildDurationMs: 0 },
+                onTelemetry: (e) => events.push(e),
+                compatibility: () => 'ok',
+            });
+            expect(events).toHaveLength(1);
+            expect(events[0]!.ok).toBe(false);
+            expect(events[0]!.category).toBeUndefined();
+        });
+
+        test('fails-closed with kind+message when gate returns OnlookRuntimeError', async () => {
+            const { fetch, calls } = makeFakeFetch([okResponse(99)]);
+            const result = await pushOverlayV1({
+                relayBaseUrl: 'https://r',
+                sessionId: 's',
+                overlay: { code: 'm', buildDurationMs: 0 },
+                fetchImpl: fetch,
+                onTelemetry: null,
+                compatibility: () => ({
+                    kind: 'abi-mismatch',
+                    message: 'phone is on v0',
+                }),
+            });
+            expect(result.ok).toBe(false);
+            expect(calls).toHaveLength(0);
+            if (result.ok) return;
+            expect(result.error).toContain('abi-mismatch');
+            expect(result.error).toContain('phone is on v0');
+        });
+
+        test('no gate = legacy behavior (push proceeds)', async () => {
+            const { fetch, calls } = makeFakeFetch([okResponse(1)]);
+            const result = await pushOverlayV1({
+                relayBaseUrl: 'https://r',
+                sessionId: 's',
+                overlay: { code: 'm', buildDurationMs: 0 },
+                fetchImpl: fetch,
+                onTelemetry: null,
+                // no compatibility option
+            });
+            expect(result.ok).toBe(true);
+            expect(calls).toHaveLength(1);
+        });
+
+        test('gate runs AFTER sessionId/code validation (cheap checks first)', async () => {
+            const compatCalls: number[] = [];
+            const result = await pushOverlayV1({
+                relayBaseUrl: 'https://r',
+                sessionId: '', // invalid
+                overlay: { code: 'm', buildDurationMs: 0 },
+                onTelemetry: null,
+                compatibility: () => {
+                    compatCalls.push(1);
+                    return 'ok';
+                },
+            });
+            expect(result.ok).toBe(false);
+            // sessionId guard fires first; the compat gate is never invoked.
+            expect(compatCalls).toEqual([]);
+        });
     });
 });

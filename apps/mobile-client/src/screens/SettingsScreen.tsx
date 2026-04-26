@@ -22,12 +22,17 @@ import {
     View,
 } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
-import { clearRecentSessions } from '../storage';
+import {
+    clearRecentSessions,
+    isDevMenuEnabled,
+    loadDevMenuEnabled,
+    onDevMenuEnabledChange,
+    setDevMenuEnabled as persistDevMenuEnabled,
+} from '../storage';
 import { useNavigation } from '../navigation/NavigationContext';
 import { APP_VERSION } from '../version';
 
 const RELAY_HOST_KEY = 'onlook_relay_host_override';
-const DEV_MENU_KEY = 'onlook_dev_menu_enabled';
 
 interface SettingsScreenProps {
     /** Called when the user taps the back button. */
@@ -36,7 +41,14 @@ interface SettingsScreenProps {
 
 export default function SettingsScreen({ onGoBack }: SettingsScreenProps) {
     const [relayHost, setRelayHost] = useState('');
-    const [devMenuEnabled, setDevMenuEnabled] = useState(false);
+    // Mirror the shared `devMenuEnabled` storage observable so the
+    // toggle UI reflects the canonical state. App.tsx subscribes to the
+    // same observable and disables `<DevMenuTrigger>` accordingly, so
+    // flipping this switch takes effect immediately without an app
+    // restart.
+    const [devMenuEnabled, setLocalDevMenuEnabled] = useState(
+        isDevMenuEnabled(),
+    );
     const { navigate } = useNavigation();
 
     // ── Load persisted values on mount ──
@@ -44,9 +56,9 @@ export default function SettingsScreen({ onGoBack }: SettingsScreenProps) {
         let cancelled = false;
 
         async function load() {
-            const [storedHost, storedDevMenu] = await Promise.all([
+            const [storedHost, devMenuValue] = await Promise.all([
                 SecureStore.getItemAsync(RELAY_HOST_KEY),
-                SecureStore.getItemAsync(DEV_MENU_KEY),
+                loadDevMenuEnabled(),
             ]);
 
             if (cancelled) {
@@ -56,16 +68,21 @@ export default function SettingsScreen({ onGoBack }: SettingsScreenProps) {
             if (storedHost !== null) {
                 setRelayHost(storedHost);
             }
-
-            if (storedDevMenu !== null) {
-                setDevMenuEnabled(storedDevMenu === 'true');
-            }
+            setLocalDevMenuEnabled(devMenuValue);
         }
 
         void load();
 
+        // Keep local state in sync if anything else (e.g. a test or future
+        // dev-menu action) flips the dev-menu state while this screen is
+        // mounted.
+        const off = onDevMenuEnabledChange((v) => {
+            if (!cancelled) setLocalDevMenuEnabled(v);
+        });
+
         return () => {
             cancelled = true;
+            off();
         };
     }, []);
 
@@ -80,9 +97,10 @@ export default function SettingsScreen({ onGoBack }: SettingsScreenProps) {
     }, [relayHost]);
 
     // ── Persist dev menu toggle ──
+    // Goes through the shared `setDevMenuEnabled` so App.tsx's
+    // DevMenuTrigger gating updates synchronously (no app restart).
     const handleDevMenuToggle = useCallback(async (value: boolean) => {
-        setDevMenuEnabled(value);
-        await SecureStore.setItemAsync(DEV_MENU_KEY, String(value));
+        await persistDevMenuEnabled(value);
     }, []);
 
     // ── Clear recent sessions ──

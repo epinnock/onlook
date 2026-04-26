@@ -11,6 +11,11 @@
  *   - Build time:             ≤1000 ms (trailing debounce + esbuild in the editor).
  *   - Push latency:           ≤500 ms to relay.
  */
+import {
+    computeOverlaySizeDelta,
+    shouldInfoLogSizeDelta,
+    shouldWarnOnSizeDelta,
+} from './overlay-size-delta';
 import type { PushOverlayTelemetry } from './push-overlay';
 
 export const BUILD_SLOW_MS = 1000;
@@ -20,7 +25,9 @@ export type PerfGuardrailCategory =
     | 'build-slow'
     | 'push-slow'
     | 'push-retried'
-    | 'large-overlay';
+    | 'large-overlay'
+    | 'size-grew'
+    | 'size-shrunk';
 
 export interface PerfGuardrailEvent {
     readonly category: PerfGuardrailCategory;
@@ -112,4 +119,57 @@ export function evaluateBuildDuration(
     };
     sink(event);
     return event;
+}
+
+/**
+ * Compare the byte-size of consecutive overlay builds. Emits:
+ *   - `size-grew` (warn)  — current build grew ≥20% vs previous (regression candidate)
+ *   - `size-shrunk` (info) — current build shrunk by ≥10 KB vs previous (worth noting)
+ *
+ * No event is emitted when there's no previous size yet (first build of the
+ * session), when the delta is below threshold, or on the first measurement
+ * after a deliberate reset (caller passes `previousBytes: null`).
+ *
+ * Returns the event emitted, or `null` when below threshold / no previous.
+ */
+export function evaluateSizeDelta(
+    previousBytes: number | null,
+    currentBytes: number,
+    sink: PerfGuardrailSink = DEFAULT_PERF_SINK,
+): PerfGuardrailEvent | null {
+    if (previousBytes === null) return null;
+    if (!Number.isFinite(previousBytes) || !Number.isFinite(currentBytes)) return null;
+    if (currentBytes < 0 || previousBytes < 0) return null;
+    const delta = computeOverlaySizeDelta(previousBytes, currentBytes);
+    if (shouldWarnOnSizeDelta(delta)) {
+        const event: PerfGuardrailEvent = {
+            category: 'size-grew',
+            severity: 'warn',
+            message: `overlay grew ${delta.percentDelta.toFixed(0)}% (${previousBytes} → ${currentBytes} bytes)`,
+            detail: {
+                previousBytes: delta.previousBytes,
+                currentBytes: delta.currentBytes,
+                absoluteDeltaBytes: delta.absoluteDeltaBytes,
+                percentDelta: delta.percentDelta,
+            },
+        };
+        sink(event);
+        return event;
+    }
+    if (shouldInfoLogSizeDelta(delta)) {
+        const event: PerfGuardrailEvent = {
+            category: 'size-shrunk',
+            severity: 'info',
+            message: `overlay shrunk by ${Math.abs(delta.absoluteDeltaBytes)} bytes (${previousBytes} → ${currentBytes})`,
+            detail: {
+                previousBytes: delta.previousBytes,
+                currentBytes: delta.currentBytes,
+                absoluteDeltaBytes: delta.absoluteDeltaBytes,
+                percentDelta: delta.percentDelta,
+            },
+        };
+        sink(event);
+        return event;
+    }
+    return null;
 }

@@ -3,6 +3,7 @@ import {
     type CreateBrowserBundleOptionsInput,
 } from './options';
 import { createExternalPlugin } from './plugins/external';
+import { createJsxSourcePlugin } from './plugins/jsx-source';
 import { createVirtualFsLoadPlugin } from './plugins/virtual-fs-load';
 import {
     createVirtualFsResolvePlugin,
@@ -51,6 +52,20 @@ export async function bundleBrowserProject(
 ): Promise<BundleBrowserProjectResult> {
     const options = createBrowserBundleOptions(input);
     const files = createVirtualFileMap(options.files);
+    // jsx-source MUST come before virtual-fs-load: the first plugin to claim
+    // an .tsx/.jsx file in onLoad wins, and we need the __source-injected
+    // contents reaching esbuild rather than the raw source. virtual-fs-load
+    // remains the catch-all loader for .ts/.js/.json/asset files.
+    const plugins: BrowserBundlerPlugin[] = [
+        createExternalPlugin({
+            externalSpecifiers: options.externalSpecifiers,
+        }) as BrowserBundlerPlugin,
+        createVirtualFsResolvePlugin({ files }) as BrowserBundlerPlugin,
+    ];
+    if (options.injectJsxSource) {
+        plugins.push(createJsxSourcePlugin({ files }) as BrowserBundlerPlugin);
+    }
+    plugins.push(createVirtualFsLoadPlugin({ files }) as BrowserBundlerPlugin);
     const result = await esbuild.build({
         entryPoints: [options.entryPoint],
         bundle: true,
@@ -59,13 +74,7 @@ export async function bundleBrowserProject(
         write: false,
         minify: options.minify,
         sourcemap: options.sourcemap,
-        plugins: [
-            createExternalPlugin({
-                externalSpecifiers: options.externalSpecifiers,
-            }) as BrowserBundlerPlugin,
-            createVirtualFsResolvePlugin({ files }) as BrowserBundlerPlugin,
-            createVirtualFsLoadPlugin({ files }) as BrowserBundlerPlugin,
-        ],
+        plugins,
     });
 
     const outputFiles = result.outputFiles ?? [];

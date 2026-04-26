@@ -85,7 +85,7 @@ describe('validateBaseBundleArtifact', () => {
             ...artifact,
             metadata: {
                 ...artifact.metadata,
-                mapBytes: artifact.metadata.mapBytes + 1,
+                mapBytes: (artifact.metadata.mapBytes ?? 0) + 1,
             },
         });
 

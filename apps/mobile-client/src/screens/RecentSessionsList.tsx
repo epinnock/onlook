@@ -11,7 +11,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
-import { getRecentSessions } from '../storage';
+import { getRecentSessions, onRecentSessionsChange } from '../storage';
 import type { RecentSession } from '../storage/recentSessions';
 
 interface RecentSessionsListProps {
@@ -66,15 +66,27 @@ export default function RecentSessionsList({ onSelect }: RecentSessionsListProps
     useEffect(() => {
         let cancelled = false;
 
-        getRecentSessions().then((data) => {
-            if (!cancelled) {
-                setSessions(data);
-                setLoaded(true);
-            }
-        });
+        const refresh = (): void => {
+            void getRecentSessions().then((data) => {
+                if (!cancelled) {
+                    setSessions(data);
+                    setLoaded(true);
+                }
+            });
+        };
+
+        refresh();
+        // Re-fetch whenever a new session is added (e.g. via qrToMount on a
+        // successful deeplink mount) or the list is cleared. Without this
+        // subscription the launcher only sees sessions that existed at the
+        // time of first mount; navigating away to scan + back wouldn't show
+        // a freshly-added session because the launcher component instance
+        // is reused by AppRouter's reconciliation.
+        const off = onRecentSessionsChange(refresh);
 
         return () => {
             cancelled = true;
+            off();
         };
     }, []);
 

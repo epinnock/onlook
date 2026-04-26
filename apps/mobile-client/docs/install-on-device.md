@@ -174,6 +174,47 @@ or after bundle-ID churn still needs the Xcode GUI signing step in section 4.
 
 ---
 
+## 4b. Headless rebuilds via `mobile:build:ios -- --device`
+
+Once Xcode signing is set up (section 4), you can skip both `expo run:ios`
+and Xcode GUI for subsequent builds. `apps/mobile-client/scripts/run-build.ts`
+takes a `--device` flag that switches the wrapper from a simulator build to
+a real-iPhone `Debug-iphoneos` build:
+
+```bash
+# From repo root:
+DEVELOPMENT_TEAM=<your-team-id> bun run mobile:build:ios -- --device
+
+# Or pass the team via flag:
+bun run mobile:build:ios -- --device --team=<your-team-id>
+```
+
+The flag toggles:
+
+- `-sdk iphonesimulator` → `-sdk iphoneos`
+- `'generic/platform=iOS Simulator'` → `'generic/platform=iOS'`
+- drops `CODE_SIGNING_ALLOWED=NO`
+- adds `-allowProvisioningUpdates` + `CODE_SIGN_STYLE=Automatic`
+- threads `DEVELOPMENT_TEAM=<id>` to xcodebuild for automatic signing
+
+`--device` and `--sim=<name>` are mutually exclusive (the script exits 2
+if both are passed).
+
+Once the device build lands in DerivedData, chain into the install:
+
+```bash
+DEVELOPMENT_TEAM=<your-team-id> bun run mobile:build:ios -- --device && \
+  ONLOOK_DEVICE_UDID=<UDID> bun run --filter @onlook/mobile-client mobile:install:device
+```
+
+Like section 4a, this is a reinstall convenience — the first signing setup
+still happens through Xcode GUI in section 4, because `xcodebuild
+-allowProvisioningUpdates` only refreshes existing provisioning, it does
+not bootstrap a new Apple Developer account into Xcode → Settings →
+Accounts (that step is interactive-only).
+
+---
+
 ## 5. Troubleshooting
 
 - **Device shows as "unavailable"** in Xcode / `devicectl`: the phone is
@@ -192,6 +233,58 @@ or after bundle-ID churn still needs the Xcode GUI signing step in section 4.
 - **`pod install` failures** after a prebuild: delete `ios/Pods` and
   `ios/Podfile.lock` inside `apps/mobile-client/ios/`, then rerun `pod
   install`.
+- **`errSecInternalComponent` from codesign on a headless / SSH session**:
+  the build host's login keychain locks per session and codesign can't
+  reach the signing identity's private key. Each `ssh user@host …` opens a
+  fresh session that inherits a locked keychain even if the GUI session is
+  unlocked. Fix: prepend an unlock to every remote build invocation, e.g.
+
+  ```bash
+  ssh scry-farmer@192.168.0.17 \
+    "security unlock-keychain -p '<macOS-password>' ~/Library/Keychains/login.keychain-db && \
+     export PATH=/opt/homebrew/bin:\$PATH && \
+     cd ~/onlook/apps/mobile-client/ios && \
+     xcodebuild -workspace OnlookMobileClient.xcworkspace -scheme OnlookMobileClient \
+       -configuration Debug -sdk iphoneos -destination 'generic/platform=iOS' \
+       -allowProvisioningUpdates DEVELOPMENT_TEAM=<TEAM_ID> CODE_SIGN_STYLE=Automatic build"
+  ```
+
+  As a one-time setup that lets codesign reach the key without prompting,
+  also run (replace `<password>`):
+
+  ```bash
+  security set-key-partition-list -S apple-tool:,apple: \
+    -k '<password>' ~/Library/Keychains/login.keychain-db
+  ```
+
+  Without that the unlock-per-session pattern still works but each fresh
+  `xcodebuild` will hit `errSecInternalComponent` until unlocked. Manual
+  test: `codesign --force --sign <identity-hash> <some-framework>` should
+  return 0 in the same SSH session before xcodebuild will.
+
+  ⚠️ **Don't bypass `bun run mobile:build:ios -- --device` with a bare
+  `xcodebuild` invocation.** The wrapper runs three steps: (1)
+  `generate-version-header.ts`, (2) `bundle-runtime.ts` (refreshes
+  `OnlookMobileClient/Resources/onlook-runtime.js`), and (3) `bun x expo
+  export:embed` (re-bakes `main.jsbundle` from the current source).
+  Skipping the wrapper leaves a stale `main.jsbundle` in the .app — the
+  device installs but runs YOUR LAST BUILD'S JS code, not the source you
+  just edited. Symptom: a code change ships, the .app reinstalls, the
+  behavior doesn't change. Use the wrapper:
+
+  ```bash
+  ssh scry-farmer@192.168.0.17 \
+    "security unlock-keychain -p '<macOS-password>' ~/Library/Keychains/login.keychain-db && \
+     export PATH=/opt/homebrew/bin:\$PATH && \
+     cd ~/onlook && \
+     DEVELOPMENT_TEAM=<TEAM_ID> bun run mobile:build:ios -- --device"
+  ```
+
+  …then `bun run mobile:install:device` (no flags — the auto-detect
+  picks up the only attached iPhone). This was caught during the
+  spectra Mac mini iPhone 8 e2e session: a preflight code change
+  appeared not to take effect because the bare-xcodebuild rebuild hadn't
+  re-baked the JS bundle.
 
 ---
 

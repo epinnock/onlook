@@ -29,28 +29,27 @@ function makeFakeRelay(knownHashes: Iterable<string> = []): FakeRelay {
     const pushes: FakeRelay['pushes'] = [];
     const fetchImpl: FakeRelay['fetchImpl'] = async (input, init) => {
         const url = typeof input === 'string' ? input : (input as Request).url;
-        // /assets/check
-        if (url.endsWith('/assets/check')) {
-            const body = typeof init?.body === 'string' ? JSON.parse(init.body) : {};
-            const hashes: string[] = Array.isArray(body.hashes) ? body.hashes : [];
-            const present = hashes.filter((h) => known.has(h));
-            return new Response(JSON.stringify({ known: present }), {
-                status: 200,
-                headers: { 'Content-Type': 'application/json' },
-            });
+        // HEAD /base-bundle/assets/:hash — per-hash asset-check
+        // (retargeted from POST /assets/check 2026-04-25 to match
+        // the relay's actual route from v2 task #65).
+        const headMatch = /\/base-bundle\/assets\/([^/]+)$/.exec(url);
+        if (headMatch && init?.method === 'HEAD') {
+            const hash = decodeURIComponent(headMatch[1]!);
+            return new Response(null, { status: known.has(hash) ? 200 : 404 });
         }
-        // /assets/upload/:hash
-        const uploadMatch = /\/assets\/upload\/([^/]+)$/.exec(url);
-        if (uploadMatch) {
+        // PUT /base-bundle/assets/:hash — canonical relay endpoint
+        // (retargeted from /assets/upload/:hash 2026-04-25 to match
+        // the relay's actual route added in v2 task #74).
+        const uploadMatch = /\/base-bundle\/assets\/([^/]+)$/.exec(url);
+        if (uploadMatch && (init?.method === 'PUT')) {
             const hash = decodeURIComponent(uploadMatch[1]!);
             known.add(hash);
             const mime = new Headers(init?.headers).get('Content-Type') ?? '';
             const body = init?.body as Uint8Array | undefined;
             uploads.push({ hash, mime, bytes: body?.byteLength ?? 0 });
-            return new Response(JSON.stringify({ uri: `https://r2/assets/${hash}` }), {
-                status: 202,
-                headers: { 'Content-Type': 'application/json' },
-            });
+            // Relay's PUT returns no body; the editor derives the GET URI
+            // from the request URL.
+            return new Response(null, { status: 201 });
         }
         // /push/:id
         if (/\/push\/[^/]+$/.test(url)) {
@@ -216,13 +215,12 @@ describe('asset pipeline integration (check → upload → push)', () => {
 
         const failingFetch: FakeRelay['fetchImpl'] = async (input, init) => {
             const url = typeof input === 'string' ? input : (input as Request).url;
-            if (url.includes('/assets/check')) {
-                return new Response(JSON.stringify({ known: [] }), {
-                    status: 200,
-                    headers: { 'Content-Type': 'application/json' },
-                });
+            // HEAD /base-bundle/assets/<hash> — per-hash asset-check;
+            // 404 means "unknown" so the editor proceeds to upload.
+            if (url.includes('/base-bundle/assets/') && init?.method === 'HEAD') {
+                return new Response(null, { status: 404 });
             }
-            if (url.includes('/assets/upload/')) {
+            if (url.includes('/base-bundle/assets/') && init?.method === 'PUT') {
                 return new Response('server exploded', { status: 500 });
             }
             return new Response('unknown', { status: 404 });

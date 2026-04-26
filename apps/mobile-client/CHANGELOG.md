@@ -205,3 +205,147 @@ ADRs shipped:
 - `plans/adr/v2-pipeline-validation-findings.md` — 8 findings from simulator validation
 - `plans/adr/overlay-host-architecture.md` — OverlayHost-in-App.tsx decision
 - `plans/adr/cf-expo-relay-events-channel.md` — /events wire contract
+
+## [Unreleased] - 2026-04-25 — Phase 11b prep + tap-to-source
+
+A 54-commit autonomous session (PR #20) shipped four interrelated workstreams. Mobile-client commits below; full session map in `MEMORY.md`'s `project_session_2026_04_25.md`.
+
+### Added
+- **`src/relay/abiHello.ts`** (`b3d7e769`): `buildPhoneAbiHello` builder mirroring the editor-side `buildEditorAbiHello`. Produces a `role: 'phone'` AbiHelloMessage from supplied RuntimeCapabilities.
+- **`OnlookRelayClient.abiHelloProvider` option** (`b2bb133c`): canonical-class WS client now fires the AbiHello on every WS open via a caller-supplied provider. Wraps both the build + send in try/catch — a hello-send failure cannot wedge the WS; the editor's gate just stays `'unknown'` (fail-closed).
+- **AppRouter Spike B WS path fires AbiHello** (`e6237acd`): the production WS workaround that bypasses `OnlookRelayClient` (see `project_approuter_spike_b_ws.md` memory) was wired separately so the handshake actually works in today's binary.
+- **`useDeepLinkHandler` wired into AppRouter** (`f8d70396`): `onlook://launch?session=…&relay=…` now auto-routes through the URL pipeline on cold/warm-start. The handler module existed but no production caller consumed it.
+- **`buildDeepLinkPipelineUrl` helper** (`f8d70396`): pure helper for canonical-URL reconstruction; covered by 7 unit tests round-tripping through the deep-link parser.
+- **CodeMirror-native tap-to-source path** (`9eda7ddb` + `47a01022`): new `IdeManager.openCodeLocation(fileName, line, column)` method drives the existing `_codeNavigationOverride` MobX state. `wireOnlookSelectToIdeManager(ide)` glue helper wired in `Main`'s `useEffect` so phone taps land on the editor's CodeMirror `EditorView` via the same path `openCodeBlock` uses.
+
+### Removed
+- **Stale Monaco-shaped helper** (`2be936c8`): `wireCursorJump.ts` + `monacoCursorJump.ts` + their test file — the codebase uses CodeMirror's `EditorView`, not Monaco, so the helper could never have fired. Replaced by the CodeMirror-native path above.
+
+### Tests
+- **+34 mobile-client tests** (471 total): new coverage at `abiHello.test.ts` (7 tests), `buildDeepLinkPipelineUrl.test.ts` (7 tests), `wireOnlookSelectToIdeManager.test.ts` (6 tests), `openCodeLocation.test.ts` (9 tests; documented MobX class-stub-vs-object-literal quirk inline), plus AbiHello mock additions across `AppRouter-mount-overlay.test.ts` + `extract-relay-host-port.test.ts` + `buildDeepLinkPipelineUrl.test.ts`.
+
+### Documentation
+- v2 task queue rows #35, #85, #89-94 updated; mobile-client task queue MC4.17 (CodeMirror-native shipped), MC4.18 (precondition unblocked), MC2.5 (validate note refreshed).
+- ADR-0009 (Phase 11) updated with the safety-chain shipped status.
+- 4 new memory files capture durable lessons (audit pattern, MobX stub quirk, CodeMirror not Monaco, AppRouter Spike B WS bypass).
+
+## [Unreleased] - 2026-04-25 — observability wiring (workstream F continued)
+
+### Added
+- **`src/relay/wsSender.ts`**: process-wide registry that bridges AppRouter's Spike B raw WS (production) to observability streamers (ConsoleStreamer, future NetworkStreamer/ExceptionStreamer) that were previously typed against the dead-on-arrival `OnlookRelayClient`. Exposes `WsSenderHandle` interface (`isConnected` getter + `send(msg)`), `register/unregister/getActive` operations, and `dynamicWsSender` — a stable handle whose calls always delegate to the latest registered sender. Streamers hold `dynamicWsSender` for their lifetime; the registry handles WS reconnects transparently. 11 unit tests.
+- **AppRouter Spike B WS now registers itself**: `ws.onopen` calls `registerActiveWsSender({get isConnected() {...}, send(msg) {...}})` adapter; `ws.onclose` calls `unregisterActiveWsSender()`. Both wrapped in try/catch — a registry mishap must not wedge the WS.
+- **App.tsx wires ConsoleStreamer at boot**: instantiates `new ConsoleStreamer(dynamicWsSender, 'pending')` after `consoleRelay.install()`, calls `start()` so console patches install once at app boot. Pre-WS-open entries buffer locally on the streamer; they drain on the next forward call after AppRouter registers a sender. Deeplink resolution rotates the session id stamp via `consoleStreamerRef.current?.setSessionId(result.sessionId)`.
+
+### Changed
+- **`ConsoleStreamer` constructor type** widened from concrete `OnlookRelayClient` class to structural `WsSenderHandle` (audit-pattern fix). Closes the unwired-streamer gap documented at MC5.2 — the editor's `MobileConsoleTab` now receives entries on a real session. Added `setSessionId(id)` setter so the streamer is reused across deeplink-rotated sessions without re-patching console.
+
+### Tests
+- **+11 mobile-client tests** (482 total, was 471): `wsSender.test.ts` covering register/unregister/replace, `dynamicWsSender` connectivity reflection, send delegation including the latest-wins case after replacement, and throw-on-empty-registry. Existing `ConsoleStreamer` tests pass unchanged — the structural cast in the test fake is now redundant but harmless.
+
+### Documentation
+- mobile-client task queue MC5.2 status updated from "Done (primitive only — production wiring NOT shipped)" to "Done (production-wired via wsSender registry)" pending follow-up commit. NetworkStreamer (MC5.5) wiring deferred — needs fetch/xhr patch installation.
+
+## [Unreleased] - 2026-04-25 — ExceptionStreamer wiring (workstream F continued)
+
+### Added
+- **`src/debug/exceptionStreamer.ts`**: pairs to ConsoleStreamer — subscribes to `exceptionCatcher.onException` (MC5.7) and forwards each captured exception as an `onlook:error` wire message via `WsSenderHandle`. Maps `ExceptionEntry` → `ErrorMessage` shape, promoting kind to `'react'` when `componentStack` is present (ErrorBoundary captures). Disconnect-resilient: 50-entry local buffer drains opportunistically on the next successful send. 8 unit tests covering forward shapes, kind promotion, disconnect/throw buffering, sessionId rotation, idempotent start, stop unsubscribe, and 50-cap drop-oldest behavior.
+- **App.tsx wires ExceptionStreamer alongside ConsoleStreamer**: `exceptionCatcher.install()` patches `globalThis.ErrorUtils.setGlobalHandler` + `window.onerror`; ExceptionStreamer subscribes via `dynamicWsSender` and forwards via the same shared registry. Closes the producer half of the source-map decoration chain — the editor's `wireBufferDecorationOnError` (use-mobile-preview-status.tsx, wired via 5da582fe + 3b18789d) was correctly receiving but had no producer until now.
+
+### Tests
+- **+8 mobile-client tests** (490 total, was 482): `exceptionStreamer.test.ts`.
+
+### Documentation
+- mobile-client task queue MC5.7 status updated to reflect production-wired state.
+
+## [Unreleased] - 2026-04-25 — NetworkStreamer wiring (workstream F continued)
+
+### Changed
+- **`NetworkStreamer` constructor type** widened from concrete `OnlookRelayClient` to structural `WsSenderHandle` — same pattern as ConsoleStreamer (`6a6ceba0`). MC5.5 production wiring closed.
+
+### Added
+- **App.tsx wires fetch/XHR patches + NetworkStreamer at boot**: `fetchPatch.install()` + `xhrPatch.install()` patch the global prototypes once at boot; `new NetworkStreamer(dynamicWsSender, {}, {sessionId: 'pending'})` + `start()` subscribes to both patch sources and forwards completed entries as `onlook:network` messages via the shared registry. Cleanup teardown calls `uninstall()` on both patches so fast-refresh / unit-test re-mounts don't double-patch. Deeplink resolve rotates the session id via `networkStreamerRef.current?.setSessionId(result.sessionId)`.
+
+### Tests
+- mobile-client total stays at 490 (no new tests this commit — NetworkStreamer's existing 12 tests already cover the structural contract; the wire-in is one-line additions to App.tsx that don't add new behavior).
+
+### Documentation
+- mobile-client task queue MC5.5 status updated to reflect production-wired state. With this, **all three observability streamers (MC5.2 console, MC5.5 network, MC5.7 exceptions) are now production-wired** via the `dynamicWsSender` registry pattern — closes the entire mobile-client observability gap documented in `8c52ebf4`. TapHandler (MC4.14) remains gated on `findNodeAtPoint` (MC4.2, doesn't exist) — separate work.
+
+## [Unreleased] - 2026-04-25 — DevMenu wiring (workstream F continued)
+
+Audit-pattern catch #10: the entire mobile-client DevMenu surface (MC5.9 component + MC5.10 trigger gesture + MC5.11 reload action + MC5.12 clear-storage action + MC5.13 view-logs action) was shipped as primitives but never instantiated/rendered in production. Three-finger long-press did nothing; the modal was unreachable.
+
+### Added
+- **App.tsx wires the DevMenu surface end-to-end**:
+  - `DevMenuTrigger` wraps `<AppRouter />` + `<OverlayHost />` so a three-finger long-press anywhere opens the modal. The wrapper is transparent — children render normally; the App.composition test guard now permits transparent wrappers as long as AppRouter remains an immediate JSX sibling of OverlayHost.
+  - `DevMenu` modal renders 5 actions composed via the existing factories (`createReloadAction`, `createCopySessionIdAction(getSessionId)`, `createViewLogsAction(setVisible)`, `createToggleInspectorAction()`, `createClearStorageAction()`). Each action's `onPress` is wrapped to auto-dismiss the menu after firing.
+  - `RecentLogsModal` mounts as a sibling of the trigger so it persists after the dev menu dismisses (the View Recent Logs action sets visible=true; the modal owns its own onClose dismissal).
+  - `activeSessionIdRef` tracks the resolved session id from deeplink resolve so `createCopySessionIdAction` reads the latest value via closure.
+
+### Changed
+- **App.composition.test.ts** widened to permit transparent wrappers (previously required `<><AppRouter /><OverlayHost /></>` exactly; now allows any wrapper provided AppRouter is the immediate JSX sibling of OverlayHost). The architectural invariant is preserved (no nesting; both elements span every screen).
+
+### Tests
+- mobile-client total stays at 490 (no new tests; existing `DevMenu.test.ts`, `DevMenuTrigger.test.ts`, action factory tests, and the widened composition guard cover the wiring contract).
+
+### Documentation
+- mobile-client task queue MC5.9–MC5.13 statuses follow up in a separate commit.
+
+### Known limitations
+- `createToggleInspectorAction` toggles a global boolean but the inspector overlay UI itself isn't wired — same root cause as TapHandler (gated on `findNodeAtPoint` / MC4.2 unimplemented). The action runs without error but produces no visible effect today.
+
+## [Unreleased] - 2026-04-25 — DevMenu / Settings sync (workstream F continued)
+
+Closes the previous tick's documented gap: SettingsScreen had a `dev_menu_enabled` toggle that wrote to SecureStore, but App.tsx's DevMenuTrigger ignored it (always armed). Now both sides observe the same in-memory state so a settings toggle takes effect immediately without an app restart.
+
+### Added
+- **`src/storage/devMenuEnabled.ts`**: in-memory observable + SecureStore persistence for the `onlook_dev_menu_enabled` key. Mirrors the `actions/toggleInspector.ts` Set-based listener pattern; default is OFF (matching SettingsScreen UX). Exposes `loadDevMenuEnabled()`, `setDevMenuEnabled()`, `isDevMenuEnabled()`, `onDevMenuEnabledChange()`. 11 unit tests covering load/persist/notify/unsubscribe paths with an in-memory expo-secure-store mock.
+
+### Changed
+- **App.tsx** subscribes to `onDevMenuEnabledChange` and passes `disabled={!devMenuTriggerEnabled}` to `<DevMenuTrigger>` so the gesture is gated on the user setting.
+- **SettingsScreen.tsx** uses the shared module instead of inline SecureStore calls. The toggle now goes through `setDevMenuEnabled(value)` which fires both the persistence write AND the in-memory observable. Subscribes to `onDevMenuEnabledChange` so external state changes (e.g. future dev-menu actions) sync the local UI state.
+
+### Tests
+- **+11 mobile-client tests** (501 total, was 490): `devMenuEnabled.test.ts` covering default value, load returns absent/true/false, set persists + notifies, unchanged-value short-circuit, listener unsubscribe, multiple listeners.
+
+## [Unreleased] - 2026-04-25 — RecentSessionsList wiring (workstream F continued)
+
+Audit-pattern catch #11: `RecentSessionsList` (MC3.9, 177 LOC + tests) was authored 2026-04-16 but had ZERO production consumers. LauncherScreen even reserved a "Recent sessions" section that just rendered an empty placeholder `<View>`. So sessions persisted by `qrToMount` (via `addRecentSession`) accumulated in SecureStore but were never displayed.
+
+### Added
+- **LauncherScreen renders RecentSessionsList** in the existing `recentSection` placeholder slot. New optional `onRecentSessionSelect` prop receives the tapped row's `RecentSession`; AppRouter wires it to construct an `onlook://launch?session=…&relay=…` deep-link and route through `buildUrlPipelineRunner(actions)` — same path as a fresh QR scan, so re-mounting goes through `parseOnlookDeepLink` → `qrToMount` end-to-end.
+- **`storage/recentSessions.ts` change-listener pattern**: `onRecentSessionsChange(handler)` subscription. Both `addRecentSession` and `clearRecentSessions` notify after persistence. Mirrors the `devMenuEnabled` observable. Without this, AppRouter's screen-stack reuses the LauncherScreen instance across navigation, so new sessions added via QR scan + back wouldn't surface — `useEffect`'s mount fetch would only fire once.
+- **`RecentSessionsList` subscribes to the new change-listener** so the launcher refreshes automatically after every `addRecentSession` / `clearRecentSessions`. Re-fetches via `getRecentSessions()` and updates state; safe across the unmount cleanup race via the existing `cancelled` flag.
+
+### Tests
+- **+5 mobile-client tests** (506 total, was 501): `recentSessions.test.ts` adds coverage for `onRecentSessionsChange` — fires after add + clear, unsubscribe stops further notifications, multi-listener fan-out, and throw-isolation (one bad listener doesn't block others or the underlying write).
+
+## [Unreleased] - 2026-04-25 — ErrorBoundary at App root + render-error → exceptionCatcher bridge
+
+Audit-pattern catch #12: `ErrorBoundary` (MC5.6, 89 LOC + tests) was shipped 2026-04-16 but had ZERO render sites in production. Without it, a thrown render in any descendant of `<App>` (overlay component, AppRouter screen, DevMenu, etc.) crashed the JS bundle with an RN red-box rather than rendering the friendly ErrorScreen fallback OR forwarding to the editor.
+
+### Added
+- **App.tsx wraps its tree in `<ErrorBoundary>`**. Default fallback (`ErrorScreen` with retry) handles the local UX. The `onError` callback bridges into `exceptionCatcher.captureException(err, componentStack)` so React render errors land in the same ring buffer + listener fanout that `ExceptionStreamer` (25da7d27) consumes to ship `onlook:error` messages to the editor's source-map decoration receive-chain. Without this bridge, a thrown render would render the local fallback but never reach the editor's MobileNetworkTab/console panels.
+
+### Tests
+- mobile-client total stays at 506 (no new tests; `ErrorBoundary.test.ts` covers the boundary's contract and `App.composition.test.ts`'s widened guard already accepts the wrapping). Existing 506 tests all pass.
+
+## [Unreleased] - 2026-04-25 — overlay error → exceptionCatcher bridge (workstream F continued)
+
+`reportOverlayBoundaryError` (the OverlayHost-level error sink) routed only through `OnlookRuntime.reportError` (a JSI binding). When the native binding wasn't installed (or in any path that didn't invoke it), overlay React render errors had no path to the editor. Belt-and-suspenders fix: also forward through `exceptionCatcher.captureException(error)` so the JS-only ExceptionStreamer (25da7d27) → onlook:error → editor source-map decoration chain fires regardless of native-binding availability.
+
+Same shape as `bf3f43e7`'s App-root ErrorBoundary bridge, applied at the per-overlay boundary. Both roots — App and Overlay — now feed the same exceptionCatcher pipeline. Existing 5 reportOverlayBoundaryError tests pass unchanged (their assertions are scoped to the OnlookRuntime.reportError side-effect; the new captureException call doesn't disturb them).
+
+## [Unreleased] - 2026-04-25 — overlay-React componentStack forwarding (workstream F continued)
+
+Tightens the overlay-React error pipeline shipped in `3eb5af01`. The boundary's `onError` callback only passed `Error`, dropping React's `errorInfo.componentStack`. Without it, `OnlookRuntime.reportError` payloads omitted componentStack and `exceptionCatcher.captureException` always saw undefined componentStack — so `ExceptionStreamer.toMessage` mapped to `kind: 'js'` instead of `'react'`, sending the editor's source-map decoration receive-chain the wrong UI route.
+
+### Changed
+- **`OverlayErrorBoundary.componentDidCatch`** now passes `errorInfo` (with componentStack) to `onError`. Signature widened to optional second arg so existing single-arg call sites stay compatible.
+- **`reportOverlayBoundaryError(error, errorInfo?)`** accepts React.ErrorInfo. Forwards componentStack into both the `OnlookRuntime.reportError` payload (new optional `componentStack` field) and `exceptionCatcher.captureException`. Coerces `string | null → string | undefined` at the boundary because React types componentStack as `string | null`.
+
+### Tests
+- **+3 mobile-client tests** (509 total, was 506): forwards componentStack when supplied, omits when not supplied, omits when null (React allows it). Existing 6 reportOverlayBoundaryError tests pass unchanged.
+
+### Result
+A thrown render in any overlay component now lands in the editor's React-error UI with the component stack populated, routing through the React-error tab rather than the generic JS-error tab.

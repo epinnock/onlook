@@ -10,7 +10,7 @@
  *  2. `isOverlayV1Enabled()` is true ONLY when the flag matches.
  *  3. The expo-relay barrel exports the v1-era helpers (pushOverlayV1,
  *     buildEditorAbiHello, OverlayStatusMachine, createOverlayDebouncer,
- *     createReconnectReplayer, fetchOverlaySourceMap).
+ *     fetchOverlaySourceMap).
  *  4. pushOverlayV1 emits an OverlayUpdateMessage shape; no pushOverlay
  *     (legacy) calls fire from the same test.
  */
@@ -68,8 +68,6 @@ test.describe('workers-pipeline editor — overlay-v1 dispatch', () => {
             'canTransition',
             // debouncer
             'createOverlayDebouncer',
-            // reconnect
-            'createReconnectReplayer',
             // source map
             'fetchOverlaySourceMap',
             'resolveOverlayFrame',

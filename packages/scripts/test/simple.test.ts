@@ -58,7 +58,7 @@ EMPTY_KEY=
             TEST_KEY2: { required: false },
         };
 
-        const responses = {
+        const responses: Record<string, string> = {
             TEST_KEY1: 'value1',
             TEST_KEY2: 'value2',
         };

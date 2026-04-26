@@ -125,6 +125,37 @@ status="${resp##*$'\n'}"; body="${resp%$'\n'*}"
 assert_status "events /poll" 200 "$status"
 assert_contains "events /poll type" '"type":"overlayAck"' "$body"
 
+# 5. AbiHello WS chain — Phase 11b handshake round-trip + late-joiner replay
+#    (delegated to a Bun script; needs the WebSocket client).
+echo "[smoke-e2e] AbiHello WS chain"
+if bun "${SCRIPT_DIR}/smoke-abi-hello.ts" "http://localhost:${RELAY_PORT}"; then
+    ok "AbiHello WS chain (phone↔editor + late-joiner replay)"
+else
+    fail "AbiHello WS chain — see [smoke-abi-hello] log lines above for the failing assertion"
+fi
+
+# 6. Overlay push fan-out — the main v2 data path. Editor POSTs an
+#    OverlayUpdateMessage to /push/<sessionId>; phone WS receives via
+#    fan-out; late-joiner gets it via replay.
+echo "[smoke-e2e] overlay v1 push WS fan-out"
+if bun "${SCRIPT_DIR}/smoke-overlay-push.ts" "http://localhost:${RELAY_PORT}"; then
+    ok "overlay v1 push fan-out (editor→relay→phone WS + replay)"
+else
+    fail "overlay v1 push fan-out — see [smoke-overlay-push] log lines above"
+fi
+
+# 7. Asset upload + check — the canonical PUT/HEAD /base-bundle/assets/<hash>
+#    endpoints used by the editor uploaders retargeted in 53bd29ff +
+#    321219b8. Smoke validates HEAD-unknown 404, PUT-first 201,
+#    HEAD-known 200, PUT-overwrite 200, GET round-trip with content-type +
+#    bytewise body match.
+echo "[smoke-e2e] asset upload + check round-trip"
+if bun "${SCRIPT_DIR}/smoke-asset-upload.ts" "http://localhost:${RELAY_PORT}"; then
+    ok "asset upload + check round-trip (PUT 201/200, HEAD 404/200, GET full body)"
+else
+    fail "asset upload + check — see [smoke-asset-upload] log lines above"
+fi
+
 echo "[smoke-e2e] all green"
 if [[ "$KEEP" -eq 1 ]]; then
     echo "[smoke-e2e] --keep: relay=$RELAY_PID cache=$CACHE_PID"

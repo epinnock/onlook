@@ -67,4 +67,38 @@ export class IdeManager {
     hasCodeNavigationOverride(): boolean {
         return this._codeNavigationOverride !== null;
     }
+
+    /**
+     * Direct file+line+column navigation — bypasses the OID metadata
+     * lookup `openCodeBlock` does because tap-to-source from the phone
+     * (MC4.14 → MC4.15 → MC4.17) arrives with the source location
+     * already resolved (the phone's runtime injects `__source` at
+     * build time and the tap handler reads it). Sets a zero-length
+     * range at the supplied position and switches to CODE mode using
+     * the same MobX `_codeNavigationOverride` mechanism `openCodeBlock`
+     * uses, so the existing `useCodeNavigation` hook
+     * (`code-tab/hooks/use-code-navigation.ts`) drives the CodeMirror
+     * EditorView to scroll-into-view + place the cursor.
+     *
+     * Lines + columns are 1-indexed to match the wire shape from
+     * `OnlookSelectMessage` and the existing `metadata.startTag.start`
+     * shape in {@link openCodeBlock}.
+     */
+    openCodeLocation(fileName: string, lineNumber: number, columnNumber: number): void {
+        if (!fileName || lineNumber <= 0 || columnNumber < 0) {
+            console.warn(
+                '[IdeManager] openCodeLocation: invalid args',
+                { fileName, lineNumber, columnNumber },
+            );
+            return;
+        }
+        this._codeNavigationOverride = {
+            filePath: fileName,
+            range: {
+                start: { line: lineNumber, column: columnNumber },
+                end: { line: lineNumber, column: columnNumber },
+            },
+        };
+        this.editorEngine.state.editorMode = EditorMode.CODE;
+    }
 }

@@ -367,6 +367,8 @@ Hermes has no JIT; overlay source runs interpreted. Practical limits:
   interpretation overhead but requires shipping `hermesc` with the editor bundle. Deferred to
   post-MVP; captured in the task queue's Phase 12 performance gates (#99) as the guardrail
   that forces the conversation.
+- **Surfaced perf-guardrail signals (six categories).** Six perf-guardrail event categories ride the same `onlook_overlay_perf` Phase 11b telemetry channel:
+  `build-slow`, `push-slow`, `push-retried`, `large-overlay`, `size-grew` (≥20% growth vs previous successful push), and `size-shrunk` (≥10 KB drop). Size-delta is regression-detection between consecutive overlays in a session — distinct from `large-overlay` which gates absolute byte caps. Wiring lives in `apps/web/client/src/services/expo-relay/perf-guardrails.ts`; see `plans/adr/phase-11b-soak-dashboard-playbook.md` for the dashboard query shapes.
 - **Production note:** overlays are preview-only. Production builds of user apps ship as
   regular Metro/Hermes-compiled bundles. The ABI's interpretation ceiling is a preview UX
   concern, not a product correctness concern.

@@ -1,5 +1,5 @@
 import { Icons } from '@onlook/ui/icons';
-import type { EditorEngine } from '@onlook/web-client/src/components/store/editor/engine';
+import type { EditorEngineLike as EditorEngine } from '../types/editor-engine';
 // @ts-expect-error - picomatch ships its own JS-only export; @types/picomatch
 // is not installed because it's already pulled in transitively by Tailwind.
 // We type the matcher as (path: string) => boolean below to keep callers safe.

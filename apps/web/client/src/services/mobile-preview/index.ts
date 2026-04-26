@@ -1,6 +1,8 @@
 import { env } from '@/env';
 import { transform } from 'sucrase';
 
+import type { PushOverlayCompatibilityResult } from '@/services/expo-relay/push-overlay';
+import type { AbiV1PreflightIssue } from '../../../../../../packages/browser-bundler/src';
 import {
     getMobilePreviewPipelineKind,
     resolveMobilePreviewPipelineKind,
@@ -139,14 +141,47 @@ export interface CreateMobilePreviewPipelineOptions {
 
 export type MobilePreviewPipelineOptions = CreateMobilePreviewPipelineOptions;
 
+/**
+ * Optional dependency slots for {@link createMobilePreviewPipeline} —
+ * separated from the URL-config object so callers can pass live
+ * runtime hooks (e.g. a compatibility provider closing over a React
+ * ref) without polluting the config shape that
+ * {@link resolveMobilePreviewPipelineConfig} produces.
+ *
+ * Phase 11b: pass `compatibilityProvider: () => relayWs.getLastAbiCompatibility()`
+ * so v1 pushes are gated on the editor's handshake state. Only consumed
+ * by the two-tier branch; the shim branch ignores it.
+ *
+ * Phase 9 R2 source-map upload: pass `onSourceMapUploaded` to capture
+ * the R2 URI of each successfully-uploaded source map. Production
+ * caller threads this into a hook-level ref consumed by the source-map
+ * decoration receive-chain. Only consumed by the two-tier branch.
+ */
+export interface CreateMobilePreviewPipelineDeps {
+    readonly compatibilityProvider?: () => PushOverlayCompatibilityResult;
+    readonly onSourceMapUploaded?: (sourceMapUrl: string) => void;
+    /**
+     * Fired once per `sync()` after the file map is collected, with the
+     * static-analysis preflight issue list. The dev-panel preflight tab
+     * (OverlayPreflightPanel) consumes a `PreflightSummary` derived
+     * from this list. Only consumed by the two-tier branch.
+     */
+    readonly onPreflight?: (issues: readonly AbiV1PreflightIssue[]) => void;
+}
+
 export function resolveMobilePreviewPipelineConfig(
     options: CreateMobilePreviewPipelineOptions = {},
 ): MobilePreviewPipelineConfig {
     const kind = options.kind ?? getMobilePreviewPipelineKind();
 
-    if (kind === 'two-tier') {
+    // `'overlay-v1'` is a sub-mode of the TwoTier pipeline per Phase 11a
+    // ADR — same builder/relay construction, the inner sync() flag picks
+    // v1 vs legacy push shape via `isMobilePreviewOverlayV1PipelineEnabled`.
+    // Without this branch, env=overlay-v1 silently fell back to the shim
+    // path and the v1 push shape was unreachable in production.
+    if (kind === 'two-tier' || kind === 'overlay-v1') {
         return {
-            kind,
+            kind: 'two-tier',
             builderBaseUrl:
                 options.builderBaseUrl ?? env.NEXT_PUBLIC_CF_ESM_BUILDER_URL ?? '',
             relayBaseUrl:
@@ -163,34 +198,52 @@ export function resolveMobilePreviewPipelineConfig(
 
 export function createMobilePreviewPipeline(
     options?: CreateMobilePreviewPipelineOptions,
+    deps?: CreateMobilePreviewPipelineDeps,
 ): MobilePreviewPipeline;
 export function createMobilePreviewPipeline(
     config: MobilePreviewPipelineConfig,
+    deps?: CreateMobilePreviewPipelineDeps,
 ): MobilePreviewPipeline;
 export function createMobilePreviewPipeline(
     input: CreateMobilePreviewPipelineOptions | MobilePreviewPipelineConfig = {},
+    deps: CreateMobilePreviewPipelineDeps = {},
 ): MobilePreviewPipeline {
     return createMobilePreviewPipelineFromConfig(
         isMobilePreviewPipelineConfig(input)
             ? input
             : resolveMobilePreviewPipelineConfig(input),
+        deps,
     );
 }
 
 export function createMobilePreviewPipelineFromConfig(
     config: MobilePreviewShimPipelineConfig,
+    deps?: CreateMobilePreviewPipelineDeps,
 ): MobilePreviewPipeline<'shim'>;
 export function createMobilePreviewPipelineFromConfig(
     config: MobilePreviewTwoTierPipelineConfig,
+    deps?: CreateMobilePreviewPipelineDeps,
 ): MobilePreviewPipeline<'two-tier'>;
 export function createMobilePreviewPipelineFromConfig(
     config: MobilePreviewPipelineConfig,
+    deps?: CreateMobilePreviewPipelineDeps,
 ): MobilePreviewPipeline;
 export function createMobilePreviewPipelineFromConfig(
     config: MobilePreviewPipelineConfig,
+    deps: CreateMobilePreviewPipelineDeps = {},
 ): MobilePreviewPipeline {
     if (config.kind === 'two-tier') {
-        return createTwoTierMobilePreviewPipeline(config);
+        return createTwoTierMobilePreviewPipeline(config, {
+            ...(deps.compatibilityProvider !== undefined
+                ? { compatibilityProvider: deps.compatibilityProvider }
+                : {}),
+            ...(deps.onSourceMapUploaded !== undefined
+                ? { onSourceMapUploaded: deps.onSourceMapUploaded }
+                : {}),
+            ...(deps.onPreflight !== undefined
+                ? { onPreflight: deps.onPreflight }
+                : {}),
+        });
     }
 
     return createMobilePreviewShimPipeline(config);
@@ -199,7 +252,11 @@ export function createMobilePreviewPipelineFromConfig(
 export function getMobilePreviewPipelineCapabilities(
     kind: MobilePreviewPipelineKind = getMobilePreviewPipelineKind(),
 ): MobilePreviewPipelineCapabilities {
-    if (resolveMobilePreviewPipelineKind(kind) === 'two-tier') {
+    // `'overlay-v1'` shares the TwoTier pipeline's capabilities — only
+    // the inner push wire shape differs. See `resolveMobilePreviewPipelineConfig`
+    // for the canonical kind-mapping.
+    const resolved = resolveMobilePreviewPipelineKind(kind);
+    if (resolved === 'two-tier' || resolved === 'overlay-v1') {
         return twoTierMobilePreviewCapabilities;
     }
 

@@ -17,19 +17,36 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import type {
+    AbiHelloMessage,
+    OnlookRuntimeError,
+    RuntimeCapabilities,
+} from '@onlook/mobile-client-protocol';
+
 import type { QrModalStatus } from '@/components/ui/qr-modal';
 import type { RelayWsClient } from '@/services/expo-relay/relay-ws-client';
 import type { MobilePreviewPipeline, MobilePreviewVfs } from '@/services/mobile-preview';
 import { renderQrSvg } from '@/services/expo-relay';
 import { parseManifestUrl } from '@/services/expo-relay/manifest-url';
+import { emitOverlayAckTelemetry } from '@/services/expo-relay/overlay-telemetry-sink';
+import { dispatchOnlookSelect } from '@/services/expo-relay/onlookSelectReceiver';
+import {
+    formatPreflightSummary,
+    type PreflightSummary,
+} from '@/services/expo-relay/preflight-formatter';
+import type { AbiV1PreflightIssue } from '../../../../../packages/browser-bundler/src';
+import {
+    createSourceMapCache,
+    wireBufferDecorationOnError,
+} from '@/services/expo-relay/source-map-cache';
 import {
     buildMobilePreviewBundle,
     createMobilePreviewPipeline,
-    getMobilePreviewPipelineKind,
     pushMobilePreviewUpdate,
     resolveMobilePreviewPipelineConfig,
     shouldSyncMobilePreviewPath,
 } from '@/services/mobile-preview';
+import { isAnyMobilePreviewOverlayPipelineEnabled } from '@/services/mobile-preview/pipeline-flag';
 import { registerTwoTierEsbuildServiceFactory } from '@/services/mobile-preview/pipelines/two-tier';
 import { useRelayWsClient } from './use-relay-ws-client';
 
@@ -74,6 +91,31 @@ export interface UseMobilePreviewStatusResult {
      * `MobilePreviewDevPanelContainer.extractSessionId`.
      */
     sessionId: string | null;
+    /**
+     * Phase 11b — latest AbiHello compatibility result. `'unknown'`
+     * until the phone sends its hello on the current socket; flips to
+     * `'ok'` or an `OnlookRuntimeError` on receipt; resets to
+     * `'unknown'` on socket close + reconnect. Pass to
+     * `<MobileDevPanel abiCompatibility={...}>` to render the
+     * AbiCompatibilityIndicator.
+     */
+    abiCompatibility: 'unknown' | 'ok' | OnlookRuntimeError;
+    /**
+     * Phase 11b — last AbiHello received from the phone, surfaced
+     * via the indicator's hover title for debugging the binary's
+     * advertised capabilities (rnVersion / expoSdk / aliases). Null
+     * when the handshake has not completed.
+     */
+    phoneHello: AbiHelloMessage | null;
+    /**
+     * Latest preflight summary from the two-tier pipeline. Updated on
+     * every successful `pipeline.sync()` via the `onPreflight` callback
+     * passed into pipeline construction. The dev-panel preflight tab
+     * (`OverlayPreflightPanel`) consumes this through
+     * `MobilePreviewDevPanelContainer`. `null` means no issues were
+     * detected on the last build (or the legacy/shim path is in use).
+     */
+    preflightSummary: PreflightSummary | null;
 }
 
 interface MobilePreviewStatusResponse {
@@ -116,6 +158,14 @@ export function useMobilePreviewStatus(
     // Stable pipeline ref across renders — creating a new pipeline per
     // push discards the incremental-rebuild cache inside TwoTier.
     const pipelineRef = useRef<MobilePreviewPipeline | null>(null);
+    // Phase 11b — RelayWsClient ref for the compatibility-provider closure.
+    // The provider is captured at pipeline-construction time but called on
+    // every push, so it dereferences the ref lazily. This handles the
+    // common timing where the pipeline is constructed BEFORE the relay WS
+    // has connected (the file-watch effect can fire on first edit before
+    // the user opens the QR modal). When the ref is null/disconnected the
+    // provider returns 'unknown', which fails-closed in pushOverlayV1.
+    const relayWsClientRef = useRef<RelayWsClient | null>(null);
 
     const open = useCallback(async () => {
         setIsOpen(true);
@@ -219,11 +269,47 @@ export function useMobilePreviewStatus(
                 // Two-tier path: drive through the pipeline abstraction so
                 // the browser-bundler worker + /push client take over. The
                 // shim path stays as-is for legacy consumers.
-                if (getMobilePreviewPipelineKind() === 'two-tier') {
+                // Phase 11a routes both 'two-tier' (legacy push shape) and
+                // 'overlay-v1' (ABI v1 push shape) through the same TwoTier
+                // pipeline class — the inner sync() flag picks which push
+                // function fires. Without this kind-aware gate, env=overlay-v1
+                // silently fell back to the shim path and pushOverlayV1 was
+                // unreachable from production.
+                if (isAnyMobilePreviewOverlayPipelineEnabled()) {
                     ensureTwoTierEsbuildFactoryRegistered();
                     if (!pipelineRef.current) {
                         pipelineRef.current = createMobilePreviewPipeline(
                             resolveMobilePreviewPipelineConfig(),
+                            {
+                                // Phase 11b: gate v1 pushes on the editor's
+                                // handshake state. Lazy ref read on every
+                                // push — pipeline construction runs once,
+                                // but the relayWs client may connect later.
+                                compatibilityProvider: () =>
+                                    relayWsClientRef.current?.getLastAbiCompatibility() ??
+                                    'unknown',
+                                // Phase 9 R2 source-map upload — when
+                                // result.sourceMap is present, the pipeline
+                                // PUTs it to /base-bundle/assets/<sha256>
+                                // and calls this back with the resulting
+                                // URI. Stored into the ref the
+                                // wireBufferDecorationOnError resolver
+                                // reads, so onlook:error decoration starts
+                                // mapping `bundle.js:line:col` frames
+                                // back to original source — closes the
+                                // row #35 receive-chain end-to-end.
+                                onSourceMapUploaded: (url: string) => {
+                                    lastOverlayMetaSourceMapUrlRef.current = url;
+                                },
+                                // OverlayPreflightPanel producer — the
+                                // pipeline runs `preflightAbiV1Imports`
+                                // after collecting the file map and fires
+                                // this callback with the issue list.
+                                // `formatPreflightSummary` turns it into
+                                // the display shape the dev-panel
+                                // preflight tab consumes.
+                                onPreflight: handlePreflight,
+                            },
                         );
                     }
                     await pipelineRef.current.sync({ fileSystem });
@@ -353,9 +439,178 @@ export function useMobilePreviewStatus(
     // long-lived WS in the background when the modal is closed.
     const manifestUrlForRelay =
         isOpen && status.kind === 'ready' && status.manifestUrl ? status.manifestUrl : null;
+    // Phase 11b — track the most recent handshake outcome in React
+    // state so the dev-panel re-renders when it changes. The
+    // `abiCompatibility` value flows into the AbiCompatibilityIndicator
+    // and (more importantly) gates pushOverlayV1 via the
+    // compatibilityProvider already wired at line 234. Reset to
+    // 'unknown' when the WS reconnects — the relay also resets its
+    // cached state on socket close so this stays in sync.
+    const [abiCompatibility, setAbiCompatibility] = useState<
+        'unknown' | 'ok' | OnlookRuntimeError
+    >('unknown');
+    const [phoneHello, setPhoneHello] = useState<AbiHelloMessage | null>(null);
+
+    // Latest preflight summary from the two-tier pipeline. Updated on
+    // every `sync()` after files are collected via the `onPreflight`
+    // callback below. Surfaced through the hook's return value so the
+    // `MobilePreviewDevPanelContainer` can pass it to `OverlayPreflightPanel`
+    // — the dev-panel preflight tab. `null` means the last build's static
+    // import surface was clean.
+    const [preflightSummary, setPreflightSummary] =
+        useState<PreflightSummary | null>(null);
+    const handlePreflight = useCallback(
+        (issues: readonly AbiV1PreflightIssue[]): void => {
+            setPreflightSummary(formatPreflightSummary([...issues]));
+        },
+        [],
+    );
+    // The editor side of the AbiHello carries stub capabilities — the
+    // editor isn't a phone; checkAbiCompatibility on the phone only
+    // gates on the abi version equality. The values below are
+    // documented as informational in `RuntimeCapabilities` and are
+    // refined when base-bundle wiring lands. Build once, reuse across
+    // reconnects.
+    const editorCapabilities = useRef<RuntimeCapabilities>({
+        abi: 'v1',
+        baseHash: 'editor',
+        rnVersion: '0.81.6',
+        expoSdk: '54.0.0',
+        platform: 'ios',
+        aliases: [],
+    });
+    // Phase 11b row #35 source-map decoration —
+    // `lastOverlayMetaSourceMapUrl` ref is set by the production
+    // pipeline call site after a successful pushOverlayV1 with a
+    // populated `meta.sourceMapUrl`. Today the v1 push branch in
+    // `two-tier.ts:317` omits sourceMap pending Phase 9 R2 upload —
+    // so this ref stays null and decoration is a fail-soft no-op
+    // (see wireBufferDecorationOnError tests). When R2 upload lands,
+    // the pipeline updates this ref via a deps callback (next tick's
+    // wire-up); decoration starts working automatically with no
+    // changes here. Per-session ref because a different sessionId
+    // means a different overlay history — we never want to apply
+    // session-A's map URL to session-B's error.
+    const lastOverlayMetaSourceMapUrlRef = useRef<string | null>(null);
+    // Reset the URL ref on session change for the same reason
+    // abiCompatibility resets — a different phone connection means a
+    // fresh overlay timeline.
+    useEffect(() => {
+        lastOverlayMetaSourceMapUrlRef.current = null;
+    }, [manifestUrlForRelay]);
+    // Cache + handler are stable across renders. The cache is owned at
+    // the hook scope (one per editor session) so identical map URLs
+    // share fetches; the handler is the pre-built closure that the
+    // useRelayWsClient handlers slot expects.
+    const sourceMapCacheRef = useRef(createSourceMapCache());
+    // Reset the cached compatibility every time the manifestUrl
+    // changes — a different session means a different phone, so
+    // last-write-wins from a stale connection must not leak through.
+    useEffect(() => {
+        setAbiCompatibility('unknown');
+        setPhoneHello(null);
+    }, [manifestUrlForRelay]);
+    // Compose the source-map decoration handler. The closure captures
+    // `relayWsClientRef` (declared above) for the buffer-replace
+    // primitive — useState-driven re-render isn't required because
+    // `replaceMessageMatching` mutates the buffer in place; the
+    // dev-panel reads via `getSnapshot()` which sees the updated
+    // entry on the next snapshot call.
+    const decorationOnError = useCallback(
+        wireBufferDecorationOnError({
+            cache: sourceMapCacheRef.current,
+            resolveMapUrl: () => lastOverlayMetaSourceMapUrlRef.current,
+            // Adapter: widen the predicate/replacer from ErrorMessage to
+            // the buffer's full message union. RelayWsClient.replaceMessageMatching
+            // operates on `WsMessage | OverlayAckMessage`; we narrow with
+            // the predicate's `m.type === 'onlook:error'` check, which the
+            // helper sets up internally before invoking us.
+            replaceMatching: (predicate, replacer) => {
+                const c = relayWsClientRef.current;
+                if (c === null) return false;
+                return c.replaceMessageMatching(
+                    (m) => m.type === 'onlook:error' && predicate(m),
+                    (m) =>
+                        m.type === 'onlook:error' ? replacer(m) : m,
+                );
+            },
+        }),
+        [],
+    );
     const { client: relayWsClient } = useRelayWsClient({
         manifestUrl: manifestUrlForRelay,
+        editorCapabilities: editorCapabilities.current,
+        // Preserve the default `onOverlayAck` PostHog telemetry by
+        // explicitly setting it alongside the new onError. Replacing
+        // the entire handlers object DROPS defaults (see
+        // useRelayWsClient header docstring).
+        handlers: {
+            onOverlayAck: emitOverlayAckTelemetry,
+            onError: decorationOnError,
+            // Tap-to-source receive-chain: phone TapHandler dispatches a
+            // SelectMessage over the WS; relay-events.ts case
+            // 'onlook:select' calls `handlers.onSelect?.(msg)`, which
+            // we route into the in-process pub-sub `onlookSelectReceiver`.
+            // `wireOnlookSelectToIdeManager` (commit `9eda7ddb`) is the
+            // sole subscriber in production — it normalizes to flat shape
+            // and calls `IdeManager.openCodeLocation(file, line, col)`.
+            // Without this handler, SelectMessages parse cleanly but never
+            // reach the IDE; the editor receives the tap but cursor never
+            // jumps. Companion to commit `5da582fe`'s bundler-side
+            // __source injection (the producer) — this is the consumer.
+            onSelect: (msg) => {
+                dispatchOnlookSelect(msg);
+            },
+        },
+        onAbiCompatibility: useCallback(
+            (result: 'ok' | OnlookRuntimeError, hello: AbiHelloMessage) => {
+                setAbiCompatibility(result);
+                setPhoneHello(hello);
+            },
+            [],
+        ),
     });
+    // Mirror the live client into the ref the file-watch closure reads —
+    // assign-on-render is the standard react pattern for "give me the
+    // latest value inside a stable callback." See `relayWsClientRef`
+    // declaration for why a ref is required (push runs in a closure built
+    // before the relayWs is connected).
+    relayWsClientRef.current = relayWsClient;
+
+    // Phase 11b reconnect-recovery — when the phone connects mid-session
+    // and the handshake completes, the editor's accumulated edits never
+    // reached the relay because the compatibility gate fail-closed every
+    // pushOverlayV1 call while compat='unknown'. Trigger a manual
+    // pipeline.sync() on the unknown→ok transition so the latest file
+    // state lands on the freshly-handshook phone. Same recovery shape as
+    // services/expo-relay/reconnect-replayer.ts but via the pipeline
+    // (which knows how to build the overlay) rather than a separate
+    // re-push helper.
+    //
+    // Skipped on initial 'unknown' (no transition yet). Skipped when no
+    // file system or pipeline is available. Errors swallowed — a manual
+    // re-sync failing must not surface a confusing error in the UI; the
+    // next regular file-edit sync will pick up.
+    const prevAbiCompatRef = useRef<typeof abiCompatibility>('unknown');
+    useEffect(() => {
+        const prev = prevAbiCompatRef.current;
+        prevAbiCompatRef.current = abiCompatibility;
+        if (prev === abiCompatibility) return;
+        if (abiCompatibility !== 'ok') return;
+        const fs = opts.fileSystem;
+        const pipeline = pipelineRef.current;
+        if (!fs || !pipeline) return;
+        // Fire-and-forget. The file-watch effect already handles error
+        // surfacing for regular edits; this catch-up sync is best-effort.
+        pipeline
+            .sync({ fileSystem: fs })
+            .catch((err) => {
+                console.warn(
+                    '[mobile-preview] reconnect re-sync failed (will retry on next edit):',
+                    err,
+                );
+            });
+    }, [abiCompatibility, opts.fileSystem]);
 
     // Derive sessionId from the ready-state manifestUrl so dev-panel
     // callers can filter streams by session without re-implementing
@@ -366,5 +621,16 @@ export function useMobilePreviewStatus(
             ? (parseManifestUrl(status.manifestUrl)?.bundleHash ?? null)
             : null;
 
-    return { status, isOpen, open, close, retry, relayWsClient, sessionId };
+    return {
+        status,
+        isOpen,
+        open,
+        close,
+        retry,
+        relayWsClient,
+        sessionId,
+        abiCompatibility,
+        phoneHello,
+        preflightSummary,
+    };
 }

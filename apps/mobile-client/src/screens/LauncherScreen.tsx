@@ -19,12 +19,21 @@ import {
     TextInput,
     View,
 } from 'react-native';
+import RecentSessionsList from './RecentSessionsList';
+import type { RecentSession } from '../storage/recentSessions';
 
 interface LauncherScreenProps {
     onScanPress?: () => void;
     onSettingsPress?: () => void;
     /** Called when the user submits a manually-typed URL. */
     onUrlSubmit?: (url: string) => void;
+    /**
+     * Called when the user taps a row in the recent sessions list. The
+     * caller is expected to convert the session into a deep-link URL and
+     * route it through the URL pipeline (see `buildUrlPipelineRunner` in
+     * AppRouter).
+     */
+    onRecentSessionSelect?: (session: RecentSession) => void;
 }
 
 declare const globalThis: Record<string, unknown> & {
@@ -35,6 +44,7 @@ export default function LauncherScreen({
     onScanPress,
     onSettingsPress,
     onUrlSubmit,
+    onRecentSessionSelect,
 }: LauncherScreenProps) {
     const [url, setUrl] = useState('');
 
@@ -108,7 +118,11 @@ export default function LauncherScreen({
 
                 <View style={styles.recentSection}>
                     <Text style={styles.sectionHeader}>Recent sessions</Text>
-                    <View style={styles.placeholder} />
+                    {onRecentSessionSelect ? (
+                        <RecentSessionsList onSelect={onRecentSessionSelect} />
+                    ) : (
+                        <View style={styles.placeholder} />
+                    )}
                 </View>
 
                 <View style={styles.footer}>

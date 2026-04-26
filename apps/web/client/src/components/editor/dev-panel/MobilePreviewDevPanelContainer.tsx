@@ -61,15 +61,31 @@ export interface MobilePreviewDevPanelContainerProps {
 export function MobilePreviewDevPanelContainer({
     serverBaseUrl,
     fileSystem,
-    preflightSummary = null,
+    preflightSummary: preflightSummaryProp,
     defaultTab = 'console',
     className,
     panelClassName,
 }: MobilePreviewDevPanelContainerProps) {
-    const { relayWsClient, sessionId } = useMobilePreviewStatus({
+    const {
+        relayWsClient,
+        sessionId,
+        abiCompatibility,
+        phoneHello,
+        preflightSummary: preflightSummaryFromHook,
+    } = useMobilePreviewStatus({
         serverBaseUrl,
         fileSystem,
     });
+    // Caller-supplied prop takes precedence (e.g. an external MobX store
+    // already tracks preflight); otherwise default to whatever the
+    // hook's `onPreflight` callback collected from the two-tier
+    // pipeline's last `sync()`. Closes the wiring gap where
+    // OverlayPreflightPanel rendered with a permanently-null summary
+    // because no producer was wired (audit-pattern catch).
+    const preflightSummary =
+        preflightSummaryProp !== undefined
+            ? preflightSummaryProp
+            : preflightSummaryFromHook;
     const snap = useRelaySnapshot(relayWsClient);
 
     // Split the snapshot's combined messages into (a) WsMessage[] for
@@ -89,6 +105,14 @@ export function MobilePreviewDevPanelContainer({
             preflightSummary={preflightSummary}
             sessionId={sessionId ?? undefined}
             defaultTab={defaultTab}
+            // Phase 11b — surface the editor's view of the AbiHello
+            // handshake state alongside the tab strip. Always passed
+            // (even on idle 'unknown') so the indicator renders
+            // proactively; the alternative (omit until 'ok') would
+            // hide the WAITING state which is the operator-useful
+            // signal during phone reconnect or initial handshake.
+            abiCompatibility={abiCompatibility}
+            phoneHello={phoneHello}
             className={className}
             panelClassName={panelClassName}
         />

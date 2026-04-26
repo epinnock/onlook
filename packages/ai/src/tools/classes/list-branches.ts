@@ -1,7 +1,7 @@
 import type { Branch } from '@onlook/models';
 import { Icons } from '@onlook/ui/icons';
 import { jsonClone } from '@onlook/utility/src/clone';
-import type { EditorEngine } from '@onlook/web-client/src/components/store/editor/engine';
+import type { EditorEngineLike as EditorEngine } from '../types/editor-engine';
 import { z } from 'zod';
 import { ClientTool } from '../models/client';
 

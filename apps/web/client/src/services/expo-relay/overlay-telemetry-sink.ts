@@ -115,6 +115,12 @@ export function emitOverlayPushTelemetry(
         status: event.status,
         ok: event.ok,
         error: event.error,
+        // Phase 11b: dashboard segments push failures by category so
+        // 'compat-gate' (handshake fail-closed) doesn't pollute the
+        // network/validation failure populations. Forwarded only when
+        // present — undefined collapses into the implicit 'standard'
+        // bucket on the dashboard side.
+        ...(event.category !== undefined ? { category: event.category } : {}),
     });
 }
 

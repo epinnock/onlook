@@ -35,6 +35,11 @@ import {
 } from '@/services/expo-relay/relay-ws-client';
 import { emitOverlayAckTelemetry } from '@/services/expo-relay/overlay-telemetry-sink';
 import { parseManifestUrl } from '@/services/expo-relay/manifest-url';
+import type {
+    AbiHelloMessage,
+    OnlookRuntimeError,
+    RuntimeCapabilities,
+} from '@onlook/mobile-client-protocol';
 
 export interface UseRelayWsClientOptions {
     /**
@@ -61,6 +66,23 @@ export interface UseRelayWsClientOptions {
      * `RelayWsClientOptions.createSocket`.
      */
     readonly createSocket?: RelayWsClientOptions['createSocket'];
+    /**
+     * Phase 11b — when supplied, the hook arms the editor-side AbiHello
+     * handshake on every WS open. Pair with `onAbiCompatibility` to
+     * capture the phone's hello + the resolved compatibility result.
+     * Omit on legacy contexts that don't run the v1 push gate.
+     */
+    readonly editorCapabilities?: RuntimeCapabilities;
+    /**
+     * Phase 11b — fires once per phone hello received (once per WS
+     * open + handshake completion). Pass to capture the latest
+     * compatibility state in component state for rendering the
+     * AbiCompatibilityIndicator + gating pushOverlayV1.
+     */
+    readonly onAbiCompatibility?: (
+        result: 'ok' | OnlookRuntimeError,
+        phoneHello: AbiHelloMessage,
+    ) => void;
 }
 
 export interface UseRelayWsClientResult {
@@ -102,6 +124,8 @@ export function createRelayWsFromManifest(
         handlers?: RelayWsClientOptions['handlers'];
         createSocket?: RelayWsClientOptions['createSocket'];
         onStateChange?: (s: RelayWsOpenState) => void;
+        editorCapabilities?: RuntimeCapabilities;
+        onAbiCompatibility?: RelayWsClientOptions['onAbiCompatibility'];
     } = {},
 ): { client: RelayWsClient; disconnect: () => void } | null {
     if (!manifestUrl) return null;
@@ -115,6 +139,12 @@ export function createRelayWsFromManifest(
         },
         onStateChange: opts.onStateChange,
         createSocket: opts.createSocket,
+        ...(opts.editorCapabilities !== undefined
+            ? { editorCapabilities: opts.editorCapabilities }
+            : {}),
+        ...(opts.onAbiCompatibility !== undefined
+            ? { onAbiCompatibility: opts.onAbiCompatibility }
+            : {}),
     });
     return {
         client,
@@ -142,7 +172,13 @@ export function createRelayWsFromManifest(
 export function useRelayWsClient(
     options: UseRelayWsClientOptions,
 ): UseRelayWsClientResult {
-    const { manifestUrl, handlers: handlersOverride, createSocket } = options;
+    const {
+        manifestUrl,
+        handlers: handlersOverride,
+        createSocket,
+        editorCapabilities,
+        onAbiCompatibility,
+    } = options;
     const [client, setClient] = useState<RelayWsClient | null>(null);
     const [state, setState] = useState<RelayWsOpenState | 'idle'>('idle');
     // Keep options in a ref so the effect body uses the latest override
@@ -151,12 +187,25 @@ export function useRelayWsClient(
     handlersRef.current = handlersOverride;
     const createSocketRef = useRef(createSocket);
     createSocketRef.current = createSocket;
+    const editorCapsRef = useRef(editorCapabilities);
+    editorCapsRef.current = editorCapabilities;
+    const onAbiCompatRef = useRef(onAbiCompatibility);
+    onAbiCompatRef.current = onAbiCompatibility;
 
     useEffect(() => {
         const result = createRelayWsFromManifest(manifestUrl, {
             handlers: handlersRef.current,
             createSocket: createSocketRef.current,
             onStateChange: setState,
+            ...(editorCapsRef.current !== undefined
+                ? { editorCapabilities: editorCapsRef.current }
+                : {}),
+            // Wrap so the latest callback ref fires — keeps the effect's
+            // dependency array stable on `[manifestUrl]` while letting
+            // callers mutate `onAbiCompatibility` between renders.
+            onAbiCompatibility: (result, phone) => {
+                onAbiCompatRef.current?.(result, phone);
+            },
         });
         if (!result) {
             setClient(null);

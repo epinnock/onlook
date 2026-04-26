@@ -21,14 +21,23 @@ import {
 import {
     evaluateBuildDuration,
     evaluatePushTelemetry,
+    evaluateSizeDelta,
 } from '@/services/expo-relay/perf-guardrails';
-import { pushOverlay, pushOverlayV1 } from '@/services/expo-relay/push-overlay';
+import {
+    pushOverlay,
+    pushOverlayV1,
+    type PushOverlayCompatibilityResult,
+} from '@/services/expo-relay/push-overlay';
+import { uploadAssetBytes } from '@/services/expo-relay/asset-uploader';
 import {
     checkOverlaySize,
     createIncrementalBundler,
+    preflightAbiV1Imports,
     wrapOverlayCode,
     wrapOverlayV1,
+    type AbiV1PreflightIssue,
 } from '../../../../../../../packages/browser-bundler/src';
+import { DISALLOWED_NATIVE_ALIASES } from '../../../../../../../packages/base-bundle-builder/src/runtime-capabilities';
 import { isMobilePreviewOverlayV1PipelineEnabled } from '../pipeline-flag';
 
 const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.json'] as const;
@@ -85,6 +94,50 @@ export interface TwoTierMobilePreviewPipelineDependencies {
     readonly createSessionId?: () => string;
     /** Incremental bundler override (defaults to a freshly-constructed one). */
     readonly incrementalBundler?: IncrementalBundler;
+    /**
+     * Phase 11b compatibility gate provider — typically
+     * `() => relayWsClient.getLastAbiCompatibility()`. When supplied, every
+     * v1 push is gated on this returning `'ok'`; `'unknown'` or an
+     * `OnlookRuntimeError` fails-closed before the network round-trip
+     * (see ADR-0009 §"Pre-flip check"). Omit to preserve today's
+     * behavior — legacy callers and tests that don't model the handshake
+     * stay on the unchanged path. Only consulted on the `useV1` branch;
+     * the legacy `pushOverlay` path doesn't have a v1 envelope to gate.
+     */
+    readonly compatibilityProvider?: () => PushOverlayCompatibilityResult;
+    /**
+     * Phase 9 R2 source-map upload — when supplied, the v1 push branch
+     * uploads `result.sourceMap` (JSON) via {@link uploadAssetBytes} to
+     * the relay's `/base-bundle/assets/<sha256>` endpoint and passes the
+     * resulting URI as `overlay.sourceMap` so the OverlayUpdateMessage
+     * carries `meta.sourceMapUrl`. The fired callback informs the
+     * hook-level resolver (see `lastOverlayMetaSourceMapUrlRef` in
+     * `useMobilePreviewStatus`) so the source-map decoration receive-chain
+     * (commits `0b09549f`..`be9586be`) starts mapping
+     * `bundle.js:line:col` frames back to original source.
+     *
+     * Omit on legacy / shim contexts and on tests that don't model R2
+     * — the v1 branch falls through to the no-sourceMap pushOverlayV1
+     * path verbatim, preserving today's behavior.
+     *
+     * Wired by `useMobilePreviewStatus` against the same relay base URL
+     * the relay-ws-client uses; the upload + push share the relay so
+     * the URI is reachable to the phone via the same R2 binding.
+     */
+    readonly onSourceMapUploaded?: (sourceMapUrl: string) => void;
+    /**
+     * Called once per `sync()` after the file map is collected, with the
+     * list of `AbiV1PreflightIssue`s detected by `preflightAbiV1Imports`.
+     * An empty array means the build's static-import surface is clean.
+     * `useMobilePreviewStatus` plumbs this through to the editor's
+     * `OverlayPreflightPanel` (the dev-panel preflight tab) so the
+     * operator sees unsupported-native and unknown-specifier issues
+     * before/while the bundle is pushed. Static analysis only — does NOT
+     * gate the push (which would prevent operators from observing the
+     * issue in context). Omit on legacy callers / tests that don't model
+     * the dev panel.
+     */
+    readonly onPreflight?: (issues: readonly AbiV1PreflightIssue[]) => void;
 }
 
 export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-tier'> {
@@ -95,8 +148,26 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
     private readonly injectedService: BrowserBundlerEsbuildService | null;
     private readonly createSessionId: () => string;
     private readonly incremental: IncrementalBundler;
+    private readonly compatibilityProvider:
+        | (() => PushOverlayCompatibilityResult)
+        | null;
+    private readonly onSourceMapUploaded:
+        | ((sourceMapUrl: string) => void)
+        | null;
+    private readonly onPreflight:
+        | ((issues: readonly AbiV1PreflightIssue[]) => void)
+        | null;
     private sessionId: string | null;
     private resolvedService: BrowserBundlerEsbuildService | null;
+    /**
+     * Bytes of the previous successfully-pushed wrapped overlay; null until
+     * the first push lands. Used by `evaluateSizeDelta` to surface
+     * `size-grew`/`size-shrunk` perf-guardrail events when the user's overlay
+     * jumps in size between consecutive saves (regression candidate vs. a
+     * deliberate cleanup). Reset to null when the session id rotates so a
+     * new session doesn't compare against a stale baseline.
+     */
+    private previousOverlayBytes: number | null = null;
 
     constructor(
         config: MobilePreviewTwoTierPipelineConfig,
@@ -111,6 +182,9 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
                     ? crypto.randomUUID()
                     : `sess-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
         this.incremental = deps.incrementalBundler ?? createIncrementalBundler();
+        this.compatibilityProvider = deps.compatibilityProvider ?? null;
+        this.onSourceMapUploaded = deps.onSourceMapUploaded ?? null;
+        this.onPreflight = deps.onPreflight ?? null;
         this.sessionId = deps.sessionId ?? null;
         this.resolvedService = this.injectedService;
     }
@@ -173,6 +247,42 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
                 );
             }
 
+            // Static-analysis preflight — surfaces unsupported-native +
+            // unknown-specifier import issues to the editor's dev-panel
+            // preflight tab (`OverlayPreflightPanel`) so operators see
+            // them while the bundle is being built. Pure analysis; does
+            // NOT gate the push (the bundler will surface the same issue
+            // as a build error if the import is genuinely unresolvable,
+            // and operators benefit from seeing the diagnostic in
+            // context). When `onPreflight` is omitted (legacy callers /
+            // tests), this runs but the result is discarded. Wrapped in
+            // try/catch so a defective preflight cannot wedge sync().
+            if (this.onPreflight !== null) {
+                try {
+                    const fileMap: Record<string, string> = {};
+                    for (const f of files) fileMap[f.path] = f.contents;
+                    const issues = preflightAbiV1Imports({
+                        files: fileMap,
+                        baseAliases: DEFAULT_BASE_EXTERNALS,
+                        // `DISALLOWED_NATIVE_ALIASES` from
+                        // `@onlook/base-bundle-builder/runtime-capabilities`
+                        // — packages that ship JSI workers, native view
+                        // managers, or deep Hermes integration the base
+                        // bundle does not include (e.g. reanimated,
+                        // flash-list, skia, mmkv, vision-camera). Issues
+                        // here surface as `unsupported-native` in the
+                        // dev-panel preflight tab so operators see the
+                        // exact specifier + file before/while the bundle
+                        // pushes. Static analysis only — does NOT gate
+                        // the push.
+                        disallowed: DISALLOWED_NATIVE_ALIASES,
+                    });
+                    this.onPreflight(issues);
+                } catch {
+                    // Preflight failures must not break the build path.
+                }
+            }
+
             const buildStartMs = Date.now();
             const { result, cached } = await this.incremental.build(
                 {
@@ -181,6 +291,18 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
                     externalSpecifiers: DEFAULT_BASE_EXTERNALS,
                     minify: false,
                     sourcemap: true,
+                    // Tap-to-source contract: phone-side TapHandler reads
+                    // `__source.{fileName,lineNumber,columnNumber}` off the
+                    // tapped element's props and dispatches an
+                    // `onlook:select` message that the editor's
+                    // `wireOnlookSelectToIdeManager` resolves to a
+                    // CodeMirror cursor jump (commit `9eda7ddb`). esbuild's
+                    // automatic JSX runtime does NOT emit `__source` (unlike
+                    // Babel's transform-react-jsx-source), so we need the
+                    // dedicated `createJsxSourcePlugin` here. Both v1 and
+                    // legacy branches benefit — tap-to-source is wrap-shape-
+                    // independent.
+                    injectJsxSource: true,
                 },
                 service,
             );
@@ -313,19 +435,46 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
             const sessionId = this.sessionId ?? this.createSessionId();
             this.sessionId = sessionId;
 
+            // Phase 9 R2 source-map upload — when result.sourceMap exists
+            // AND a relay base URL is configured, upload the map JSON to
+            // /base-bundle/assets/<sha256> and pass the resulting URI as
+            // overlay.sourceMap so the OverlayUpdateMessage carries
+            // meta.sourceMapUrl. The hook-level resolver then returns this
+            // URL for incoming onlook:error decoration. Best-effort: a
+            // failed upload (network blip / 5xx / 413-over-cap) falls
+            // through to a no-sourceMap push so the overlay still mounts;
+            // the operator just doesn't get mapped frames for errors
+            // produced by this overlay.
+            let sourceMapUri: string | undefined;
+            if (useV1 && result.sourceMap) {
+                try {
+                    const upload = await uploadAssetBytes({
+                        relayBaseUrl,
+                        sessionId,
+                        bytes: new TextEncoder().encode(result.sourceMap),
+                        mime: 'application/json',
+                    });
+                    if (upload.ok) {
+                        sourceMapUri = upload.uri;
+                        this.onSourceMapUploaded?.(upload.uri);
+                    }
+                } catch {
+                    // Silent best-effort. Push proceeds without
+                    // sourceMap — Phase 11b row #35 receive-chain
+                    // fail-softs to undecorated frames.
+                }
+            }
+
             const pushResult = useV1
                 ? await pushOverlayV1({
                       relayBaseUrl,
                       sessionId,
                       overlay: {
                           code: wrapped.code,
-                          // sourceMap intentionally omitted on the v1 branch:
-                          // OverlayUpdateMessage's meta.sourceMapUrl is a URL
-                          // (fetched via fetchOverlaySourceMap on the editor
-                          // side when a runtime error arrives), not inline
-                          // source-map JSON. Uploading the map to R2 + passing
-                          // that URL lives with Phase 9 editor wiring.
                           buildDurationMs,
+                          ...(sourceMapUri !== undefined
+                              ? { sourceMap: sourceMapUri }
+                              : {}),
                       },
                       // Empty asset manifest is valid per pushOverlayV1. Full
                       // Phase 7 asset wiring lands in Phase 9 editor work —
@@ -343,6 +492,16 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
                               emitOverlayPerfGuardrail('overlay-v1', perfEvent),
                           );
                       },
+                      // Phase 11b safety: when a compatibility provider is
+                      // supplied (typically `() => relayWs.getLastAbiCompatibility()`)
+                      // the push fail-closes pre-network on `'unknown'` /
+                      // OnlookRuntimeError. Omitted -> today's behavior
+                      // unchanged. Only the v1 branch gets the gate; the
+                      // legacy `pushOverlay` below has no v1 envelope to
+                      // gate.
+                      ...(this.compatibilityProvider !== null
+                          ? { compatibility: this.compatibilityProvider }
+                          : {}),
                   })
                 : await pushOverlay({
                       relayBaseUrl,
@@ -363,6 +522,19 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
             if (!pushResult.ok) {
                 throw new Error(`two-tier pipeline: push failed — ${pushResult.error}`);
             }
+
+            // Phase 11b soak signal — surface bundle-size regressions across
+            // consecutive successful pushes. Fires `size-grew` (warn) on a
+            // ≥20% jump or `size-shrunk` (info) on a ≥10 KB drop. Skipped on
+            // the first push of the session; reset whenever sessionId
+            // rotates above. Both pipeline branches feed the same dashboard
+            // segmentation as build-slow / push-slow / large-overlay.
+            const previousBytes = this.previousOverlayBytes;
+            const currentBytes = wrapped.code.length;
+            evaluateSizeDelta(previousBytes, currentBytes, (perfEvent) =>
+                emitOverlayPerfGuardrail(useV1 ? 'overlay-v1' : 'overlay-legacy', perfEvent),
+            );
+            this.previousOverlayBytes = currentBytes;
 
             const trimmedRelay = trimTrailingSlash(relayBaseUrl);
             const manifestUrl = `${trimmedRelay}/manifest/${sessionId}`;
@@ -431,6 +603,7 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
 
     dispose(): void {
         this.incremental.reset();
+        this.previousOverlayBytes = null;
     }
 
     private requireConfig(): { builderBaseUrl: string; relayBaseUrl: string } {

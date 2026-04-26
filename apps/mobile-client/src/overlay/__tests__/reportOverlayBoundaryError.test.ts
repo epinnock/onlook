@@ -21,6 +21,7 @@ type CapturedError = {
     kind: string;
     message: string;
     stack?: string;
+    componentStack?: string;
 };
 
 type MockRuntime = {
@@ -92,5 +93,40 @@ describe('reportOverlayBoundaryError', () => {
         expect(captured[1]?.message).toBe('b');
         // Different objects (not aliased).
         expect(captured[0]).not.toBe(captured[1]);
+    });
+
+    test('forwards componentStack when supplied via React.ErrorInfo', () => {
+        const captured: CapturedError[] = [];
+        (globalThis as { OnlookRuntime?: MockRuntime }).OnlookRuntime = {
+            reportError: (e) => captured.push(e),
+        };
+        const err = new Error('render failed');
+        const stack = '\n    in App\n    in OverlayHost';
+        reportOverlayBoundaryError(err, { componentStack: stack });
+        expect(captured).toHaveLength(1);
+        expect(captured[0]?.componentStack).toBe(stack);
+    });
+
+    test('omits componentStack when ErrorInfo is not supplied', () => {
+        const captured: CapturedError[] = [];
+        (globalThis as { OnlookRuntime?: MockRuntime }).OnlookRuntime = {
+            reportError: (e) => captured.push(e),
+        };
+        reportOverlayBoundaryError(new Error('boom'));
+        expect(captured[0]?.componentStack).toBeUndefined();
+    });
+
+    test('omits componentStack when ErrorInfo.componentStack is null (React allows it)', () => {
+        const captured: CapturedError[] = [];
+        (globalThis as { OnlookRuntime?: MockRuntime }).OnlookRuntime = {
+            reportError: (e) => captured.push(e),
+        };
+        // React types `componentStack` as `string | null`. Passing null
+        // must NOT show up as a literal "null" in the wire payload — the
+        // helper drops the field entirely.
+        reportOverlayBoundaryError(new Error('boom'), {
+            componentStack: null,
+        } as unknown as { componentStack: string | null });
+        expect(captured[0]?.componentStack).toBeUndefined();
     });
 });

@@ -35,13 +35,13 @@ describe('pure-js-package / resolvePureJsModule', () => {
         const artifact = lodashArtifact();
         const fp = resolvePureJsModule(artifact, 'lodash/fp');
         // The fp.js factory re-exports from index.js; assert that signature.
-        expect(fp).toBe(artifact.modules['fp.js']);
+        expect(fp).toBe(artifact.modules['fp.js']!);
     });
 
     test('resolves a raw deep path matching a module key', () => {
         const artifact = lodashArtifact();
         const fp = resolvePureJsModule(artifact, 'lodash/fp.js');
-        expect(fp).toBe(artifact.modules['fp.js']);
+        expect(fp).toBe(artifact.modules['fp.js']!);
     });
 
     test('returns null for a specifier that does not match the package', () => {
@@ -151,9 +151,9 @@ describe('pure-js-package / representative package shapes (task #52)', () => {
     test('zod: resolves a deep typed subpath via artifact.subpaths', () => {
         const artifact = zodArtifact();
         const stringT = resolvePureJsModule(artifact, 'zod/types/string');
-        expect(stringT).toBe(artifact.modules['lib/types/string.js']);
+        expect(stringT).toBe(artifact.modules['lib/types/string.js']!);
         const numberT = resolvePureJsModule(artifact, 'zod/types/number');
-        expect(numberT).toBe(artifact.modules['lib/types/number.js']);
+        expect(numberT).toBe(artifact.modules['lib/types/number.js']!);
     });
 
     test('zod: merging allocates a contiguous id block — size matches modules count', () => {
@@ -206,8 +206,8 @@ describe('pure-js-package / representative package shapes (task #52)', () => {
         const artifact = lodashArtifact();
         const viaSubpath = resolvePureJsModule(artifact, 'lodash/fp');
         const viaRaw = resolvePureJsModule(artifact, 'lodash/fp.js');
-        expect(viaSubpath).toBe(artifact.modules['fp.js']);
-        expect(viaRaw).toBe(artifact.modules['fp.js']);
+        expect(viaSubpath).toBe(artifact.modules['fp.js']!);
+        expect(viaRaw).toBe(artifact.modules['fp.js']!);
         // In this fixture both resolve to the same target; the test guards
         // against a regression where one of the paths returned null or a
         // different factory.

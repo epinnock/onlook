@@ -212,4 +212,80 @@ describe('createMobilePreviewPipeline', () => {
             onlookDeepLink: true,
         });
     });
+
+    // Phase 11b — verify the deps slot threads compatibilityProvider
+    // through to the underlying TwoTier pipeline. We don't drive a full
+    // sync here (no esbuild service registered); we just assert the
+    // factory accepts the new shape without regression. The end-to-end
+    // gate behavior is covered by two-tier.test.ts.
+    test('createMobilePreviewPipeline accepts a compatibilityProvider in deps (two-tier)', () => {
+        mockEnv.NEXT_PUBLIC_MOBILE_PREVIEW_PIPELINE = 'two-tier';
+        let calls = 0;
+        const pipeline = createMobilePreviewPipeline(
+            { kind: 'two-tier', builderBaseUrl: 'b', relayBaseUrl: 'r' },
+            { compatibilityProvider: () => {
+                calls += 1;
+                return 'ok';
+            } },
+        );
+        expect(pipeline.kind).toBe('two-tier');
+        // Provider has not been invoked yet — only sync() drives it. This
+        // pins the lazy-call contract: pipeline construction must not
+        // eagerly sample capabilities (the relay WS may not be open yet).
+        expect(calls).toBe(0);
+    });
+
+    test('createMobilePreviewPipeline ignores compatibilityProvider on the shim branch', () => {
+        // Shim has no v1 envelope to gate, so a provider passed in deps
+        // must be silently dropped — not crash, not error.
+        const pipeline = createMobilePreviewPipeline(
+            { kind: 'shim', serverBaseUrl: 's' },
+            { compatibilityProvider: () => 'unknown' },
+        );
+        expect(pipeline.kind).toBe('shim');
+    });
+
+    // Pre-Phase-11b bug fix: env=overlay-v1 used to fall through to shim
+    // because resolveMobilePreviewPipelineConfig only mapped the literal
+    // 'two-tier' kind. Per Phase 11a ADR, overlay-v1 IS a sub-mode of the
+    // TwoTier pipeline (the inner sync() flag picks v1 vs legacy push
+    // shape), so the construction config must be the same.
+    test("env='overlay-v1' resolves to a two-tier-shaped config (not shim)", () => {
+        mockEnv.NEXT_PUBLIC_MOBILE_PREVIEW_PIPELINE = 'overlay-v1';
+        const config = resolveMobilePreviewPipelineConfig();
+        expect(config.kind).toBe('two-tier');
+        if (config.kind !== 'two-tier') return;
+        expect(config.builderBaseUrl).toBe('https://builder.test');
+        expect(config.relayBaseUrl).toBe('https://relay.test');
+    });
+
+    test("env='overlay-v1' creates the TwoTier pipeline (not shim)", () => {
+        mockEnv.NEXT_PUBLIC_MOBILE_PREVIEW_PIPELINE = 'overlay-v1';
+        const pipeline = createMobilePreviewPipeline();
+        expect(pipeline.kind).toBe('two-tier');
+        expect(pipeline.capabilities).toEqual({
+            liveUpdates: true,
+            onlookDeepLink: true,
+        });
+    });
+
+    test("getMobilePreviewPipelineCapabilities('overlay-v1') matches TwoTier", () => {
+        expect(getMobilePreviewPipelineCapabilities('overlay-v1')).toEqual({
+            liveUpdates: true,
+            onlookDeepLink: true,
+        });
+    });
+
+    test("env='overlay-v1' threads compatibilityProvider through to the pipeline", () => {
+        mockEnv.NEXT_PUBLIC_MOBILE_PREVIEW_PIPELINE = 'overlay-v1';
+        let calls = 0;
+        const pipeline = createMobilePreviewPipeline(undefined, {
+            compatibilityProvider: () => {
+                calls += 1;
+                return 'ok';
+            },
+        });
+        expect(pipeline.kind).toBe('two-tier');
+        expect(calls).toBe(0); // lazy — only sync() invokes it
+    });
 });
