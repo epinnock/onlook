@@ -12,6 +12,7 @@
     "dev:no-rebuild": "bun run server/index.ts",
     "build:runtime": "bun run server/build-runtime.ts",
     "build:runtime:client-only": "bun run server/build-runtime-client-only.ts",
+    "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
