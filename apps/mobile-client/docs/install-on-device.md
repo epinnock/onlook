@@ -262,6 +262,30 @@ Accounts (that step is interactive-only).
   test: `codesign --force --sign <identity-hash> <some-framework>` should
   return 0 in the same SSH session before xcodebuild will.
 
+  ⚠️ **Don't bypass `bun run mobile:build:ios -- --device` with a bare
+  `xcodebuild` invocation.** The wrapper runs three steps: (1)
+  `generate-version-header.ts`, (2) `bundle-runtime.ts` (refreshes
+  `OnlookMobileClient/Resources/onlook-runtime.js`), and (3) `bun x expo
+  export:embed` (re-bakes `main.jsbundle` from the current source).
+  Skipping the wrapper leaves a stale `main.jsbundle` in the .app — the
+  device installs but runs YOUR LAST BUILD'S JS code, not the source you
+  just edited. Symptom: a code change ships, the .app reinstalls, the
+  behavior doesn't change. Use the wrapper:
+
+  ```bash
+  ssh scry-farmer@192.168.0.17 \
+    "security unlock-keychain -p '<macOS-password>' ~/Library/Keychains/login.keychain-db && \
+     export PATH=/opt/homebrew/bin:\$PATH && \
+     cd ~/onlook && \
+     DEVELOPMENT_TEAM=<TEAM_ID> bun run mobile:build:ios -- --device"
+  ```
+
+  …then `bun run mobile:install:device` (no flags — the auto-detect
+  picks up the only attached iPhone). This was caught during the
+  spectra Mac mini iPhone 8 e2e session: a preflight code change
+  appeared not to take effect because the bare-xcodebuild rebuild hadn't
+  re-baked the JS bundle.
+
 ---
 
 ## 6. CI considerations
