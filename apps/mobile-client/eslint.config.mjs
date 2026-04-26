@@ -35,12 +35,22 @@ const message =
 export default [
     ...base,
     {
-        // verification/ + e2e/ + ios/ + android/ are not part of the
-        // production tree linted by typescript-eslint's project service:
-        // they are not listed in tsconfig.json's `include`, and including
-        // them in lint produces "not found by the project service" parse
-        // errors. Ignore them here.
-        ignores: ['verification/**', 'e2e/**', 'ios/**', 'android/**'],
+        // verification/ + e2e/ + ios/ + android/ + scripts/ + test files
+        // are not in tsconfig.json's `include`. typescript-eslint's
+        // project service can't resolve them and emits "not found by
+        // the project service" parse errors on every lint run. The
+        // contents of those paths use Bun's runtime types via `bun test`
+        // / shebang scripts, not the package's RN types graph, so they
+        // shouldn't share the production tsconfig anyway.
+        ignores: [
+            'verification/**',
+            'e2e/**',
+            'ios/**',
+            'android/**',
+            'scripts/**',
+            'src/**/*.test.ts',
+            'src/**/__tests__/**',
+        ],
     },
     {
         files: ['**/*.js', '**/*.ts', '**/*.tsx'],
