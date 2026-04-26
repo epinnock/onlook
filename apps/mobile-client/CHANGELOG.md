@@ -335,3 +335,17 @@ Audit-pattern catch #12: `ErrorBoundary` (MC5.6, 89 LOC + tests) was shipped 202
 `reportOverlayBoundaryError` (the OverlayHost-level error sink) routed only through `OnlookRuntime.reportError` (a JSI binding). When the native binding wasn't installed (or in any path that didn't invoke it), overlay React render errors had no path to the editor. Belt-and-suspenders fix: also forward through `exceptionCatcher.captureException(error)` so the JS-only ExceptionStreamer (25da7d27) → onlook:error → editor source-map decoration chain fires regardless of native-binding availability.
 
 Same shape as `bf3f43e7`'s App-root ErrorBoundary bridge, applied at the per-overlay boundary. Both roots — App and Overlay — now feed the same exceptionCatcher pipeline. Existing 5 reportOverlayBoundaryError tests pass unchanged (their assertions are scoped to the OnlookRuntime.reportError side-effect; the new captureException call doesn't disturb them).
+
+## [Unreleased] - 2026-04-25 — overlay-React componentStack forwarding (workstream F continued)
+
+Tightens the overlay-React error pipeline shipped in `3eb5af01`. The boundary's `onError` callback only passed `Error`, dropping React's `errorInfo.componentStack`. Without it, `OnlookRuntime.reportError` payloads omitted componentStack and `exceptionCatcher.captureException` always saw undefined componentStack — so `ExceptionStreamer.toMessage` mapped to `kind: 'js'` instead of `'react'`, sending the editor's source-map decoration receive-chain the wrong UI route.
+
+### Changed
+- **`OverlayErrorBoundary.componentDidCatch`** now passes `errorInfo` (with componentStack) to `onError`. Signature widened to optional second arg so existing single-arg call sites stay compatible.
+- **`reportOverlayBoundaryError(error, errorInfo?)`** accepts React.ErrorInfo. Forwards componentStack into both the `OnlookRuntime.reportError` payload (new optional `componentStack` field) and `exceptionCatcher.captureException`. Coerces `string | null → string | undefined` at the boundary because React types componentStack as `string | null`.
+
+### Tests
+- **+3 mobile-client tests** (509 total, was 506): forwards componentStack when supplied, omits when not supplied, omits when null (React allows it). Existing 6 reportOverlayBoundaryError tests pass unchanged.
+
+### Result
+A thrown render in any overlay component now lands in the editor's React-error UI with the component stack populated, routing through the React-error tab rather than the generic JS-error tab.
