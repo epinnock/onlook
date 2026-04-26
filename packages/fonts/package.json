@@ -12,6 +12,7 @@
         "clean": "rm -rf node_modules",
         "lint": "eslint . --max-warnings 0",
         "format": "eslint --fix .",
+        "test": "bun test",
         "typecheck": "tsc --noEmit"
     },
     "keywords": [
