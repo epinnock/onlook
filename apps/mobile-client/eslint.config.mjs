@@ -35,6 +35,14 @@ const message =
 export default [
     ...base,
     {
+        // verification/ + e2e/ + ios/ + android/ are not part of the
+        // production tree linted by typescript-eslint's project service:
+        // they are not listed in tsconfig.json's `include`, and including
+        // them in lint produces "not found by the project service" parse
+        // errors. Ignore them here.
+        ignores: ['verification/**', 'e2e/**', 'ios/**', 'android/**'],
+    },
+    {
         files: ['**/*.js', '**/*.ts', '**/*.tsx'],
         rules: {
             'no-restricted-imports': [
