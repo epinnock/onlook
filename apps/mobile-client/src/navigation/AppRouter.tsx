@@ -38,6 +38,7 @@ import { parseOnlookDeepLink } from '../deepLink/parse';
 import { useDeepLinkHandler } from '../deepLink/handler';
 import { fetchManifest } from '../relay/manifestFetcher';
 import { fetchBundle } from '../relay/bundleFetcher';
+import { isPrivateLanHost } from './private-lan';
 
 type RuntimeWithRun = { runApplication?: (src: string, props: { sessionId: string }) => void };
 
@@ -235,25 +236,34 @@ function buildUrlPipelineRunner(actions: NavActions) {
             log.push(`url=${data.slice(0, 140)}`);
             show('Opening…');
 
-            // Stage 0a: external fetch
-            try {
-                log.push('preflight GET https://1.1.1.1/');
-                show('Preflight A (external)…');
-                const r = await timeout(
-                    fetch('https://1.1.1.1/', { method: 'GET' }),
-                    8000,
-                    'preflight external',
-                );
-                log.push(`preflight A ${r.status}`);
-            } catch (e: unknown) {
-                const msg = e instanceof Error ? e.message : String(e);
-                show('Preflight A failed (external)', msg);
-                return;
+            const hostMatch = data.match(/^(?:exp|https?):\/\/([^\/]+)/i);
+            const host = hostMatch?.[1];
+            const lanOnly = host !== undefined && isPrivateLanHost(host);
+
+            // Stage 0a: external fetch — skipped on RFC-1918 / loopback URLs
+            // (LAN-only dev rigs may not have upstream internet, and the
+            // user-facing manifest URL is the authoritative connectivity
+            // signal for that case; Stage 0b still runs).
+            if (lanOnly) {
+                log.push('preflight A skipped (LAN host)');
+            } else {
+                try {
+                    log.push('preflight GET https://1.1.1.1/');
+                    show('Preflight A (external)…');
+                    const r = await timeout(
+                        fetch('https://1.1.1.1/', { method: 'GET' }),
+                        8000,
+                        'preflight external',
+                    );
+                    log.push(`preflight A ${r.status}`);
+                } catch (e: unknown) {
+                    const msg = e instanceof Error ? e.message : String(e);
+                    show('Preflight A failed (external)', msg);
+                    return;
+                }
             }
-            // Stage 0b: LAN fetch to /status
+            // Stage 0b: LAN fetch to /status (host already extracted above)
             try {
-                const hostMatch = data.match(/^(?:exp|https?):\/\/([^\/]+)/i);
-                const host = hostMatch?.[1];
                 if (host) {
                     const statusUrl = `http://${host}/status`;
                     log.push(`preflight GET ${statusUrl}`);
