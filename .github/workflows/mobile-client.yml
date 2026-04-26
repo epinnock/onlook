@@ -182,9 +182,28 @@ jobs:
         #   is the pattern for programmatic pbxproj edits. Not required
         #   by this job — we build via `mobile:build:ios` which doesn't
         #   mutate the pbxproj — but documented here for later waves.
+        # maestro's tap downloads a tarball from S3 / GitHub which has been
+        # observed to flake on transient 5xx + DNS hiccups (caught Wave 5
+        # green for 5 consecutive runs then bombed: "Failed to download
+        # resource maestro (2.4.0)"). Retry the brew installs up to 3x with
+        # exponential backoff — they're idempotent (`brew install` is a
+        # no-op once the formula is present) so re-running is safe.
         run: |
-          brew install cocoapods openjdk@17
-          brew install mobile-dev-inc/tap/maestro
+          retry() {
+            local n=0; local max=3; local delay=5
+            until "$@"; do
+              n=$((n+1))
+              if [ "$n" -ge "$max" ]; then
+                echo "::error::brew install failed after $max attempts: $*"
+                return 1
+              fi
+              echo "::warning::brew install attempt $n failed; retrying in ${delay}s — $*"
+              sleep "$delay"
+              delay=$((delay*2))
+            done
+          }
+          retry brew install cocoapods openjdk@17
+          retry brew install mobile-dev-inc/tap/maestro
           # gem install xcodeproj   # unblock pbxproj edits if a future wave needs it
       - name: Install workspace deps
         run: bun install --frozen-lockfile
@@ -333,9 +352,25 @@ jobs:
         # flow once MC4.6 lands native tap capture); the current
         # validate-mc4*.sh scripts are pure log-scrape and do not invoke
         # maestro.
+        # See wave1-ios for the retry rationale — same flaky-tap risk on
+        # mobile-dev-inc/tap/maestro tarball download, same idempotent
+        # safety on retry.
         run: |
-          brew install cocoapods
-          brew install mobile-dev-inc/tap/maestro
+          retry() {
+            local n=0; local max=3; local delay=5
+            until "$@"; do
+              n=$((n+1))
+              if [ "$n" -ge "$max" ]; then
+                echo "::error::brew install failed after $max attempts: $*"
+                return 1
+              fi
+              echo "::warning::brew install attempt $n failed; retrying in ${delay}s — $*"
+              sleep "$delay"
+              delay=$((delay*2))
+            done
+          }
+          retry brew install cocoapods
+          retry brew install mobile-dev-inc/tap/maestro
       - name: Install workspace deps
         run: bun install --frozen-lockfile
       - name: Build onlook-runtime bundles
@@ -456,9 +491,25 @@ jobs:
         # become maestro-runnable once a renderable user bundle lands; the
         # current validate-mc*.sh scripts are pure log-scrape and do not
         # invoke maestro.
+        # See wave1-ios for the retry rationale — same flaky-tap risk on
+        # mobile-dev-inc/tap/maestro tarball download, same idempotent
+        # safety on retry.
         run: |
-          brew install cocoapods
-          brew install mobile-dev-inc/tap/maestro
+          retry() {
+            local n=0; local max=3; local delay=5
+            until "$@"; do
+              n=$((n+1))
+              if [ "$n" -ge "$max" ]; then
+                echo "::error::brew install failed after $max attempts: $*"
+                return 1
+              fi
+              echo "::warning::brew install attempt $n failed; retrying in ${delay}s — $*"
+              sleep "$delay"
+              delay=$((delay*2))
+            done
+          }
+          retry brew install cocoapods
+          retry brew install mobile-dev-inc/tap/maestro
       - name: Install workspace deps
         run: bun install --frozen-lockfile
       - name: Build onlook-runtime bundles
