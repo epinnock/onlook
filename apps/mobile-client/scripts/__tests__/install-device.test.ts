@@ -75,6 +75,39 @@ function makeFakeIosDeployBinDir(): string {
 }
 
 /**
+ * Create a temp dir containing an `ios-deploy` stub that emits the
+ * canonical "Found <udid> ..." line that the auto-detect parser keys on.
+ * Used by the auto-detect tests to inject 0 / 1 / N detected devices
+ * without depending on real USB hardware. The stub also accepts
+ * `--version` (for the upstream probe) and `-i ... --bundle ... --justlaunch`
+ * (the install path); these branches return immediately so the test never
+ * actually reaches a real install.
+ */
+function makeFakeIosDeployBinDirWithDevices(udids: readonly string[]): string {
+    const binDir = mkdtempSync(join(tmpdir(), 'install-device-fake-detect-'));
+    const stubPath = join(binDir, 'ios-deploy');
+    const foundLines = udids
+        .map(
+            (u) =>
+                `echo "[....] Found ${u} (D211AP, iPhone 8 Plus, iphoneos, arm64, 15.1, 19B74) a.k.a. 'Test iPhone' connected through USB."`,
+        )
+        .join('\n');
+    const script = `#!/bin/sh
+case "$1" in
+  --version) exit 0 ;;
+  --detect)
+${foundLines || ':'}
+    exit 0
+    ;;
+  *) exit 0 ;;
+esac
+`;
+    writeFileSync(stubPath, script, 'utf8');
+    chmodSync(stubPath, 0o755);
+    return binDir;
+}
+
+/**
  * Build a sanitized PATH that:
  *   - includes the dir containing the running `bun` binary (so `sh -c "bun
  *     run ..."` can still resolve bun), and
@@ -190,5 +223,64 @@ describe('install-device.ts', () => {
         });
         expect(result.status).toBe(127);
         expect(result.stderr).not.toMatch(/Missing device UDID/);
+    });
+
+    test('auto-detect: single connected iPhone is picked up when no UDID is supplied', () => {
+        // No --device flag, no env var, but ios-deploy stub reports exactly
+        // one device. The script should auto-pick that UDID and proceed
+        // past the missing-UDID error to the .app-bundle lookup. The empty
+        // HOME forces the bundle lookup to fail with exit 3, which proves
+        // we cleared the udid-resolution stage successfully.
+        const detectedUdid = '2f2b1f290e974ea4e5be913d2387cffb6e6ae834';
+        const fakeBin = makeFakeIosDeployBinDirWithDevices([detectedUdid]);
+        const emptyHome = mkdtempSync(join(tmpdir(), 'install-device-empty-home-'));
+        try {
+            const result = runInstallDevice({
+                env: {
+                    PATH: `${fakeBin}:${sanitizedPath()}`,
+                    HOME: emptyHome,
+                },
+            });
+            expect(result.status).toBe(3);
+            expect(result.stdout).toMatch(new RegExp(`auto-detected device ${detectedUdid}`));
+            expect(result.stderr).not.toMatch(/Missing device UDID/);
+        } finally {
+            rmSync(fakeBin, { recursive: true, force: true });
+            rmSync(emptyHome, { recursive: true, force: true });
+        }
+    });
+
+    test('auto-detect: refuses to auto-pick when multiple iPhones are connected', () => {
+        const fakeBin = makeFakeIosDeployBinDirWithDevices([
+            'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        ]);
+        try {
+            const result = runInstallDevice({
+                env: { PATH: `${fakeBin}:${sanitizedPath()}` },
+            });
+            expect(result.status).toBe(2);
+            expect(result.stderr).toMatch(/Multiple iPhones connected/);
+            expect(result.stderr).toMatch(/aaaaaaaa/);
+            expect(result.stderr).toMatch(/bbbbbbbb/);
+        } finally {
+            rmSync(fakeBin, { recursive: true, force: true });
+        }
+    });
+
+    test('auto-detect: zero connected iPhones falls through to missing-UDID error', () => {
+        const fakeBin = makeFakeIosDeployBinDirWithDevices([]);
+        try {
+            const result = runInstallDevice({
+                env: { PATH: `${fakeBin}:${sanitizedPath()}` },
+            });
+            expect(result.status).toBe(2);
+            expect(result.stderr).toMatch(/Missing device UDID/);
+            // The error path should NOT mention the multiple-devices branch
+            // when zero are connected.
+            expect(result.stderr).not.toMatch(/Multiple iPhones connected/);
+        } finally {
+            rmSync(fakeBin, { recursive: true, force: true });
+        }
     });
 });
