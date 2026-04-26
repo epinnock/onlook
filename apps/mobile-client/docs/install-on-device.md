@@ -174,6 +174,47 @@ or after bundle-ID churn still needs the Xcode GUI signing step in section 4.
 
 ---
 
+## 4b. Headless rebuilds via `mobile:build:ios -- --device`
+
+Once Xcode signing is set up (section 4), you can skip both `expo run:ios`
+and Xcode GUI for subsequent builds. `apps/mobile-client/scripts/run-build.ts`
+takes a `--device` flag that switches the wrapper from a simulator build to
+a real-iPhone `Debug-iphoneos` build:
+
+```bash
+# From repo root:
+DEVELOPMENT_TEAM=<your-team-id> bun run mobile:build:ios -- --device
+
+# Or pass the team via flag:
+bun run mobile:build:ios -- --device --team=<your-team-id>
+```
+
+The flag toggles:
+
+- `-sdk iphonesimulator` → `-sdk iphoneos`
+- `'generic/platform=iOS Simulator'` → `'generic/platform=iOS'`
+- drops `CODE_SIGNING_ALLOWED=NO`
+- adds `-allowProvisioningUpdates` + `CODE_SIGN_STYLE=Automatic`
+- threads `DEVELOPMENT_TEAM=<id>` to xcodebuild for automatic signing
+
+`--device` and `--sim=<name>` are mutually exclusive (the script exits 2
+if both are passed).
+
+Once the device build lands in DerivedData, chain into the install:
+
+```bash
+DEVELOPMENT_TEAM=<your-team-id> bun run mobile:build:ios -- --device && \
+  ONLOOK_DEVICE_UDID=<UDID> bun run --filter @onlook/mobile-client mobile:install:device
+```
+
+Like section 4a, this is a reinstall convenience — the first signing setup
+still happens through Xcode GUI in section 4, because `xcodebuild
+-allowProvisioningUpdates` only refreshes existing provisioning, it does
+not bootstrap a new Apple Developer account into Xcode → Settings →
+Accounts (that step is interactive-only).
+
+---
+
 ## 5. Troubleshooting
 
 - **Device shows as "unavailable"** in Xcode / `devicectl`: the phone is
