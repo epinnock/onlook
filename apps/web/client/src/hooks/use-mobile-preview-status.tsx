@@ -31,6 +31,11 @@ import { parseManifestUrl } from '@/services/expo-relay/manifest-url';
 import { emitOverlayAckTelemetry } from '@/services/expo-relay/overlay-telemetry-sink';
 import { dispatchOnlookSelect } from '@/services/expo-relay/onlookSelectReceiver';
 import {
+    formatPreflightSummary,
+    type PreflightSummary,
+} from '@/services/expo-relay/preflight-formatter';
+import type { AbiV1PreflightIssue } from '../../../../../packages/browser-bundler/src';
+import {
     createSourceMapCache,
     wireBufferDecorationOnError,
 } from '@/services/expo-relay/source-map-cache';
@@ -102,6 +107,15 @@ export interface UseMobilePreviewStatusResult {
      * when the handshake has not completed.
      */
     phoneHello: AbiHelloMessage | null;
+    /**
+     * Latest preflight summary from the two-tier pipeline. Updated on
+     * every successful `pipeline.sync()` via the `onPreflight` callback
+     * passed into pipeline construction. The dev-panel preflight tab
+     * (`OverlayPreflightPanel`) consumes this through
+     * `MobilePreviewDevPanelContainer`. `null` means no issues were
+     * detected on the last build (or the legacy/shim path is in use).
+     */
+    preflightSummary: PreflightSummary | null;
 }
 
 interface MobilePreviewStatusResponse {
@@ -287,6 +301,14 @@ export function useMobilePreviewStatus(
                                 onSourceMapUploaded: (url: string) => {
                                     lastOverlayMetaSourceMapUrlRef.current = url;
                                 },
+                                // OverlayPreflightPanel producer — the
+                                // pipeline runs `preflightAbiV1Imports`
+                                // after collecting the file map and fires
+                                // this callback with the issue list.
+                                // `formatPreflightSummary` turns it into
+                                // the display shape the dev-panel
+                                // preflight tab consumes.
+                                onPreflight: handlePreflight,
                             },
                         );
                     }
@@ -428,6 +450,21 @@ export function useMobilePreviewStatus(
         'unknown' | 'ok' | OnlookRuntimeError
     >('unknown');
     const [phoneHello, setPhoneHello] = useState<AbiHelloMessage | null>(null);
+
+    // Latest preflight summary from the two-tier pipeline. Updated on
+    // every `sync()` after files are collected via the `onPreflight`
+    // callback below. Surfaced through the hook's return value so the
+    // `MobilePreviewDevPanelContainer` can pass it to `OverlayPreflightPanel`
+    // — the dev-panel preflight tab. `null` means the last build's static
+    // import surface was clean.
+    const [preflightSummary, setPreflightSummary] =
+        useState<PreflightSummary | null>(null);
+    const handlePreflight = useCallback(
+        (issues: readonly AbiV1PreflightIssue[]): void => {
+            setPreflightSummary(formatPreflightSummary([...issues]));
+        },
+        [],
+    );
     // The editor side of the AbiHello carries stub capabilities — the
     // editor isn't a phone; checkAbiCompatibility on the phone only
     // gates on the abi version equality. The values below are
@@ -594,5 +631,6 @@ export function useMobilePreviewStatus(
         sessionId,
         abiCompatibility,
         phoneHello,
+        preflightSummary,
     };
 }

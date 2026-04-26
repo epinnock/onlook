@@ -32,8 +32,10 @@ import { uploadAssetBytes } from '@/services/expo-relay/asset-uploader';
 import {
     checkOverlaySize,
     createIncrementalBundler,
+    preflightAbiV1Imports,
     wrapOverlayCode,
     wrapOverlayV1,
+    type AbiV1PreflightIssue,
 } from '../../../../../../../packages/browser-bundler/src';
 import { isMobilePreviewOverlayV1PipelineEnabled } from '../pipeline-flag';
 
@@ -122,6 +124,19 @@ export interface TwoTierMobilePreviewPipelineDependencies {
      * the URI is reachable to the phone via the same R2 binding.
      */
     readonly onSourceMapUploaded?: (sourceMapUrl: string) => void;
+    /**
+     * Called once per `sync()` after the file map is collected, with the
+     * list of `AbiV1PreflightIssue`s detected by `preflightAbiV1Imports`.
+     * An empty array means the build's static-import surface is clean.
+     * `useMobilePreviewStatus` plumbs this through to the editor's
+     * `OverlayPreflightPanel` (the dev-panel preflight tab) so the
+     * operator sees unsupported-native and unknown-specifier issues
+     * before/while the bundle is pushed. Static analysis only — does NOT
+     * gate the push (which would prevent operators from observing the
+     * issue in context). Omit on legacy callers / tests that don't model
+     * the dev panel.
+     */
+    readonly onPreflight?: (issues: readonly AbiV1PreflightIssue[]) => void;
 }
 
 export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-tier'> {
@@ -137,6 +152,9 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
         | null;
     private readonly onSourceMapUploaded:
         | ((sourceMapUrl: string) => void)
+        | null;
+    private readonly onPreflight:
+        | ((issues: readonly AbiV1PreflightIssue[]) => void)
         | null;
     private sessionId: string | null;
     private resolvedService: BrowserBundlerEsbuildService | null;
@@ -165,6 +183,7 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
         this.incremental = deps.incrementalBundler ?? createIncrementalBundler();
         this.compatibilityProvider = deps.compatibilityProvider ?? null;
         this.onSourceMapUploaded = deps.onSourceMapUploaded ?? null;
+        this.onPreflight = deps.onPreflight ?? null;
         this.sessionId = deps.sessionId ?? null;
         this.resolvedService = this.injectedService;
     }
@@ -225,6 +244,37 @@ export class TwoTierMobilePreviewPipeline implements MobilePreviewPipeline<'two-
                 throw new Error(
                     'two-tier pipeline: no supported entry file found (expected one of App.tsx, index.ts, …)',
                 );
+            }
+
+            // Static-analysis preflight — surfaces unsupported-native +
+            // unknown-specifier import issues to the editor's dev-panel
+            // preflight tab (`OverlayPreflightPanel`) so operators see
+            // them while the bundle is being built. Pure analysis; does
+            // NOT gate the push (the bundler will surface the same issue
+            // as a build error if the import is genuinely unresolvable,
+            // and operators benefit from seeing the diagnostic in
+            // context). When `onPreflight` is omitted (legacy callers /
+            // tests), this runs but the result is discarded. Wrapped in
+            // try/catch so a defective preflight cannot wedge sync().
+            if (this.onPreflight !== null) {
+                try {
+                    const fileMap: Record<string, string> = {};
+                    for (const f of files) fileMap[f.path] = f.contents;
+                    const issues = preflightAbiV1Imports({
+                        files: fileMap,
+                        baseAliases: DEFAULT_BASE_EXTERNALS,
+                        // `disallowed` is intentionally empty here — we don't
+                        // currently have a clean source of
+                        // `DISALLOWED_NATIVE_ALIASES` from base-bundle-builder
+                        // wired into the editor's runtime config. Empty set
+                        // means we'll only flag `unknown-specifier` issues
+                        // (the most common dev-time gotcha); native-binary
+                        // gating still happens at the relay/build layer.
+                    });
+                    this.onPreflight(issues);
+                } catch {
+                    // Preflight failures must not break the build path.
+                }
             }
 
             const buildStartMs = Date.now();

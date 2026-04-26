@@ -61,16 +61,31 @@ export interface MobilePreviewDevPanelContainerProps {
 export function MobilePreviewDevPanelContainer({
     serverBaseUrl,
     fileSystem,
-    preflightSummary = null,
+    preflightSummary: preflightSummaryProp,
     defaultTab = 'console',
     className,
     panelClassName,
 }: MobilePreviewDevPanelContainerProps) {
-    const { relayWsClient, sessionId, abiCompatibility, phoneHello } =
-        useMobilePreviewStatus({
-            serverBaseUrl,
-            fileSystem,
-        });
+    const {
+        relayWsClient,
+        sessionId,
+        abiCompatibility,
+        phoneHello,
+        preflightSummary: preflightSummaryFromHook,
+    } = useMobilePreviewStatus({
+        serverBaseUrl,
+        fileSystem,
+    });
+    // Caller-supplied prop takes precedence (e.g. an external MobX store
+    // already tracks preflight); otherwise default to whatever the
+    // hook's `onPreflight` callback collected from the two-tier
+    // pipeline's last `sync()`. Closes the wiring gap where
+    // OverlayPreflightPanel rendered with a permanently-null summary
+    // because no producer was wired (audit-pattern catch).
+    const preflightSummary =
+        preflightSummaryProp !== undefined
+            ? preflightSummaryProp
+            : preflightSummaryFromHook;
     const snap = useRelaySnapshot(relayWsClient);
 
     // Split the snapshot's combined messages into (a) WsMessage[] for

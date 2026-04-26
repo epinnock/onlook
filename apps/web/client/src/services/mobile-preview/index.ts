@@ -2,6 +2,7 @@ import { env } from '@/env';
 import { transform } from 'sucrase';
 
 import type { PushOverlayCompatibilityResult } from '@/services/expo-relay/push-overlay';
+import type { AbiV1PreflightIssue } from '../../../../../../packages/browser-bundler/src';
 import {
     getMobilePreviewPipelineKind,
     resolveMobilePreviewPipelineKind,
@@ -159,6 +160,13 @@ export type MobilePreviewPipelineOptions = CreateMobilePreviewPipelineOptions;
 export interface CreateMobilePreviewPipelineDeps {
     readonly compatibilityProvider?: () => PushOverlayCompatibilityResult;
     readonly onSourceMapUploaded?: (sourceMapUrl: string) => void;
+    /**
+     * Fired once per `sync()` after the file map is collected, with the
+     * static-analysis preflight issue list. The dev-panel preflight tab
+     * (OverlayPreflightPanel) consumes a `PreflightSummary` derived
+     * from this list. Only consumed by the two-tier branch.
+     */
+    readonly onPreflight?: (issues: readonly AbiV1PreflightIssue[]) => void;
 }
 
 export function resolveMobilePreviewPipelineConfig(
@@ -231,6 +239,9 @@ export function createMobilePreviewPipelineFromConfig(
                 : {}),
             ...(deps.onSourceMapUploaded !== undefined
                 ? { onSourceMapUploaded: deps.onSourceMapUploaded }
+                : {}),
+            ...(deps.onPreflight !== undefined
+                ? { onPreflight: deps.onPreflight }
                 : {}),
         });
     }
