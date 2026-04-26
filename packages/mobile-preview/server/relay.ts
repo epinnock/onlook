@@ -11,10 +11,24 @@ import type { MobilePreviewBundlePlatform, MobilePreviewManifestFields } from '.
 export const HTTP_PORT = parseInt(process.env.MOBILE_PREVIEW_PORT || '8787');
 export const WS_PORT = parseInt(process.env.MOBILE_PREVIEW_WS_PORT || '8788');
 export const LAN_IP = process.env.MOBILE_PREVIEW_LAN_IP || getLocalIP();
+/**
+ * Optional public origin override. When set (e.g. via a cloudflared / ngrok
+ * tunnel: `MOBILE_PREVIEW_PUBLIC_URL=https://aud-scale-qualified-page.trycloudflare.com`),
+ * the manifest's `launchAsset.url` and `expoClient.hostUri` are rewritten to
+ * that origin instead of `http://${LAN_IP}:${HTTP_PORT}`. Required when the
+ * phone can't reach the dev host's LAN — common with on-set rigs, conference
+ * Wi-Fi, or any cellular-tethered iPhone whose Wi-Fi is on a different
+ * subnet than the host.
+ *
+ * Strip trailing slash defensively so callers don't have to think about it.
+ */
+export const PUBLIC_URL = (process.env.MOBILE_PREVIEW_PUBLIC_URL || '').replace(/\/+$/, '');
 
 export interface BuildManifestOptions {
   readonly lanIp?: string;
   readonly httpPort?: number;
+  /** Full public origin override, e.g. `https://abc.trycloudflare.com`. */
+  readonly publicUrl?: string;
   readonly now?: () => Date;
 }
 
@@ -66,13 +80,21 @@ export function buildManifest(
 ): string {
   const httpPort = options.httpPort ?? HTTP_PORT;
   const lanIp = options.lanIp ?? LAN_IP;
-  const debuggerHost = `${lanIp}:${httpPort}`;
+  const publicUrl = (options.publicUrl ?? PUBLIC_URL).replace(/\/+$/, '');
+  // When MOBILE_PREVIEW_PUBLIC_URL is set, generated URLs use that origin
+  // (so a cloudflared/ngrok tunnel works end-to-end). debuggerHost is the
+  // host:port form used in the Expo Go-flavored extras (debuggerHost,
+  // hostUri); for the public-tunnel case we strip the scheme and let the
+  // 443 port stay implicit.
+  const baseUrl = publicUrl !== '' ? publicUrl : `http://${lanIp}:${httpPort}`;
+  const debuggerHost =
+    publicUrl !== '' ? publicUrl.replace(/^https?:\/\//i, '') : `${lanIp}:${httpPort}`;
   const slug = fields?.extra?.expoClient?.slug || 'onlook-preview';
   const uuid = bundleHashToUUID(bundleHash);
   const scopeKey = `@anonymous/${slug}-${uuid}`;
 
   const bundleQuery = `platform=${platform}&dev=false&hot=false&lazy=true&minify=true&transform.engine=hermes&transform.bytecode=1&transform.routerRoot=app&unstable_transformProfile=hermes-stable`;
-  const launchAssetUrl = `http://${debuggerHost}/${bundleHash}.ts.bundle?${bundleQuery}`;
+  const launchAssetUrl = `${baseUrl}/${bundleHash}.ts.bundle?${bundleQuery}`;
 
   const manifest = {
     id: uuid,
