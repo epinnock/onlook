@@ -29,7 +29,9 @@ const {
     addRecentSession,
     clearRecentSessions,
     getRecentSessions,
+    onRecentSessionsChange,
     RecentSessionSchema,
+    __resetRecentSessionsListenersForTests,
 } = await import('../recentSessions');
 
 type RecentSession = ReturnType<typeof RecentSessionSchema.parse>;
@@ -45,6 +47,7 @@ function makeSession(overrides: Partial<RecentSession> = {}): RecentSession {
 
 afterEach(() => {
     store.clear();
+    __resetRecentSessionsListenersForTests();
 });
 
 describe('recentSessions', () => {
@@ -137,5 +140,62 @@ describe('recentSessions', () => {
             // relayHost is missing
         });
         expect(result.success).toBe(false);
+    });
+
+    test('onRecentSessionsChange fires after addRecentSession', async () => {
+        let calls = 0;
+        const off = onRecentSessionsChange(() => {
+            calls += 1;
+        });
+        await addRecentSession(makeSession());
+        expect(calls).toBe(1);
+        await addRecentSession(makeSession({ sessionId: 'b' }));
+        expect(calls).toBe(2);
+        off();
+    });
+
+    test('onRecentSessionsChange fires after clearRecentSessions', async () => {
+        await addRecentSession(makeSession());
+        let calls = 0;
+        onRecentSessionsChange(() => {
+            calls += 1;
+        });
+        await clearRecentSessions();
+        expect(calls).toBe(1);
+    });
+
+    test('onRecentSessionsChange unsubscribe stops further notifications', async () => {
+        let calls = 0;
+        const off = onRecentSessionsChange(() => {
+            calls += 1;
+        });
+        await addRecentSession(makeSession());
+        off();
+        await addRecentSession(makeSession({ sessionId: 'b' }));
+        expect(calls).toBe(1);
+    });
+
+    test('onRecentSessionsChange supports multiple listeners', async () => {
+        const a: number[] = [];
+        const b: number[] = [];
+        onRecentSessionsChange(() => a.push(1));
+        onRecentSessionsChange(() => b.push(1));
+        await addRecentSession(makeSession());
+        expect(a).toEqual([1]);
+        expect(b).toEqual([1]);
+    });
+
+    test('a listener throwing does not block other listeners or the add itself', async () => {
+        let bRan = false;
+        onRecentSessionsChange(() => {
+            throw new Error('listener-a-throws');
+        });
+        onRecentSessionsChange(() => {
+            bRan = true;
+        });
+        await addRecentSession(makeSession());
+        expect(bRan).toBe(true);
+        const sessions = await getRecentSessions();
+        expect(sessions).toHaveLength(1);
     });
 });

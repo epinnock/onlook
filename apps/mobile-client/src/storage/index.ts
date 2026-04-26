@@ -8,6 +8,7 @@ export {
     addRecentSession,
     clearRecentSessions,
     getRecentSessions,
+    onRecentSessionsChange,
     RecentSessionSchema,
 } from './recentSessions';
 export type { RecentSession } from './recentSessions';

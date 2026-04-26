@@ -594,6 +594,22 @@ function renderScreen(
                     onScanPress={() => actions.navigate('scan')}
                     onSettingsPress={() => actions.navigate('settings')}
                     onUrlSubmit={buildUrlPipelineRunner(actions)}
+                    onRecentSessionSelect={(session) => {
+                        // Re-mount a recent session by re-running the URL
+                        // pipeline against an `onlook://launch?…` deep-link
+                        // built from the stored relayHost + sessionId. This
+                        // round-trips through `parseOnlookDeepLink` so any
+                        // future changes to the deeplink shape stay in
+                        // exactly one place. RecentSession.relayHost is
+                        // already a full URL (`http://192.168.x.y:8788`)
+                        // per MC3.8's storage shape — pass through verbatim.
+                        const deepLink =
+                            'onlook://launch?session=' +
+                            encodeURIComponent(session.sessionId) +
+                            '&relay=' +
+                            encodeURIComponent(session.relayHost);
+                        buildUrlPipelineRunner(actions)(deepLink);
+                    }}
                 />
             );
 

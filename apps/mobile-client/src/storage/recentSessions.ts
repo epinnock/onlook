@@ -55,23 +55,65 @@ export async function getRecentSessions(): Promise<RecentSession[]> {
     return result.data;
 }
 
+type ChangeListener = () => void;
+const changeListeners = new Set<ChangeListener>();
+
+function notifyChange(): void {
+    for (const handler of changeListeners) {
+        try {
+            handler();
+        } catch {
+            // Listeners must not crash the writer; swallow + continue.
+        }
+    }
+}
+
+/**
+ * Subscribe to recent-session list changes (add/clear). The handler
+ * fires AFTER `addRecentSession` or `clearRecentSessions` resolves.
+ * Returns an unsubscribe function. The handler is NOT invoked with the
+ * current state on subscription — read via {@link getRecentSessions}
+ * if the caller needs the initial value.
+ *
+ * Used by `RecentSessionsList` so a session added via `qrToMount`
+ * automatically appears on the launcher without an app restart.
+ */
+export function onRecentSessionsChange(handler: ChangeListener): () => void {
+    changeListeners.add(handler);
+    return () => {
+        changeListeners.delete(handler);
+    };
+}
+
 /**
  * Add (or update) a session in the recent sessions list.
  *
  * The new session is prepended to the list. If a session with the same
  * `sessionId` already exists it is removed before prepending (dedup).
- * The list is capped at {@link MAX_RECENT_SESSIONS} entries.
+ * The list is capped at {@link MAX_RECENT_SESSIONS} entries. Notifies
+ * any subscribers registered via {@link onRecentSessionsChange}.
  */
 export async function addRecentSession(session: RecentSession): Promise<void> {
     const existing = await getRecentSessions();
     const deduped = existing.filter((s) => s.sessionId !== session.sessionId);
     const updated = [session, ...deduped].slice(0, MAX_RECENT_SESSIONS);
     await SecureStore.setItemAsync(STORE_KEY, JSON.stringify(updated));
+    notifyChange();
 }
 
 /**
- * Delete all persisted recent sessions.
+ * Delete all persisted recent sessions. Notifies any subscribers
+ * registered via {@link onRecentSessionsChange}.
  */
 export async function clearRecentSessions(): Promise<void> {
     await SecureStore.deleteItemAsync(STORE_KEY);
+    notifyChange();
+}
+
+/**
+ * Test-only helper: drop all listeners. Calling this in production is
+ * a bug.
+ */
+export function __resetRecentSessionsListenersForTests(): void {
+    changeListeners.clear();
 }

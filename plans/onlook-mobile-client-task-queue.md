@@ -508,10 +508,11 @@ Goal: fresh app launch → scan QR → load bundle from `cf-expo-relay` → moun
   - Deps: MCF1
   - Validate: `bun test apps/mobile-client/src/storage/__tests__/recentSessions.test.ts` (round-trip a fake session, assert it reads back)
 
-- **MC3.9** — Recent sessions UI list — **component authored 2026-04-16, maestro deferred**
+- **MC3.9** — Recent sessions UI list — **component authored 2026-04-16; production-wired 2026-04-25; maestro deferred**
   - Files: `apps/mobile-client/src/screens/RecentSessionsList.tsx`
   - Deps: MC3.8, MC3.5
   - Validate: `bun run mobile:e2e:ios -- 14-recent-sessions.yaml`
+  - Wiring: LauncherScreen renders `<RecentSessionsList onSelect={onRecentSessionSelect} />` in its existing `recentSection`; AppRouter constructs an `onlook://launch?…` deep-link from the tapped row and routes it through `buildUrlPipelineRunner(actions)` — same path as a fresh QR scan. Storage layer extended with `onRecentSessionsChange(handler)` so RecentSessionsList auto-refreshes after each `addRecentSession` / `clearRecentSessions` (necessary because AppRouter's screen-stack reuses the LauncherScreen instance across navigation).
 
 - **MC3.10** — Settings screen (relay host override, clear cache, toggle dev menu) — **component authored 2026-04-16, maestro deferred**
   - Files: `apps/mobile-client/src/screens/SettingsScreen.tsx`

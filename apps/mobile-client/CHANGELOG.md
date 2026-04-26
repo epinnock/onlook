@@ -307,3 +307,15 @@ Closes the previous tick's documented gap: SettingsScreen had a `dev_menu_enable
 
 ### Tests
 - **+11 mobile-client tests** (501 total, was 490): `devMenuEnabled.test.ts` covering default value, load returns absent/true/false, set persists + notifies, unchanged-value short-circuit, listener unsubscribe, multiple listeners.
+
+## [Unreleased] - 2026-04-25 — RecentSessionsList wiring (workstream F continued)
+
+Audit-pattern catch #11: `RecentSessionsList` (MC3.9, 177 LOC + tests) was authored 2026-04-16 but had ZERO production consumers. LauncherScreen even reserved a "Recent sessions" section that just rendered an empty placeholder `<View>`. So sessions persisted by `qrToMount` (via `addRecentSession`) accumulated in SecureStore but were never displayed.
+
+### Added
+- **LauncherScreen renders RecentSessionsList** in the existing `recentSection` placeholder slot. New optional `onRecentSessionSelect` prop receives the tapped row's `RecentSession`; AppRouter wires it to construct an `onlook://launch?session=…&relay=…` deep-link and route through `buildUrlPipelineRunner(actions)` — same path as a fresh QR scan, so re-mounting goes through `parseOnlookDeepLink` → `qrToMount` end-to-end.
+- **`storage/recentSessions.ts` change-listener pattern**: `onRecentSessionsChange(handler)` subscription. Both `addRecentSession` and `clearRecentSessions` notify after persistence. Mirrors the `devMenuEnabled` observable. Without this, AppRouter's screen-stack reuses the LauncherScreen instance across navigation, so new sessions added via QR scan + back wouldn't surface — `useEffect`'s mount fetch would only fire once.
+- **`RecentSessionsList` subscribes to the new change-listener** so the launcher refreshes automatically after every `addRecentSession` / `clearRecentSessions`. Re-fetches via `getRecentSessions()` and updates state; safe across the unmount cleanup race via the existing `cancelled` flag.
+
+### Tests
+- **+5 mobile-client tests** (506 total, was 501): `recentSessions.test.ts` adds coverage for `onRecentSessionsChange` — fires after add + clear, unsubscribe stops further notifications, multi-listener fan-out, and throw-isolation (one bad listener doesn't block others or the underlying write).
