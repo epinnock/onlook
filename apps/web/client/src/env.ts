@@ -96,6 +96,22 @@ export const env = createEnv({
         NEXT_PUBLIC_MOBILE_PREVIEW_PIPELINE: z
             .enum(['shim', 'two-tier', 'overlay-v1'])
             .default('shim'),
+        // browser-metro ESM resolver — defaults to 'https://esm.sh' when
+        // unset (see `apps/web/client/src/components/store/editor/sandbox/index.ts`
+        // for the call-site fallback). Optional + no `.url()` constraint
+        // because the call site doesn't validate the value either; declared
+        // here so future readers know the var exists and tooling/IDE auto-
+        // complete picks it up.
+        NEXT_PUBLIC_BROWSER_METRO_ESM_URL: z.string().optional(),
+        // cf-sandbox Worker URL — defaults to 'http://localhost:8787' when
+        // unset (see `apps/web/client/src/components/store/editor/sandbox/session.ts`).
+        // session.ts intentionally consumes `process.env.NEXT_PUBLIC_*`
+        // directly to avoid pulling `@/env` into its import chain (which
+        // would break test-time bun imports — see the inline comment in
+        // session.ts:8-12). Declaring here documents the var's existence
+        // without changing the call-site behavior. Mirrors
+        // `CLOUDFLARE_SANDBOX_WORKER_URL` server-side.
+        NEXT_PUBLIC_CF_SANDBOX_WORKER_URL: z.string().optional(),
     },
 
     /**
@@ -134,6 +150,8 @@ export const env = createEnv({
         NEXT_PUBLIC_CF_EXPO_RELAY_URL: process.env.NEXT_PUBLIC_CF_EXPO_RELAY_URL,
         NEXT_PUBLIC_MOBILE_PREVIEW_URL: process.env.NEXT_PUBLIC_MOBILE_PREVIEW_URL,
         NEXT_PUBLIC_MOBILE_PREVIEW_PIPELINE: process.env.NEXT_PUBLIC_MOBILE_PREVIEW_PIPELINE,
+        NEXT_PUBLIC_BROWSER_METRO_ESM_URL: process.env.NEXT_PUBLIC_BROWSER_METRO_ESM_URL,
+        NEXT_PUBLIC_CF_SANDBOX_WORKER_URL: process.env.NEXT_PUBLIC_CF_SANDBOX_WORKER_URL,
 
         // Hosting
         FREESTYLE_API_KEY: process.env.FREESTYLE_API_KEY,
