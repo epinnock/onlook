@@ -1,8 +1,23 @@
 # Typecheck cliff — 14 packages blocked on a single cross-package type leak
 
-**Status:** documented gap, awaiting coordinated fix
+**Status:** ✅ RESOLVED 2026-04-26 — Option C shipped end-to-end (33/33 packages typecheck clean).
 **Date:** 2026-04-26
 **Discovered:** session post-compaction audit, commits `b8b35674` + `cb95788e`
+
+## Resolution summary (2026-04-26)
+
+Shipped via four commits on `fix/expo-go-runtime-load`:
+
+- `00f38340` — `refactor(ai)`: introduced `packages/ai/src/tools/types/editor-engine.ts` with structural `EditorEngineLike` + `SandboxManagerLike` interfaces. Migrated all 21 tool classes + ClientTool base + shared/helpers/files.ts + 2 test files. Severed the `models → ai → @onlook/web-client/src/...` import chain.
+- `c487ea0c` — `fix(db)`: seed fixtures backfilled with `providerType: 'code_sandbox'` (3× Branch) + `agentType: AgentType.ROOT` (1× ChatConversation) to match the current DB schema (errors uncovered once db's standalone typecheck became reachable).
+- `9e0271d2` — `fix(ai)`: stale test-only fixtures (Branch.sandbox.providerType, ImageMessageContext.source, getContextClass non-null deref's, convert.test.ts tool-state casts) + added `@onlook/ai` to root typecheck filter.
+- `1e83683a` — `fix(file-system)`: bumped @types/react devDependency from `^18.3.1` to `^19.0.0` so the React 19 ReactNode (with bigint) lines up with workspace root, eliminating the lucide-react `ForwardRefExoticComponent` vs `FC<IconProps>` mismatch on every icon row in `@onlook/ui`.
+
+Root `typecheck` filter expanded from 19 → 33 packages over commits `9e0271d2` + `1e83683a`. CI now catches regressions in: ai, code-provider, constants, db, email, file-system, fonts, growth, models, parser, penpal, ui, utility, web-preload (the 14 cliff packages) plus the original 19.
+
+The original analysis below is preserved for reference.
+
+---
 
 ## Summary
 
