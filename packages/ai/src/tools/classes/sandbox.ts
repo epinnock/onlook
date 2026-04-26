@@ -1,5 +1,5 @@
 import { Icons } from '@onlook/ui/icons';
-import type { EditorEngine } from '@onlook/web-client/src/components/store/editor/engine';
+import type { EditorEngineLike as EditorEngine } from '../types/editor-engine';
 import { z } from 'zod';
 import { ClientTool } from '../models/client';
 import { BRANCH_ID_SCHEMA } from '../shared/type';

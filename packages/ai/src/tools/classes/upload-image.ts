@@ -3,8 +3,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
 
 import type { ImageMessageContext } from '@onlook/models';
-import type { EditorEngine } from '@onlook/web-client/src/components/store/editor/engine';
-import type { SandboxManager } from '@onlook/web-client/src/components/store/editor/sandbox';
+import type { EditorEngineLike as EditorEngine } from '../types/editor-engine';
+import type { SandboxManagerLike as SandboxManager } from '../types/editor-engine';
 import { MessageContextType } from '@onlook/models';
 import { Icons } from '@onlook/ui/icons';
 

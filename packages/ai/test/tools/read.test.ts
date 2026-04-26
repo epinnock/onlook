@@ -1,5 +1,5 @@
 import { ReadFileTool } from '@onlook/ai/src/tools/classes/read-file';
-import type { EditorEngine } from '@onlook/web-client/src/components/store/editor/engine';
+import type { EditorEngineLike as EditorEngine } from '@onlook/ai/src/tools/types/editor-engine';
 import { describe, expect, test, mock } from 'bun:test';
 
 describe('ReadFileTool', () => {

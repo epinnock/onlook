@@ -1,5 +1,5 @@
 import { Icons } from '@onlook/ui/icons';
-import type { EditorEngine } from '@onlook/web-client/src/components/store/editor/engine';
+import type { EditorEngineLike as EditorEngine } from '../types/editor-engine';
 // @ts-expect-error - picomatch ships its own JS-only export; types not declared.
 import picomatch from 'picomatch';
 import { z } from 'zod';
