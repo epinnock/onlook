@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { View } from 'react-native';
 
+import { exceptionCatcher } from '../debug/exceptionCatcher';
 import type { OverlayGlobals } from './overlayHostSubscription';
 import { OverlayErrorBoundary } from './OverlayErrorBoundary';
 import {
@@ -42,6 +43,18 @@ export function reportOverlayBoundaryError(error: Error): void {
         } catch {
             // reportError sinks must not take down the host app; swallow.
         }
+    }
+    // Belt-and-suspenders: also forward through exceptionCatcher so the
+    // JS-only ExceptionStreamer (25da7d27) → onlook:error → editor
+    // source-map decoration receive-chain fires regardless of whether the
+    // native `OnlookRuntime.reportError` JSI binding is installed. The
+    // OverlayErrorBoundary's onError signature doesn't expose
+    // componentStack today so we pass undefined; ExceptionEntry.kind is
+    // 'js' rather than 'react' for the same reason.
+    try {
+        exceptionCatcher.captureException(error);
+    } catch {
+        // captureException sinks must not take down the host app; swallow.
     }
 }
 

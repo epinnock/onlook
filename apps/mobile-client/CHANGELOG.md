@@ -329,3 +329,9 @@ Audit-pattern catch #12: `ErrorBoundary` (MC5.6, 89 LOC + tests) was shipped 202
 
 ### Tests
 - mobile-client total stays at 506 (no new tests; `ErrorBoundary.test.ts` covers the boundary's contract and `App.composition.test.ts`'s widened guard already accepts the wrapping). Existing 506 tests all pass.
+
+## [Unreleased] - 2026-04-25 — overlay error → exceptionCatcher bridge (workstream F continued)
+
+`reportOverlayBoundaryError` (the OverlayHost-level error sink) routed only through `OnlookRuntime.reportError` (a JSI binding). When the native binding wasn't installed (or in any path that didn't invoke it), overlay React render errors had no path to the editor. Belt-and-suspenders fix: also forward through `exceptionCatcher.captureException(error)` so the JS-only ExceptionStreamer (25da7d27) → onlook:error → editor source-map decoration chain fires regardless of native-binding availability.
+
+Same shape as `bf3f43e7`'s App-root ErrorBoundary bridge, applied at the per-overlay boundary. Both roots — App and Overlay — now feed the same exceptionCatcher pipeline. Existing 5 reportOverlayBoundaryError tests pass unchanged (their assertions are scoped to the OnlookRuntime.reportError side-effect; the new captureException call doesn't disturb them).
