@@ -117,9 +117,62 @@ function iosDeployOnPath(): boolean {
     return true;
 }
 
+/**
+ * Run `ios-deploy --detect` and return the UDIDs of any USB-connected
+ * iPhones it sees. Empty array means none found (or `ios-deploy` not on
+ * PATH — caller should check `iosDeployOnPath()` first).
+ *
+ * `ios-deploy` emits lines like:
+ *
+ *   [....] Found 2f2b1f290e974ea4e5be913d2387cffb6e6ae834 (D211AP, iPhone 8 Plus,
+ *          iphoneos, arm64, 15.1, 19B74) a.k.a. 'Ejiroghene's iPhone' connected
+ *          through USB.
+ *
+ * The UDID is either 40 hex chars (modern A12+ devices) or
+ * `<8-hex>-<16-hex>` (post-iPhone-X with new UDID format). Both shapes are
+ * accepted.
+ */
+function detectConnectedDeviceUdids(timeoutSeconds = 5): readonly string[] {
+    const result = spawnSync('ios-deploy', ['--detect', '--timeout', String(timeoutSeconds)], {
+        encoding: 'utf8',
+    });
+    const stdout = (result.stdout ?? '') + (result.stderr ?? '');
+    const found = new Set<string>();
+    const re = /Found ([0-9a-f]{40}|[0-9A-F]{8}-[0-9A-F]{16})\b/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(stdout)) !== null) {
+        if (m[1]) found.add(m[1]);
+    }
+    return [...found];
+}
+
 function main(): number {
     const argv = process.argv.slice(2);
-    const udid = parseDeviceUdid(argv);
+    let udid = parseDeviceUdid(argv);
+
+    // Auto-detect: if no UDID was supplied AND ios-deploy is on PATH AND
+    // exactly one iPhone is plugged in, use it. We probe ios-deploy here
+    // before the canonical iosDeployOnPath() check below so the missing-
+    // udid error path stays exit 2 (rather than 127) when no auto-detect
+    // is possible — preserves the long-standing user-error precedence.
+    // 0 or 2+ devices on USB skip auto-detect (the multi-device case errors
+    // explicitly so we never install the wrong build on shared hosts like
+    // Mac mini farms or dev workstations with multiple test phones).
+    if (!udid && iosDeployOnPath()) {
+        const detected = detectConnectedDeviceUdids();
+        if (detected.length === 1) {
+            udid = detected[0];
+            console.log(`[install-device] auto-detected device ${udid}`);
+        } else if (detected.length > 1) {
+            console.error(
+                '[install-device] Multiple iPhones connected — refusing to ' +
+                    'auto-pick. Pass --device=<UDID> or set ONLOOK_DEVICE_UDID. ' +
+                    `Found: ${detected.join(', ')}`,
+            );
+            return 2;
+        }
+    }
+
     if (!udid) {
         console.error(
             '[install-device] Missing device UDID. Pass --device=<UDID> or ' +
