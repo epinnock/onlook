@@ -252,10 +252,23 @@ function buildUrlPipelineRunner(actions: NavActions) {
             const host = hostMatch?.[1];
             const lanOnly = host !== undefined && isPrivateLanHost(host);
 
-            // Stage 0a: external fetch — skipped on RFC-1918 / loopback URLs
-            // (LAN-only dev rigs may not have upstream internet, and the
-            // user-facing manifest URL is the authoritative connectivity
-            // signal for that case; Stage 0b still runs).
+            // Stage 0a: external fetch — diagnostic-only, never a hard fail.
+            //
+            // Skipped entirely for RFC-1918 / loopback URLs (LAN-only dev
+            // rigs may not have upstream internet). For public hosts we
+            // attempt the probe but treat ANY outcome as informational:
+            //   - success → log status
+            //   - failure → log error and continue (Stage 0b is the
+            //     authoritative connectivity check; if the actual manifest
+            //     host is reachable, the user has connectivity, even if
+            //     1.1.1.1 specifically is blocked by their carrier/ISP)
+            //
+            // History: this used to hard-fail and bail. Caught during the
+            // spectra Mac mini iPhone 8 e2e session — iPhone's Wi-Fi loaded
+            // Apple developer-trust verification fine but blocks 1.1.1.1
+            // specifically (some cellular carriers / corporate Wi-Fi do
+            // this), so a working tunneled manifest path was being killed
+            // by an overly strict diagnostic ping.
             if (lanOnly) {
                 log.push('preflight A skipped (LAN host)');
             } else {
@@ -270,8 +283,7 @@ function buildUrlPipelineRunner(actions: NavActions) {
                     log.push(`preflight A ${r.status}`);
                 } catch (e: unknown) {
                     const msg = e instanceof Error ? e.message : String(e);
-                    showError('Preflight A failed (external)', msg);
-                    return;
+                    log.push(`preflight A failed (continuing): ${msg}`);
                 }
             }
             // Stage 0b: LAN fetch to /status (host already extracted above)
